@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "yarn@1.22.22",
   "engines": {
-    "node": ">=22.13.0"
+    "node": "24.x"
   },
   "workspaces": [
     "apps/*",
@@ -12,7 +12,6 @@
   ],
   "scripts": {
     "build": "yarn workspace api build",
-    "postinstall": "yarn build",
     "start": "yarn workspace api start:prod",
     "dev:api": "yarn workspace api start:dev",
     "dev:mobile": "yarn workspace tecnowallet-mobile start",

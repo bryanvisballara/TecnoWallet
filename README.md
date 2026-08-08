@@ -38,6 +38,12 @@ El archivo `render.yaml` conserva los comandos requeridos:
 
 Configura `MONGODB_URI`, `CORS_ORIGINS` y cualquier proveedor opcional directamente en Render.
 
+Deploy manual con el hook (URL solo en `.env` como `RENDER_DEPLOY_HOOK`):
+
+```bash
+curl -X POST "$RENDER_DEPLOY_HOOK"
+```
+
 ## Hostinger (frontend)
 
 La carpeta [`HOST/`](HOST/) es el paquete del front estático:

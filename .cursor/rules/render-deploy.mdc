@@ -1,0 +1,21 @@
+---
+description: Commit + push + deploy usa Render deploy hook
+alwaysApply: true
+---
+
+# Commit / push / deploy
+
+Cuando el usuario pida **commit + push + deploy** (o equivalente):
+
+1. Commit (si lo pide / está en el pedido), siguiendo el protocolo git del repo.
+2. `git push` a `origin`.
+3. Disparar Render con el hook de `.env`:
+
+```bash
+set -a && source .env && set +a
+curl -sS -X POST "$RENDER_DEPLOY_HOOK"
+```
+
+- Variable: `RENDER_DEPLOY_HOOK`
+- No commitear ni pegar la key del hook en el repo.
+- No pedir de nuevo el hook si ya está en `.env`.
