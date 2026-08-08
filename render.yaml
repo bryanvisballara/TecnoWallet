@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: starter
     buildCommand: YARN_PRODUCTION=false yarn install --frozen-lockfile && yarn workspace api build
-    startCommand: yarn workspace api start:prod
+    startCommand: yarn start
     healthCheckPath: /api/v1/health
     autoDeploy: true
     envVars:

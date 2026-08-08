@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "yarn workspace api build",
-    "start": "yarn workspace api start:prod",
+    "start": "bash ./scripts/start-api.sh",
     "dev:api": "yarn workspace api start:dev",
     "dev:mobile": "yarn workspace tecnowallet-mobile start",
     "export:host": "yarn workspace tecnowallet-mobile export:web && node ./scripts/pack-hostinger.js",
