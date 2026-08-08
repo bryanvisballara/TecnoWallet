@@ -3,7 +3,8 @@ services:
     name: tecnowallet
     runtime: node
     plan: starter
-    buildCommand: YARN_PRODUCTION=false yarn install --frozen-lockfile && yarn workspace api build
+    # Install + compile API. postinstall also builds as a safety net.
+    buildCommand: YARN_PRODUCTION=false yarn install --frozen-lockfile
     startCommand: yarn start
     healthCheckPath: /api/v1/health
     autoDeploy: true

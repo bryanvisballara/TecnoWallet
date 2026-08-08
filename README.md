@@ -33,10 +33,10 @@ Nunca guardes secretos en Git. Configura MongoDB, JWT y proveedores externos med
 
 El archivo `render.yaml` conserva los comandos requeridos:
 
-- Build: `yarn`
-- Start: `yarn start`
+- Build: `YARN_PRODUCTION=false yarn install --frozen-lockfile` (el `postinstall` compila la API)
+- Start: `yarn start` → `yarn workspace api start:prod` (si falta `dist`, lo genera)
 
-Configura `MONGODB_URI`, `CORS_ORIGINS` y cualquier proveedor opcional directamente en Render.
+**Importante en el dashboard de Render** (Settings → Build & Deploy), usa exactamente esos comandos. Si el servicio no tiene acceso al repo de GitHub, vuelve a conectar el repositorio o el deploy quedará en un commit viejo.
 
 Deploy manual con el hook (URL solo en `.env` como `RENDER_DEPLOY_HOOK`):
 
