@@ -19,4 +19,5 @@ if (!fs.existsSync(mainJs)) {
   process.exit(1);
 }
 
+// Loading main.js starts Nest (bootstrap runs at module scope).
 require(mainJs);

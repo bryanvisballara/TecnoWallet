@@ -65,6 +65,8 @@ export async function bootstrap(): Promise<void> {
   await app.listen(config.get<number>('PORT', 3000), '0.0.0.0');
 }
 
-if (require.main === module) {
-  void bootstrap();
-}
+void bootstrap().catch((error: unknown) => {
+  // Ensure production entrypoints (and require()-based starters) surface boot errors.
+  console.error(error);
+  process.exit(1);
+});
