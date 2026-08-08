@@ -1,0 +1,310 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Haptics from 'expo-haptics';
+import { SymbolView } from 'expo-symbols';
+import { useRef, type PropsWithChildren, type ReactNode } from 'react';
+import {
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type ColorValue,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type PressableProps,
+  type ViewStyle,
+} from 'react-native';
+import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Colors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useSafeLayout } from '@/hooks/use-safe-layout';
+import { useTabBarStore } from '@/store/tab-bar';
+
+export type AppIconName = string;
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
+  'house.fill': 'home', 'creditcard.fill': 'card', 'building.columns.fill': 'business',
+  'banknote.fill': 'cash', 'cart.fill': 'cart', 'arrow.down.circle.fill': 'arrow-down-circle',
+  'cup.and.saucer.fill': 'cafe', 'tram.fill': 'train', 'play.rectangle.fill': 'play',
+  'leaf.fill': 'leaf', 'gamecontroller.fill': 'game-controller', 'car.fill': 'car',
+  'heart.fill': 'heart', airplane: 'airplane', 'doc.text.fill': 'document-text',
+  repeat: 'repeat', target: 'flag', calendar: 'calendar', 'chart.bar.fill': 'bar-chart',
+  sparkles: 'sparkles', 'person.2.fill': 'people', 'person.badge.plus': 'person-add', 'trophy.fill': 'trophy',
+  'gearshape.fill': 'settings', 'lock.shield.fill': 'shield-checkmark',
+  'arrow.up.arrow.down.circle.fill': 'swap-vertical', 'line.3.horizontal.decrease': 'options',
+  magnifyingglass: 'search', plus: 'add', chevron: 'chevron-forward', 'chevron.down': 'chevron-down',
+  bell: 'notifications-outline', 'person.crop.circle': 'person-circle', 'wallet.pass.fill': 'wallet',
+  'chart.pie.fill': 'pie-chart', 'arrow.left': 'arrow-back', camera: 'camera',
+  checkmark: 'checkmark', 'paperplane.fill': 'send', 'moon.fill': 'moon',
+  'faceid': 'scan', 'icloud.and.arrow.up': 'cloud-upload', 'lock.fill': 'lock-closed',
+  'ellipsis.circle.fill': 'ellipsis-horizontal-circle',
+  'eye.fill': 'eye', 'eye.slash.fill': 'eye-off', 'arrow.up.circle.fill': 'arrow-up-circle',
+  globe: 'globe', iphone: 'phone-portrait', 'key.fill': 'key', 'hand.raised.fill': 'hand-left',
+  'tablecells.fill': 'grid', curlybraces: 'code-slash', 'doc.richtext.fill': 'document',
+  'square.and.arrow.down': 'download', 'square.and.arrow.up': 'share-outline', 'lock.icloud.fill': 'cloud-done', 'photo.fill': 'image',
+  'flame.fill': 'flame',
+  'arrow.clockwise': 'refresh', 'arrow.left.arrow.right': 'swap-horizontal',
+  'externaldrive.fill': 'server', 'paintbrush.fill': 'color-palette',
+  'speaker.wave.2.fill': 'volume-medium', 'hand.thumbsup.fill': 'thumbs-up',
+  'questionmark.circle.fill': 'help-circle', 'bubble.left.and.bubble.right.fill': 'chatbubbles',
+  'square.and.arrow.up.on.square': 'share', 'music.note': 'musical-notes',
+  'icloud.fill': 'cloud', 'shield.fill': 'shield', laptopcomputer: 'laptop',
+  'gift.fill': 'gift', 'checkmark.circle.fill': 'checkmark-circle', xmark: 'close',
+  clock: 'time-outline', mappin: 'location-outline',
+};
+
+export function AppIcon({ name, size = 20, color }: { name: AppIconName; size?: number; color: ColorValue }) {
+  if (process.env.EXPO_OS === 'ios') {
+    return <SymbolView name={name as never} size={size} tintColor={color} type="hierarchical" />;
+  }
+  return <Ionicons name={fallback[name] ?? 'ellipse'} size={size} color={color} />;
+}
+
+export function useAppTheme() {
+  const scheme = useColorScheme();
+  return Colors[scheme === 'dark' ? 'dark' : 'light'];
+}
+
+export function Screen({ children, title, subtitle, right, refreshing, onRefresh, withTabBar = false, floating }: PropsWithChildren<{
+  title?: ReactNode; subtitle?: string; right?: ReactNode; refreshing?: boolean; onRefresh?: () => void; withTabBar?: boolean; floating?: ReactNode;
+}>) {
+  const theme = useAppTheme();
+  const { tabsBottom, stackBottom } = useSafeLayout();
+  const onScrollOffset = useTabBarStore((state) => state.onScrollOffset);
+  const lastOffset = useRef(0);
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    onScrollOffset(offsetY, offsetY - lastOffset.current);
+    lastOffset.current = offsetY;
+  };
+
+  return (
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.screen,
+          { paddingBottom: withTabBar ? tabsBottom : stackBottom },
+        ]}
+        showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="automatic"
+        scrollEventThrottle={16}
+        onScroll={handleScroll}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} />
+          ) : undefined
+        }>
+        {(title || right) && (
+          <View style={styles.header}>
+            <View style={styles.headerText}>
+              {typeof title === 'string' ? (
+                <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>{title}</Text>
+              ) : (
+                title
+              )}
+              {subtitle && <Text style={[styles.subtitle, { color: theme.muted }]}>{subtitle}</Text>}
+            </View>
+            {right}
+          </View>
+        )}
+        {children}
+      </ScrollView>
+      {floating}
+    </SafeAreaView>
+  );
+}
+
+export function Card({ children, style, delay = 0, accessibilityLabel }: PropsWithChildren<{
+  style?: ViewStyle | ViewStyle[]; delay?: number; accessibilityLabel?: string;
+}>) {
+  const theme = useAppTheme();
+  return (
+    <Animated.View
+      entering={Platform.OS === 'web' ? undefined : FadeInDown.delay(delay).duration(450)}
+      accessible={Boolean(accessibilityLabel)}
+      accessibilityLabel={accessibilityLabel}
+      style={[
+        styles.card,
+        { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
+        style,
+      ]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+export function ScalePressable({ children, onPress, style, haptic = true, ...props }: PropsWithChildren<PressableProps & {
+  style?: ViewStyle | ViewStyle[]; haptic?: boolean;
+}>) {
+  const theme = useAppTheme();
+  const pressed = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: pressed.value }] }));
+  return (
+    <AnimatedPressable
+      {...props}
+      // Web <button> inherits a system text color; pin it so nested Text stays readable.
+      style={[style, Platform.OS === 'web' ? { color: theme.text } : null, animatedStyle]}
+      onPressIn={(event) => {
+        pressed.value = withSpring(0.975, { damping: 18 });
+        props.onPressIn?.(event);
+      }}
+      onPressOut={(event) => {
+        pressed.value = withSpring(1, { damping: 16 });
+        props.onPressOut?.(event);
+      }}
+      onPress={(event) => {
+        if (haptic) void Haptics.selectionAsync();
+        onPress?.(event);
+      }}>
+      {children}
+    </AnimatedPressable>
+  );
+}
+
+export function IconButton({
+  icon,
+  label,
+  onPress,
+  badge,
+}: {
+  icon: string;
+  label: string;
+  onPress?: () => void;
+  badge?: number;
+}) {
+  const theme = useAppTheme();
+  const count = badge && badge > 0 ? (badge > 9 ? '9+' : String(badge)) : null;
+  return (
+    <ScalePressable
+      accessibilityRole="button"
+      accessibilityLabel={count ? `${label}, ${badge} sin leer` : label}
+      onPress={onPress}
+      style={[styles.iconButton, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <AppIcon name={icon} color={theme.text} size={20} />
+      {count ? (
+        <View style={[styles.badge, { backgroundColor: theme.danger }]}>
+          <Text style={styles.badgeText}>{count}</Text>
+        </View>
+      ) : null}
+    </ScalePressable>
+  );
+}
+
+export function SectionTitle({ children, action, onAction }: PropsWithChildren<{ action?: string; onAction?: () => void }>) {
+  const theme = useAppTheme();
+  return (
+    <View style={styles.sectionHeader}>
+      <Text accessibilityRole="header" style={[styles.sectionTitle, { color: theme.text }]}>{children}</Text>
+      {action && <Pressable accessibilityRole="button" onPress={onAction}><Text style={[styles.action, { color: theme.primary }]}>{action}</Text></Pressable>}
+    </View>
+  );
+}
+
+export function ProgressBar({ value, color, label }: { value: number; color?: string; label?: string }) {
+  const theme = useAppTheme();
+  const safeValue = Math.max(0, Math.min(1, value));
+  return (
+    <View accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityValue={{ min: 0, max: 100, now: Math.round(safeValue * 100) }}>
+      <View style={[styles.progressTrack, { backgroundColor: theme.surfaceSecondary }]}>
+        <View style={[styles.progressFill, { width: `${safeValue * 100}%`, backgroundColor: color ?? theme.primary }]} />
+      </View>
+    </View>
+  );
+}
+
+export function Pill({ children, tone = 'blue' }: PropsWithChildren<{ tone?: 'blue' | 'green' | 'orange' | 'neutral' }>) {
+  const theme = useAppTheme();
+  const colors = {
+    blue: [theme.primarySoft, theme.primary],
+    green: [theme.successSoft, theme.success],
+    orange: [theme.surfaceSecondary, theme.warning],
+    neutral: [theme.surfaceSecondary, theme.muted],
+  };
+  return <View style={[styles.pill, { backgroundColor: colors[tone][0] }]}><Text style={[styles.pillText, { color: colors[tone][1] }]}>{children}</Text></View>;
+}
+
+export function PrimaryButton({ children, onPress, icon }: PropsWithChildren<{ onPress?: () => void; icon?: string }>) {
+  const theme = useAppTheme();
+  return (
+    <ScalePressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.primaryButton, { backgroundColor: theme.primary }]}>
+      <View style={styles.primaryButtonContent}>
+        {icon ? <AppIcon name={icon} size={18} color="#FFFFFF" /> : null}
+        <Text style={styles.primaryButtonText}>{children}</Text>
+      </View>
+    </ScalePressable>
+  );
+}
+
+export const uiStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center' },
+  between: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  gap8: { gap: 8 },
+  gap12: { gap: 12 },
+  body: { fontSize: 15, lineHeight: 21 },
+  caption: { fontSize: 12, lineHeight: 16 },
+  amount: { fontSize: 17, fontWeight: '700', fontVariant: ['tabular-nums'] },
+});
+
+const styles = StyleSheet.create({
+  safe: { flex: 1 },
+  screen: { width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center', paddingHorizontal: Spacing.lg, gap: Spacing.lg },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4, paddingBottom: 4 },
+  headerText: { flex: 1, gap: 3 },
+  title: { fontSize: 34, lineHeight: 40, fontWeight: '700', letterSpacing: -1.1 },
+  subtitle: { fontSize: 14 },
+  card: {
+    borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, padding: Spacing.lg,
+    shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 2,
+  },
+  iconButton: { width: 44, height: 44, borderRadius: Radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  badge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  badgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800', lineHeight: 12 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  sectionTitle: { fontSize: 20, fontWeight: '700', letterSpacing: -0.35 },
+  action: { fontSize: 14, fontWeight: '600' },
+  progressTrack: { height: 8, borderRadius: 8, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 8 },
+  pill: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill },
+  pillText: { fontSize: 12, fontWeight: '700' },
+  primaryButton: {
+    minHeight: 52,
+    borderRadius: Radius.md,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+});

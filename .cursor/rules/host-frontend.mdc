@@ -1,0 +1,11 @@
+---
+description: HOST/ es siempre el frontend Hostinger (public_html zip)
+alwaysApply: true
+---
+
+# HOST — frontend Hostinger
+
+- La carpeta `HOST/` en la raíz del monorepo es **siempre** el paquete del frontend para Hostinger.
+- Contiene el `.zip` listo para subir a `public_html` (export estático de Expo web + `.htaccess` SPA).
+- Al regenerar el front para Hostinger, actualiza `HOST/` (no uses otra carpeta).
+- No subas secretos (`.env`, `.p8`, service accounts) dentro del zip.

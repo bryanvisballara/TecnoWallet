@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "TecnoWallet",
+    "slug": "tecnowallet",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/tecnowallet-logo.png",
+    "scheme": "tecnowallet",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.tecnowallet.mobile",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.tecnowallet.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#F5F7FB",
+        "foregroundImage": "./assets/images/tecnowallet-logo.png"
+      },
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/tecnowallet-logo.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Permite que TecnoWallet use Face ID para proteger tus finanzas."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TecnoWallet necesita acceso a tus fotos para adjuntar recibos.",
+          "cameraPermission": "TecnoWallet necesita la cámara para fotografiar recibos."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F5F7FB",
+          "image": "./assets/images/tecnowallet-logo.png",
+          "imageWidth": 180
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

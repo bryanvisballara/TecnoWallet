@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: tecnowallet
+    runtime: node
+    plan: starter
+    buildCommand: yarn
+    startCommand: yarn start
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 24.12.0
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: APNS_KEY_ID
+        sync: false
+      - key: APNS_TEAM_ID
+        sync: false
+      - key: APNS_BUNDLE_ID
+        value: com.tecnowallet.mobile
+      - key: APNS_KEY_BASE64
+        sync: false
+      - key: APNS_PRODUCTION
+        value: "true"
