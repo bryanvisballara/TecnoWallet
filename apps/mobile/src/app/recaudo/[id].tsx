@@ -171,9 +171,9 @@ export default function RecaudoDetailScreen() {
   const [reminderTime, setReminderTime] = useState("09:00");
   const [savingPlan, setSavingPlan] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>();
-  const [bankName, setBankName] = useState("");
+  const [bankName, setBankName] = useState(profile.name || "Sandbox Account");
   const [routingNumber, setRoutingNumber] = useState("011401533");
-  const [accountNumber, setAccountNumber] = useState("123456789");
+  const [accountNumber, setAccountNumber] = useState("1000000001");
 
   useEffect(() => {
     if (!hydrated) void hydrate();

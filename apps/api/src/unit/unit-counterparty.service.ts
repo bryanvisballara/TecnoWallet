@@ -60,8 +60,11 @@ export class UnitCounterpartyService {
       });
     }
 
+    // Unit requires `type` (Person|Business|Unknown). Omit permissions so Unit
+    // applies its default; CreditAndDebit is only allowed for Unit-org accounts.
     const attributes: Record<string, unknown> = {
-      name: input.name,
+      name: input.name.trim().slice(0, 50),
+      type: 'Person',
       tags: { tecnowalletUserId: input.userId },
     };
     if (input.processorToken) {
