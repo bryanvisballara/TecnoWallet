@@ -60,11 +60,12 @@ export class UnitCounterpartyService {
       });
     }
 
-    // Unit requires `type` (Person|Business|Unknown). Omit permissions so Unit
-    // applies its default; CreditAndDebit is only allowed for Unit-org accounts.
+    // Unit requires `type`. Default permissions are CreditOnly, which cannot be
+    // used for ACH Debit contributions into a recaudo pot — request DebitOnly.
     const attributes: Record<string, unknown> = {
       name: input.name.trim().slice(0, 50),
       type: 'Person',
+      permissions: 'DebitOnly',
       tags: { tecnowalletUserId: input.userId },
     };
     if (input.processorToken) {
