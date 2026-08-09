@@ -18,14 +18,25 @@ export async function bootstrap(): Promise<void> {
     },
     requestIdHeader: 'x-request-id',
   });
-  // Preserve raw body for Unit webhook HMAC (X-Unit-Signature).
-  const fastifyInstance = adapter.getInstance();
-  fastifyInstance.addContentTypeParser(
+  // Disable Nest's default JSON parser so we can register a single parser that
+  // keeps rawBody for Unit webhook HMAC (X-Unit-Signature) + JsonAPI payloads.
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    adapter,
+    { logger: new ConsoleLogger({ json: true }), bodyParser: false },
+  );
+  const fastify = app.getHttpAdapter().getInstance();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (fastify as any).addContentTypeParser(
     ['application/json', 'application/vnd.api+json'],
     { parseAs: 'buffer' },
-    (request, body, done) => {
+    (
+      request: { rawBody?: Buffer },
+      body: Buffer,
+      done: (err: Error | null, body?: unknown) => void,
+    ) => {
       const raw = Buffer.isBuffer(body) ? body : Buffer.from(String(body ?? ''));
-      (request as { rawBody?: Buffer }).rawBody = raw;
+      request.rawBody = raw;
       if (!raw.length) {
         done(null, {});
         return;
@@ -36,11 +47,6 @@ export async function bootstrap(): Promise<void> {
         done(error as Error, undefined);
       }
     },
-  );
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    adapter,
-    { logger: new ConsoleLogger({ json: true }) },
   );
   const config = app.get(ConfigService);
 
