@@ -7,7 +7,7 @@ import { useAuthStore } from "@/store/auth";
 export type RecaudoCategory =
   "travel" | "gift" | "event" | "purchase" | "other";
 export type ContributionFrequency = "daily" | "weekly" | "biweekly" | "monthly";
-export type ContributionMode = "manual" | "card_simulated";
+export type ContributionMode = "manual" | "card_simulated" | "bank_auto";
 export type RecaudoStatus = "active" | "completed" | "closed";
 
 export type RecaudoParticipant = {
@@ -316,7 +316,11 @@ function normalizeRecaudo(raw: unknown): Recaudo {
             ? plan.frequency
             : "monthly",
         mode:
-          plan.paymentMode === "card_simulated" ? "card_simulated" : "manual",
+          plan.paymentMode === "card_simulated"
+            ? "card_simulated"
+            : plan.paymentMode === "bank_ach"
+              ? "bank_auto"
+              : "manual",
         remindersEnabled: Boolean(plan.remindersEnabled),
         reminderTime:
           typeof plan.reminderTime === "string" &&
@@ -676,7 +680,12 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         body: JSON.stringify({
           amountMinor: plan.monthlyCommitmentMinor,
           frequency: plan.frequency,
-          paymentMode: plan.mode,
+          paymentMode:
+            plan.mode === "bank_auto"
+              ? "bank_ach"
+              : plan.mode === "card_simulated"
+                ? "card_simulated"
+                : "manual",
           remindersEnabled: plan.remindersEnabled,
           reminderTime: plan.reminderTime,
           reminderDaysBefore: plan.remindersEnabled ? [0] : [],

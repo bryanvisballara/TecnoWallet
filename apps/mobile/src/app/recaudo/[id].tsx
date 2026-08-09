@@ -58,6 +58,11 @@ const frequencies: { value: ContributionFrequency; label: string }[] = [
 const modes: { value: ContributionMode; label: string; icon: string }[] = [
   { value: "manual", label: "Manual", icon: "hand.raised.fill" },
   {
+    value: "bank_auto",
+    label: "Débito automático",
+    icon: "building.columns.fill",
+  },
+  {
     value: "card_simulated",
     label: "Tarjeta simulada",
     icon: "creditcard.fill",
@@ -140,6 +145,7 @@ export default function RecaudoDetailScreen() {
     (state) => state.fundContribution,
   );
   const fundWithdrawal = useUnitFundingStore((state) => state.fundWithdrawal);
+  const syncSchedule = useUnitFundingStore((state) => state.syncSchedule);
   const refreshBalances = useUnitFundingStore((state) => state.refreshBalances);
   const refreshIdentity = useUnitFundingStore((state) => state.refreshIdentity);
 
@@ -527,8 +533,15 @@ export default function RecaudoDetailScreen() {
       monthlyCommitmentMinor <= 0
     ) {
       Alert.alert(
-        "Meta mensual inválida",
-        "Define un aporte mensual mayor a cero.",
+        "Monto inválido",
+        "Define un monto de aporte mayor a cero.",
+      );
+      return;
+    }
+    if (mode === "bank_auto" && (!fundingReady || demo)) {
+      Alert.alert(
+        "Activa el débito con cuenta",
+        "Completa la cuenta digital y vincula tu banco antes de programar el débito automático.",
       );
       return;
     }
@@ -552,6 +565,19 @@ export default function RecaudoDetailScreen() {
             ? { brand: "Visa", last4: "4242" }
             : undefined,
       });
+      let scheduleCopy = "";
+      if (mode === "bank_auto" && !demo) {
+        const schedule = await syncSchedule(recaudo.id);
+        const next = schedule?.nextRunAt
+          ? new Date(schedule.nextRunAt).toLocaleString("es-CO", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })
+          : null;
+        scheduleCopy = next
+          ? ` Débito ACH programado (próximo: ${next}). Usa el mismo riel que “Aportar con cuenta”.`
+          : " Débito ACH programado con la frecuencia elegida (mismo riel que “Aportar con cuenta”).";
+      }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const frequencyLabel =
         frequencies.find((item) => item.value === frequency)?.label ??
@@ -564,7 +590,7 @@ export default function RecaudoDetailScreen() {
           : "La configuración se guardó, pero debes habilitar las notificaciones del dispositivo para recibir recordatorios."
         : "Los recordatorios quedaron desactivados.";
       setSuccessMessage(
-        `Tu aporte ${frequencyLabel.toLowerCase()} quedó configurado como ${modeLabel.toLowerCase()}. ${reminderCopy}`,
+        `Tu aporte ${frequencyLabel.toLowerCase()} quedó configurado como ${modeLabel.toLowerCase()}.${scheduleCopy} ${reminderCopy}`,
       );
     } catch (error) {
       Alert.alert(
@@ -1132,7 +1158,7 @@ export default function RecaudoDetailScreen() {
       <Card style={styles.formCard}>
         <View>
           <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-            Compromiso mensual
+            {mode === "bank_auto" ? "Monto por débito" : "Compromiso mensual"}
           </Text>
           <View
             style={[
@@ -1150,7 +1176,9 @@ export default function RecaudoDetailScreen() {
               value={monthlyAmount}
               onChangeText={setMonthlyAmount}
               keyboardType="decimal-pad"
-              placeholder="Monto mensual"
+              placeholder={
+                mode === "bank_auto" ? "Monto del débito" : "Monto mensual"
+              }
               placeholderTextColor={theme.muted}
               style={[styles.amountField, { color: theme.text }]}
             />
@@ -1197,10 +1225,21 @@ export default function RecaudoDetailScreen() {
         <View style={styles.modeOptions}>
           {modes.map((item) => {
             const selected = mode === item.value;
+            const bankLocked =
+              item.value === "bank_auto" && (!fundingReady || demo);
             return (
               <Pressable
                 key={item.value}
-                onPress={() => setMode(item.value)}
+                onPress={() => {
+                  if (bankLocked) {
+                    Alert.alert(
+                      "Débito automático",
+                      "Primero vincula tu banco y abre la cuenta digital del recaudo. Luego podrás programar el mismo débito ACH que “Aportar con cuenta”.",
+                    );
+                    return;
+                  }
+                  setMode(item.value);
+                }}
                 style={[
                   styles.modeOption,
                   {
@@ -1208,6 +1247,7 @@ export default function RecaudoDetailScreen() {
                     backgroundColor: selected
                       ? theme.primarySoft
                       : theme.surfaceSecondary,
+                    opacity: bankLocked ? 0.55 : 1,
                   },
                 ]}
               >
@@ -1229,6 +1269,13 @@ export default function RecaudoDetailScreen() {
             );
           })}
         </View>
+        {mode === "bank_auto" ? (
+          <Text style={[styles.rowMeta, { color: theme.muted }]}>
+            Al guardar, se programa un disparador ACH con ese monto y
+            frecuencia (mismo flujo que el botón “Aportar con cuenta”). Diario y
+            quincenal los ejecuta TecnoWallet; semanal/mensual puede usar Unit.
+          </Text>
+        ) : null}
         {mode === "card_simulated" ? (
           <View style={[styles.simulatedCard, { backgroundColor: "#14213D" }]}>
             <AppIcon name="creditcard.fill" color="#FFFFFF" size={22} />

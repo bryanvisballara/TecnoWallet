@@ -94,7 +94,14 @@ type UnitFundingState = {
     note?: string;
     counterpartyId?: string;
   }) => Promise<FundResult>;
-  syncSchedule: (recaudoId: string) => Promise<void>;
+  syncSchedule: (recaudoId: string) => Promise<{
+    scheduleId: string;
+    frequency: string;
+    driver: string;
+    enabled: boolean;
+    nextRunAt?: string;
+    amountMinor: number;
+  } | undefined>;
   isFundingReady: (recaudoId: string, isOrganizer: boolean) => boolean;
 };
 
@@ -384,8 +391,8 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
   },
 
   syncSchedule: async (recaudoId) => {
-    if (useAuthStore.getState().demo) return;
-    await apiRequest(`/payments/schedules/recaudos/${recaudoId}/me`, {
+    if (useAuthStore.getState().demo) return undefined;
+    return apiRequest(`/payments/schedules/recaudos/${recaudoId}/me`, {
       method: "POST",
       body: JSON.stringify({}),
     });

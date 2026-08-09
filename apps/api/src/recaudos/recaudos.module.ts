@@ -49,7 +49,7 @@ import { AuthModule, CurrentUser, Membership, User } from '../auth/auth.module';
 import type { AuthPrincipal } from '../auth/auth.module';
 
 const planFrequencies = ['daily', 'weekly', 'biweekly', 'monthly'] as const;
-const paymentModes = ['manual', 'card_simulated'] as const;
+const paymentModes = ['manual', 'card_simulated', 'bank_ach'] as const;
 const recaudoCategories = [
   'travel',
   'gift',
