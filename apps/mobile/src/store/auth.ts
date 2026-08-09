@@ -34,6 +34,12 @@ type AuthState = {
   ) => Promise<{ delivered: boolean; devCode?: string }>;
   signInWithGoogle: (idToken: string) => Promise<void>;
   signOut: () => Promise<void>;
+  requestDeleteAccountCode: () => Promise<{
+    email: string;
+    delivered: boolean;
+    devCode?: string;
+  }>;
+  deleteAccount: (code: string) => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
 };
@@ -290,6 +296,43 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // Local sign-out must still finish when the API is unavailable.
       }
     }
+    await clearLocalSession();
+    await useLedgerStore.getState().hydrate();
+    set({ authenticated: false, demo: false });
+  },
+  requestDeleteAccountCode: async () => {
+    if (get().demo) {
+      throw new Error('La cuenta demo no se puede eliminar.');
+    }
+    const result = await apiRequest<{
+      requiresCode: true;
+      email: string;
+      delivered?: boolean;
+      devCode?: string;
+    }>('/auth/account/deletion-code', { method: 'POST' });
+    if (!result.devCode && result.delivered === false) {
+      throw new Error(
+        'No pudimos enviar el código al correo. Revisa Brevo o intenta de nuevo.',
+      );
+    }
+    return {
+      email: result.email,
+      delivered: Boolean(result.delivered),
+      devCode: result.devCode,
+    };
+  },
+  deleteAccount: async (code) => {
+    if (get().demo) {
+      throw new Error('La cuenta demo no se puede eliminar.');
+    }
+    const normalized = code.replace(/\D/g, '');
+    if (!/^\d{6}$/.test(normalized)) {
+      throw new Error('El código debe tener 6 dígitos.');
+    }
+    await apiRequest('/auth/account/delete', {
+      method: 'POST',
+      body: JSON.stringify({ code: normalized }),
+    });
     await clearLocalSession();
     await useLedgerStore.getState().hydrate();
     set({ authenticated: false, demo: false });

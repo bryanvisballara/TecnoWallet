@@ -4,9 +4,11 @@ import {
   CanActivate,
   Controller,
   createParamDecorator,
+  Delete,
   ExecutionContext,
   Injectable,
   Module,
+  NotFoundException,
   Post,
   ServiceUnavailableException,
   SetMetadata,
@@ -65,6 +67,13 @@ export class User {
 
   @Prop()
   emailVerificationExpiresAt?: Date;
+
+  /** OTP to confirm account deletion (separate from signup verification). */
+  @Prop({ select: false })
+  accountDeletionCodeHash?: string;
+
+  @Prop()
+  accountDeletionExpiresAt?: Date;
 
   @Prop({ default: true })
   active!: boolean;
@@ -178,6 +187,13 @@ class VerifyEmailDto {
 class ResendVerificationDto {
   @IsEmail()
   email!: string;
+}
+
+class ConfirmDeleteAccountDto {
+  @IsString()
+  @Length(6, 6)
+  @Matches(/^\d{6}$/)
+  code!: string;
 }
 
 const IS_PUBLIC = 'isPublic';
@@ -473,6 +489,91 @@ export class AuthService {
     return { success: true };
   }
 
+  /** Send a 6-digit code to the user's email before account deletion. */
+  async requestAccountDeletion(userId: string) {
+    const user = await this.users.findById(userId);
+    if (!user || !user.active) {
+      throw new NotFoundException('Account not found');
+    }
+    const code = String(randomInt(100000, 1000000));
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          accountDeletionCodeHash: this.digest(code),
+          accountDeletionExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      },
+    );
+    const delivered = await this.sendOtpEmail(user.email, code, 'delete');
+    if (!delivered && !this.shouldExposeDevCode()) {
+      throw new ServiceUnavailableException(
+        'No se pudo enviar el correo de confirmación. Inténtalo de nuevo.',
+      );
+    }
+    return {
+      requiresCode: true as const,
+      email: user.email,
+      delivered,
+      ...(this.shouldExposeDevCode() ? { devCode: code } : {}),
+    };
+  }
+
+  /** Soft-delete the account after verifying the email OTP. */
+  async confirmAccountDeletion(userId: string, code: string) {
+    const user = await this.users
+      .findById(userId)
+      .select('+accountDeletionCodeHash');
+    if (!user || !user.active) {
+      throw new NotFoundException('Account not found');
+    }
+    if (
+      !user.accountDeletionCodeHash ||
+      !user.accountDeletionExpiresAt ||
+      user.accountDeletionExpiresAt.getTime() < Date.now()
+    ) {
+      throw new UnauthorizedException(
+        'El código expiró. Solicita uno nuevo para eliminar la cuenta.',
+      );
+    }
+    if (this.digest(code) !== user.accountDeletionCodeHash) {
+      throw new UnauthorizedException('Código incorrecto');
+    }
+
+    const now = new Date();
+    await this.refreshSessions.updateMany(
+      { userId: user._id, revokedAt: { $exists: false } },
+      { $set: { revokedAt: now } },
+    );
+
+    // Free the email/googleId so the same person can register again later.
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          active: false,
+          email: `deleted+${user._id.toString()}@deleted.tecnowallet.invalid`,
+          name: 'Cuenta eliminada',
+        },
+        $unset: {
+          googleId: 1,
+          passwordHash: 1,
+          emailVerificationCodeHash: 1,
+          emailVerificationExpiresAt: 1,
+          accountDeletionCodeHash: 1,
+          accountDeletionExpiresAt: 1,
+        },
+      },
+    );
+
+    await this.workspaces.updateMany(
+      { ownerId: user._id, deletedAt: { $exists: false } },
+      { $set: { deletedAt: now } },
+    );
+
+    return { deleted: true };
+  }
+
   private async issueTokens(user: User) {
     const tokenId = randomUUID();
     const accessToken = await this.jwt.signAsync(
@@ -536,11 +637,15 @@ export class AuthService {
         },
       },
     );
-    const delivered = await this.sendVerificationEmail(user.email, code);
+    const delivered = await this.sendOtpEmail(user.email, code, 'verify');
     return { code, delivered };
   }
 
-  private async sendVerificationEmail(to: string, code: string) {
+  private async sendOtpEmail(
+    to: string,
+    code: string,
+    purpose: 'verify' | 'delete',
+  ) {
     const apiKey = this.config.get<string>('BREVO_API_KEY');
     if (!apiKey?.trim()) {
       if (this.config.get('NODE_ENV', 'development') === 'production') {
@@ -550,6 +655,18 @@ export class AuthService {
       }
       return false;
     }
+    const subject =
+      purpose === 'delete'
+        ? `${code} confirma la eliminación de tu cuenta TecnoWallet`
+        : `${code} es tu código de verificación TecnoWallet`;
+    const intro =
+      purpose === 'delete'
+        ? 'Para eliminar tu cuenta TecnoWallet, usa este código:'
+        : 'Tu código de verificación es:';
+    const footer =
+      purpose === 'delete'
+        ? 'Caduca en 15 minutos. Si no pediste eliminar tu cuenta, ignora este correo.'
+        : 'Caduca en 15 minutos. Si no creaste una cuenta en TecnoWallet, ignora este correo.';
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -566,11 +683,11 @@ export class AuthService {
           name: this.config.get<string>('BREVO_SENDER_NAME', 'TecnoWallet'),
         },
         to: [{ email: to }],
-        subject: `${code} es tu código de verificación TecnoWallet`,
+        subject,
         htmlContent:
-          `<p>Tu código de verificación es:</p>` +
+          `<p>${intro}</p>` +
           `<p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>` +
-          `<p>Caduca en 15 minutos. Si no creaste una cuenta en TecnoWallet, ignora este correo.</p>`,
+          `<p>${footer}</p>`,
       }),
     });
     if (!response.ok) {
@@ -628,6 +745,31 @@ export class AuthController {
   @Post('logout')
   logout(@Body() dto: RefreshDto) {
     return this.auth.logout(dto.refreshToken);
+  }
+
+  @ApiBearerAuth()
+  @Post('account/deletion-code')
+  requestAccountDeletion(@CurrentUser() user: AuthPrincipal) {
+    return this.auth.requestAccountDeletion(user.userId);
+  }
+
+  @ApiBearerAuth()
+  @Post('account/delete')
+  confirmAccountDeletion(
+    @CurrentUser() user: AuthPrincipal,
+    @Body() dto: ConfirmDeleteAccountDto,
+  ) {
+    return this.auth.confirmAccountDeletion(user.userId, dto.code);
+  }
+
+  /** @deprecated Prefer POST /auth/account/delete with OTP code. */
+  @ApiBearerAuth()
+  @Delete('account')
+  deleteAccountLegacy(
+    @CurrentUser() user: AuthPrincipal,
+    @Body() dto: ConfirmDeleteAccountDto,
+  ) {
+    return this.auth.confirmAccountDeletion(user.userId, dto.code);
   }
 }
 
