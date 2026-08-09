@@ -102,16 +102,6 @@ describe('payments / unit financial layer (e2e)', () => {
       .expect(201);
     expect(application.body.status).toBe('approved');
 
-    const wallet = await request(app.getHttpServer())
-      .post('/api/v1/unit/workspaces/wallet')
-      .set(auth)
-      .send({
-        workspaceId,
-        unitCustomerId: application.body.unitCustomerId,
-      })
-      .expect(201);
-    expect(wallet.body.status).toBe('open');
-
     await request(app.getHttpServer())
       .post('/api/v1/unit/counterparties')
       .set(auth)
@@ -136,6 +126,16 @@ describe('payments / unit financial layer (e2e)', () => {
       })
       .expect(201);
     const recaudoId = recaudo.body.id;
+
+    const wallet = await request(app.getHttpServer())
+      .post(`/api/v1/unit/recaudos/${recaudoId}/wallet`)
+      .set(auth)
+      .send({
+        unitCustomerId: application.body.unitCustomerId,
+      })
+      .expect(201);
+    expect(wallet.body.status).toBe('open');
+    expect(wallet.body.recaudoId).toBe(recaudoId);
 
     const funded = await request(app.getHttpServer())
       .post(`/api/v1/payments/recaudos/${recaudoId}/contributions/funded`)

@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { UnitClient } from './unit-client';
-import { UnitWorkspaceAccount } from './unit.schemas';
+import { UnitRecaudoAccount } from './unit.schemas';
 
 function stripQuotes(value: string) {
   return value.trim().replace(/^['"]|['"]$/g, '');
@@ -14,26 +14,24 @@ export class UnitAccountService {
   constructor(
     private readonly unit: UnitClient,
     private readonly config: ConfigService,
-    @InjectModel(UnitWorkspaceAccount.name)
-    private readonly accounts: Model<UnitWorkspaceAccount>,
+    @InjectModel(UnitRecaudoAccount.name)
+    private readonly accounts: Model<UnitRecaudoAccount>,
   ) {}
 
-  async getByWorkspaceId(workspaceId: string) {
-    return this.accounts.findOne({ workspaceId });
+  async getByRecaudoId(recaudoId: string) {
+    return this.accounts.findOne({ recaudoId });
   }
 
   /**
-   * Ensures a shared Unit deposit account exists for the recaudos workspace.
-   *
-   * Unit only allows `walletAccount` for business / sole-prop customers.
-   * Our KYC path creates individual customers, so we open a `depositAccount`
-   * (checking) that still receives ACH into the recaudo pot.
+   * Ensures a dedicated Unit deposit account exists for this recaudo.
+   * Individual customers use depositAccount (checking); one pot per recaudo.
    */
-  async ensureWorkspaceWallet(input: {
+  async ensureRecaudoWallet(input: {
+    recaudoId: string;
     workspaceId: string;
     unitCustomerId: string;
   }) {
-    const existing = await this.getByWorkspaceId(input.workspaceId);
+    const existing = await this.getByRecaudoId(input.recaudoId);
     if (existing?.unitWalletId && existing.status === 'open') {
       return existing;
     }
@@ -44,11 +42,12 @@ export class UnitAccountService {
 
     if (!this.unit.configured) {
       return this.accounts.findOneAndUpdate(
-        { workspaceId: input.workspaceId },
+        { recaudoId: input.recaudoId },
         {
           $set: {
+            workspaceId: input.workspaceId,
             unitCustomerId: input.unitCustomerId,
-            unitWalletId: `sandbox-wallet-${input.workspaceId}`,
+            unitWalletId: `sandbox-wallet-${input.recaudoId}`,
             walletTerms: depositProduct,
             status: 'open',
           },
@@ -65,6 +64,7 @@ export class UnitAccountService {
           attributes: {
             depositProduct,
             tags: {
+              tecnowalletRecaudoId: input.recaudoId,
               tecnowalletWorkspaceId: input.workspaceId,
               purpose: 'recaudo',
             },
@@ -79,14 +79,15 @@ export class UnitAccountService {
           },
         },
       },
-      `deposit-${input.workspaceId}`,
+      `deposit-recaudo-${input.recaudoId}`,
     );
     const resource = this.unit.single(doc);
     const statusAttr = String(resource.attributes?.status ?? 'Open');
     return this.accounts.findOneAndUpdate(
-      { workspaceId: input.workspaceId },
+      { recaudoId: input.recaudoId },
       {
         $set: {
+          workspaceId: input.workspaceId,
           unitCustomerId: input.unitCustomerId,
           unitWalletId: resource.id,
           walletTerms: depositProduct,
@@ -97,11 +98,11 @@ export class UnitAccountService {
     );
   }
 
-  async requireOpenWalletId(workspaceId: string): Promise<string> {
-    const account = await this.getByWorkspaceId(workspaceId);
+  async requireOpenWalletId(recaudoId: string): Promise<string> {
+    const account = await this.getByRecaudoId(recaudoId);
     if (!account?.unitWalletId || account.status !== 'open') {
       throw new BadRequestException(
-        'Workspace Unit wallet is not ready; complete financial setup first',
+        'Este recaudo aún no tiene cuenta digital abierta',
       );
     }
     return account.unitWalletId;

@@ -23,8 +23,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Model } from 'mongoose';
-import { CurrentUser, Public, Workspace } from '../auth/auth.module';
+import { CurrentUser, Public } from '../auth/auth.module';
 import { PaymentOrchestrationService } from '../payments/payment-orchestration.service';
+import { Recaudo } from '../recaudos/recaudos.module';
 import { UnitAccountService } from './unit-account.service';
 import { UnitCounterpartyService } from './unit-counterparty.service';
 import { UnitCustomerService } from './unit-customer.service';
@@ -101,11 +102,9 @@ class CreateCounterpartyDto {
 }
 
 class EnsureWalletDto {
+  @IsOptional()
   @IsString()
-  workspaceId!: string;
-
-  @IsString()
-  unitCustomerId!: string;
+  unitCustomerId?: string;
 }
 
 class FundedAmountDto {
@@ -131,7 +130,7 @@ export class UnitController {
     private readonly customers: UnitCustomerService,
     private readonly accounts: UnitAccountService,
     private readonly counterparties: UnitCounterpartyService,
-    @InjectModel(Workspace.name) private readonly workspaces: Model<Workspace>,
+    @InjectModel(Recaudo.name) private readonly recaudos: Model<Recaudo>,
   ) {}
 
   @Get('me')
@@ -165,15 +164,36 @@ export class UnitController {
     };
   }
 
-  @Post('workspaces/wallet')
-  async ensureWallet(
+  @Get('recaudos/:recaudoId/wallet')
+  async getRecaudoWallet(@Param('recaudoId') recaudoId: string) {
+    const recaudo = await this.recaudos.findById(recaudoId);
+    if (!recaudo) throw new NotFoundException('Recaudo not found');
+    const account = await this.accounts.getByRecaudoId(recaudoId);
+    if (!account?.unitWalletId) {
+      return { recaudoId, status: 'none' as const };
+    }
+    return {
+      recaudoId,
+      workspaceId: account.workspaceId?.toString(),
+      unitWalletId: account.unitWalletId,
+      unitCustomerId: account.unitCustomerId,
+      status: account.status,
+      walletTerms: account.walletTerms,
+    };
+  }
+
+  @Post('recaudos/:recaudoId/wallet')
+  async ensureRecaudoWallet(
+    @Param('recaudoId') recaudoId: string,
     @Body() dto: EnsureWalletDto,
     @CurrentUser() user: RequestUser,
   ) {
-    const workspace = await this.workspaces.findById(dto.workspaceId);
-    if (!workspace) throw new NotFoundException('Workspace not found');
-    if (workspace.ownerId.toString() !== user.userId) {
-      throw new ForbiddenException('Only the workspace owner can open a wallet');
+    const recaudo = await this.recaudos.findById(recaudoId);
+    if (!recaudo) throw new NotFoundException('Recaudo not found');
+    if (recaudo.organizerId.toString() !== user.userId) {
+      throw new ForbiddenException(
+        'Only the recaudo organizer can open its digital account',
+      );
     }
     const identity = await this.customers.getByUserId(user.userId);
     const unitCustomerId =
@@ -183,12 +203,14 @@ export class UnitController {
         'Complete digital bank onboarding before opening the recaudo account',
       );
     }
-    const account = await this.accounts.ensureWorkspaceWallet({
-      workspaceId: dto.workspaceId,
+    const account = await this.accounts.ensureRecaudoWallet({
+      recaudoId,
+      workspaceId: recaudo.workspaceId.toString(),
       unitCustomerId,
     });
     return {
-      workspaceId: account.workspaceId.toString(),
+      recaudoId: account.recaudoId.toString(),
+      workspaceId: account.workspaceId?.toString(),
       unitWalletId: account.unitWalletId,
       unitCustomerId: account.unitCustomerId,
       status: account.status,

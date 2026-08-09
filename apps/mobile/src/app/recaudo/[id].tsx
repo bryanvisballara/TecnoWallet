@@ -118,7 +118,9 @@ export default function RecaudoDetailScreen() {
 
   const identity = useUnitFundingStore((state) => state.identity);
   const counterparties = useUnitFundingStore((state) => state.counterparties);
-  const wallet = useUnitFundingStore((state) => state.wallet);
+  const walletsByRecaudo = useUnitFundingStore(
+    (state) => state.walletsByRecaudo,
+  );
   const balancesByRecaudo = useUnitFundingStore(
     (state) => state.balancesByRecaudo,
   );
@@ -129,9 +131,10 @@ export default function RecaudoDetailScreen() {
   const activatePayments = useUnitFundingStore(
     (state) => state.activatePayments,
   );
-  const ensureWorkspaceWallet = useUnitFundingStore(
-    (state) => state.ensureWorkspaceWallet,
+  const ensureRecaudoWallet = useUnitFundingStore(
+    (state) => state.ensureRecaudoWallet,
   );
+  const wallet = id ? walletsByRecaudo[id] : undefined;
   const linkBankAccount = useUnitFundingStore((state) => state.linkBankAccount);
   const fundContribution = useUnitFundingStore(
     (state) => state.fundContribution,
@@ -185,21 +188,22 @@ export default function RecaudoDetailScreen() {
     if (
       demo ||
       !recaudo?.isOrganizer ||
+      !recaudo.id ||
       identity.status !== "approved" ||
       !identity.unitCustomerId ||
-      counterparties.every((item) => !item.active) ||
       (wallet?.unitWalletId && wallet.status === "open") ||
       setupBusy
     ) {
       return;
     }
-    void ensureWorkspaceWallet().catch(() => undefined);
+    // Open this recaudo's checking once identity is approved (bank link is step 3).
+    void ensureRecaudoWallet(recaudo.id).catch(() => undefined);
   }, [
-    counterparties,
     demo,
-    ensureWorkspaceWallet,
+    ensureRecaudoWallet,
     identity.status,
     identity.unitCustomerId,
+    recaudo?.id,
     recaudo?.isOrganizer,
     setupBusy,
     wallet?.status,
@@ -264,7 +268,7 @@ export default function RecaudoDetailScreen() {
   const category = categoryInfo[recaudo.category];
   const fundingReady = useUnitFundingStore
     .getState()
-    .isFundingReady(recaudo.isOrganizer);
+    .isFundingReady(recaudo.id, recaudo.isOrganizer);
   const balances = balancesByRecaudo[recaudo.id];
   const availableMinor = balances?.availableMinor ?? 0;
   const pendingMinor = balances?.pendingMinor ?? 0;
@@ -358,11 +362,11 @@ export default function RecaudoDetailScreen() {
 
   const openWallet = async () => {
     try {
-      await ensureWorkspaceWallet();
+      await ensureRecaudoWallet(recaudo.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         "Cuenta digital lista",
-        "El recaudo ya puede recibir aportes con cuenta bancaria.",
+        "Este recaudo ya tiene su propia cuenta checking para recibir aportes.",
       );
     } catch (error) {
       Alert.alert(

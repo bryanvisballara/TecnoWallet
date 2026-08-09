@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
-import { AuthModule, Workspace, WorkspaceSchema } from '../auth/auth.module';
-import { RecaudosModule } from '../recaudos/recaudos.module';
+import { AuthModule } from '../auth/auth.module';
+import { Recaudo, RecaudoSchema, RecaudosModule } from '../recaudos/recaudos.module';
 import { CardPaymentProvider, PaymentProvider } from './payment-provider';
 import { UnconfiguredCardPaymentProvider } from './card-provider.stub';
 import { ContributionSchedulerService } from './contribution-scheduler.service';
@@ -29,8 +29,8 @@ import {
 import {
   UnitIdentity,
   UnitIdentitySchema,
-  UnitWorkspaceAccount,
-  UnitWorkspaceAccountSchema,
+  UnitRecaudoAccount,
+  UnitRecaudoAccountSchema,
   UnitCounterparty,
   UnitCounterpartySchema,
 } from '../unit/unit.schemas';
@@ -54,9 +54,9 @@ import {
       },
       { name: FinancialAllocation.name, schema: FinancialAllocationSchema },
       { name: UnitIdentity.name, schema: UnitIdentitySchema },
-      { name: UnitWorkspaceAccount.name, schema: UnitWorkspaceAccountSchema },
+      { name: UnitRecaudoAccount.name, schema: UnitRecaudoAccountSchema },
       { name: UnitCounterparty.name, schema: UnitCounterpartySchema },
-      { name: Workspace.name, schema: WorkspaceSchema },
+      { name: Recaudo.name, schema: RecaudoSchema },
     ]),
   ],
   controllers: [UnitController, PaymentsController, UnitWebhookController],

@@ -156,7 +156,7 @@ export class PaymentOrchestrationService {
 
     await this.customers.requireApprovedCustomerId(input.principal.userId);
     const walletId = await this.accounts.requireOpenWalletId(
-      context.recaudo.workspaceId.toString(),
+      context.recaudo._id.toString(),
     );
     const counterparty = await this.counterparties.getActive(
       input.principal.userId,
@@ -272,7 +272,7 @@ export class PaymentOrchestrationService {
 
     await this.customers.requireApprovedCustomerId(input.principal.userId);
     const walletId = await this.accounts.requireOpenWalletId(
-      context.recaudo.workspaceId.toString(),
+      context.recaudo._id.toString(),
     );
     const counterparty = await this.counterparties.getActive(
       input.principal.userId,
@@ -359,7 +359,7 @@ export class PaymentOrchestrationService {
       throw new BadRequestException('Link a bank counterparty first');
     }
     const walletId = await this.accounts.requireOpenWalletId(
-      context.recaudo.workspaceId.toString(),
+      context.recaudo._id.toString(),
     );
 
     const frequency = plan.frequency;

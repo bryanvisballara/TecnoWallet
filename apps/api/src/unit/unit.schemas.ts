@@ -45,8 +45,9 @@ export class UnitIdentity {
 }
 export const UnitIdentitySchema = SchemaFactory.createForClass(UnitIdentity);
 
-@Schema({ timestamps: true })
-export class UnitWorkspaceAccount {
+/** One Unit deposit account (checking) per recaudo pot. */
+@Schema({ timestamps: true, collection: 'unitrecaudoaccounts' })
+export class UnitRecaudoAccount {
   _id!: Types.ObjectId;
 
   @Prop({
@@ -55,16 +56,20 @@ export class UnitWorkspaceAccount {
     index: true,
     type: MongooseSchema.Types.ObjectId,
   })
-  workspaceId!: Types.ObjectId;
+  recaudoId!: Types.ObjectId;
 
-  /** Business / org customer that owns the shared FBO wallet. */
+  /** Denormalized book/workspace for queries. */
+  @Prop({ index: true, type: MongooseSchema.Types.ObjectId })
+  workspaceId?: Types.ObjectId;
+
   @Prop({ index: true })
   unitCustomerId?: string;
 
+  /** Unit deposit/wallet account id used as the recaudo pot. */
   @Prop({ index: true })
   unitWalletId?: string;
 
-  @Prop({ default: 'walletDefault' })
+  @Prop({ default: 'checking' })
   walletTerms!: string;
 
   @Prop({
@@ -78,8 +83,12 @@ export class UnitWorkspaceAccount {
   createdAt!: Date;
   updatedAt!: Date;
 }
-export const UnitWorkspaceAccountSchema =
-  SchemaFactory.createForClass(UnitWorkspaceAccount);
+export const UnitRecaudoAccountSchema =
+  SchemaFactory.createForClass(UnitRecaudoAccount);
+
+/** @deprecated Prefer UnitRecaudoAccount — kept as alias for gradual rename. */
+export const UnitWorkspaceAccount = UnitRecaudoAccount;
+export const UnitWorkspaceAccountSchema = UnitRecaudoAccountSchema;
 
 @Schema({ timestamps: true })
 export class UnitCounterparty {

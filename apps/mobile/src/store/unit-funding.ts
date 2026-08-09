@@ -2,7 +2,6 @@ import { create } from "zustand";
 
 import { apiRequest } from "@/services/api";
 import { useAuthStore } from "@/store/auth";
-import { getRecaudosWorkspaceId } from "@/store/recaudos";
 
 export type UnitIdentityStatus =
   | "none"
@@ -38,11 +37,18 @@ export type RecaudoBalances = {
 };
 
 export type UnitWallet = {
-  workspaceId: string;
-  unitWalletId: string;
-  unitCustomerId: string;
+  recaudoId: string;
+  workspaceId?: string;
+  unitWalletId?: string;
+  unitCustomerId?: string;
   status: string;
   walletTerms?: string;
+};
+
+type FundResult = {
+  intent: PaymentIntentSummary;
+  balances: RecaudoBalances;
+  idempotentReplay?: boolean;
 };
 
 export type PaymentIntentSummary = {
@@ -53,16 +59,10 @@ export type PaymentIntentSummary = {
   note?: string;
 };
 
-type FundResult = {
-  intent: PaymentIntentSummary;
-  balances: RecaudoBalances;
-  idempotentReplay?: boolean;
-};
-
 type UnitFundingState = {
   identity: UnitIdentity;
   counterparties: UnitCounterparty[];
-  wallet?: UnitWallet;
+  walletsByRecaudo: Record<string, UnitWallet>;
   balancesByRecaudo: Record<string, RecaudoBalances>;
   loading: boolean;
   setupBusy: boolean;
@@ -70,9 +70,12 @@ type UnitFundingState = {
   refreshIdentity: () => Promise<UnitIdentity>;
   refreshCounterparties: () => Promise<UnitCounterparty[]>;
   refreshBalances: (recaudoId: string) => Promise<RecaudoBalances>;
+  refreshWallet: (recaudoId: string) => Promise<UnitWallet | undefined>;
   bootstrapForRecaudo: (recaudoId: string) => Promise<void>;
   activatePayments: () => Promise<UnitIdentity>;
-  ensureWorkspaceWallet: () => Promise<UnitWallet>;
+  ensureRecaudoWallet: (recaudoId: string) => Promise<UnitWallet>;
+  /** @deprecated Use ensureRecaudoWallet */
+  ensureWorkspaceWallet: (recaudoId: string) => Promise<UnitWallet>;
   linkBankAccount: (input: {
     name: string;
     routingNumber: string;
@@ -92,7 +95,7 @@ type UnitFundingState = {
     counterpartyId?: string;
   }) => Promise<FundResult>;
   syncSchedule: (recaudoId: string) => Promise<void>;
-  isFundingReady: (isOrganizer: boolean) => boolean;
+  isFundingReady: (recaudoId: string, isOrganizer: boolean) => boolean;
 };
 
 const emptyBalances: RecaudoBalances = {
@@ -117,7 +120,7 @@ function messageFrom(error: unknown) {
 export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
   identity: { status: "none" },
   counterparties: [],
-  wallet: undefined,
+  walletsByRecaudo: {},
   balancesByRecaudo: {},
   loading: false,
   setupBusy: false,
@@ -171,6 +174,28 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
     return balances;
   },
 
+  refreshWallet: async (recaudoId) => {
+    if (useAuthStore.getState().demo) return undefined;
+    const wallet = await apiRequest<UnitWallet>(
+      `/unit/recaudos/${recaudoId}/wallet`,
+    );
+    if (!wallet.unitWalletId || wallet.status === "none") {
+      set((state) => {
+        const next = { ...state.walletsByRecaudo };
+        delete next[recaudoId];
+        return { walletsByRecaudo: next };
+      });
+      return undefined;
+    }
+    set((state) => ({
+      walletsByRecaudo: {
+        ...state.walletsByRecaudo,
+        [recaudoId]: { ...wallet, recaudoId },
+      },
+    }));
+    return get().walletsByRecaudo[recaudoId];
+  },
+
   bootstrapForRecaudo: async (recaudoId) => {
     if (useAuthStore.getState().demo) return;
     set({ loading: true, error: undefined });
@@ -179,6 +204,7 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
         get().refreshIdentity(),
         get().refreshCounterparties(),
         get().refreshBalances(recaudoId),
+        get().refreshWallet(recaudoId),
       ]);
       set({ loading: false });
     } catch (error) {
@@ -226,9 +252,9 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
     }
   },
 
-  ensureWorkspaceWallet: async () => {
+  ensureRecaudoWallet: async (recaudoId) => {
     if (useAuthStore.getState().demo) {
-      throw new Error("La billetera no está disponible en demo.");
+      throw new Error("La cuenta digital no está disponible en demo.");
     }
     const identity = get().identity.unitCustomerId
       ? get().identity
@@ -240,21 +266,30 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
     }
     set({ setupBusy: true, error: undefined });
     try {
-      const workspaceId = await getRecaudosWorkspaceId();
-      const wallet = await apiRequest<UnitWallet>("/unit/workspaces/wallet", {
-        method: "POST",
-        body: JSON.stringify({
-          workspaceId,
-          unitCustomerId: identity.unitCustomerId,
-        }),
-      });
-      set({ wallet, setupBusy: false });
-      return wallet;
+      const wallet = await apiRequest<UnitWallet>(
+        `/unit/recaudos/${recaudoId}/wallet`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            unitCustomerId: identity.unitCustomerId,
+          }),
+        },
+      );
+      set((state) => ({
+        walletsByRecaudo: {
+          ...state.walletsByRecaudo,
+          [recaudoId]: { ...wallet, recaudoId },
+        },
+        setupBusy: false,
+      }));
+      return get().walletsByRecaudo[recaudoId]!;
     } catch (error) {
       set({ setupBusy: false, error: messageFrom(error) });
       throw error;
     }
   },
+
+  ensureWorkspaceWallet: async (recaudoId) => get().ensureRecaudoWallet(recaudoId),
 
   linkBankAccount: async (input) => {
     if (useAuthStore.getState().demo) {
@@ -356,17 +391,18 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
     });
   },
 
-  isFundingReady: (isOrganizer) => {
-    const { identity, counterparties, wallet } = get();
+  isFundingReady: (recaudoId, isOrganizer) => {
+    const { identity, counterparties, walletsByRecaudo } = get();
     const hasIdentity =
       identity.status === "approved" && Boolean(identity.unitCustomerId);
     const hasBank = counterparties.some((item) => item.active);
     if (!hasIdentity || !hasBank) return false;
     if (isOrganizer) {
+      const wallet = walletsByRecaudo[recaudoId];
       return Boolean(wallet?.unitWalletId && wallet.status === "open");
     }
     // Members can attempt funding once identity + bank are ready;
-    // API enforces workspace wallet existence.
+    // API enforces that this recaudo's digital account exists.
     return true;
   },
 }));
