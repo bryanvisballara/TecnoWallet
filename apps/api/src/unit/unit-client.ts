@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -83,6 +84,9 @@ export class UnitClient {
         json.errors?.[0]?.title ??
         `Unit API error ${response.status}`;
       this.logger.warn(`Unit ${method} ${path} → ${response.status}: ${detail}`);
+      if (response.status === 401 || response.status === 403) {
+        throw new ForbiddenException(detail);
+      }
       if (response.status >= 400 && response.status < 500) {
         throw new BadRequestException(detail);
       }
