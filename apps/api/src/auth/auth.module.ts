@@ -37,6 +37,8 @@ import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
+import { otpEmailHtml, otpEmailSubject } from './otp-email';
+
 export interface AuthPrincipal {
   userId: string;
   email: string;
@@ -655,18 +657,6 @@ export class AuthService {
       }
       return false;
     }
-    const subject =
-      purpose === 'delete'
-        ? `${code} confirma la eliminación de tu cuenta TecnoWallet`
-        : `${code} es tu código de verificación TecnoWallet`;
-    const intro =
-      purpose === 'delete'
-        ? 'Para eliminar tu cuenta TecnoWallet, usa este código:'
-        : 'Tu código de verificación es:';
-    const footer =
-      purpose === 'delete'
-        ? 'Caduca en 15 minutos. Si no pediste eliminar tu cuenta, ignora este correo.'
-        : 'Caduca en 15 minutos. Si no creaste una cuenta en TecnoWallet, ignora este correo.';
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -683,11 +673,8 @@ export class AuthService {
           name: this.config.get<string>('BREVO_SENDER_NAME', 'TecnoWallet'),
         },
         to: [{ email: to }],
-        subject,
-        htmlContent:
-          `<p>${intro}</p>` +
-          `<p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>` +
-          `<p>${footer}</p>`,
+        subject: otpEmailSubject(purpose, code),
+        htmlContent: otpEmailHtml(purpose, code),
       }),
     });
     if (!response.ok) {
