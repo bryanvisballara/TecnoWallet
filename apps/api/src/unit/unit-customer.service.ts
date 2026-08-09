@@ -88,6 +88,10 @@ export class UnitCustomerService {
               countryCode: '1',
               number: (input.phone ?? '5555550100').replace(/\D/g, ''),
             },
+            // Required by Unit org KYC settings (sandbox WW TECNO).
+            occupation: 'ArchitectOrEngineer',
+            annualIncome: 'Between10kAnd25k',
+            sourceOfIncome: 'EmploymentOrPayrollIncome',
             tags: {
               tecnowalletUserId: input.userId,
             },

@@ -188,7 +188,9 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
 
   activatePayments: async () => {
     if (useAuthStore.getState().demo) {
-      throw new Error("Los pagos con cuenta no están disponibles en demo.");
+      throw new Error(
+        "La cuenta de banco digital no está disponible en demo.",
+      );
     }
     set({ setupBusy: true, error: undefined });
     try {
@@ -232,7 +234,9 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
       ? get().identity
       : await get().refreshIdentity();
     if (!identity.unitCustomerId || identity.status !== "approved") {
-      throw new Error("Primero activa y aprueba tu identidad de pagos.");
+      throw new Error(
+        "Primero abre y aprueba tu cuenta de banco digital.",
+      );
     }
     set({ setupBusy: true, error: undefined });
     try {

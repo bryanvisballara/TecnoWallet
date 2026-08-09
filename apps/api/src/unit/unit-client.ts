@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -82,6 +83,9 @@ export class UnitClient {
         json.errors?.[0]?.title ??
         `Unit API error ${response.status}`;
       this.logger.warn(`Unit ${method} ${path} → ${response.status}: ${detail}`);
+      if (response.status >= 400 && response.status < 500) {
+        throw new BadRequestException(detail);
+      }
       throw new ServiceUnavailableException(detail);
     }
     return json as T;

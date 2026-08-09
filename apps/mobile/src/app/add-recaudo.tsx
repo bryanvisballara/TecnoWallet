@@ -46,6 +46,65 @@ function isValidDate(value: string) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function FieldLabel({
+  children,
+  error,
+  color,
+  danger,
+}: {
+  children: string;
+  error?: boolean;
+  color: string;
+  danger: string;
+}) {
+  return (
+    <Text style={[styles.label, { color: error ? danger : color }]}>{children}</Text>
+  );
+}
+
+function ErrorText({ children, color }: { children: string; color: string }) {
+  return <Text style={[styles.error, { color }]}>{children}</Text>;
+}
+
+function AmountInput({
+  value,
+  onChangeText,
+  placeholder,
+  currency,
+  muted,
+  text,
+  surfaceSecondary,
+  errorStyle,
+}: {
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  currency: string;
+  muted: string;
+  text: string;
+  surfaceSecondary: string;
+  errorStyle: { borderColor: string; borderWidth: number };
+}) {
+  return (
+    <View
+      style={[
+        styles.amountInput,
+        { backgroundColor: surfaceSecondary },
+        errorStyle,
+      ]}>
+      <Text style={[styles.currency, { color: muted }]}>{currency}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType="decimal-pad"
+        placeholder={placeholder}
+        placeholderTextColor={muted}
+        style={[styles.amountTextInput, { color: text }]}
+      />
+    </View>
+  );
+}
+
 export default function AddRecaudoScreen() {
   const theme = useAppTheme();
   const createRecaudo = useRecaudosStore((state) => state.createRecaudo);
@@ -172,7 +231,9 @@ export default function AddRecaudoScreen() {
             Crea un pozo compartido y define cuánto quieren reunir.
           </Text>
 
-          <FieldLabel error={errors.title}>Nombre</FieldLabel>
+          <FieldLabel error={errors.title} color={theme.muted} danger={theme.danger}>
+            Nombre
+          </FieldLabel>
           <TextInput
             value={title}
             onChangeText={(value) => {
@@ -187,9 +248,13 @@ export default function AddRecaudoScreen() {
               borderFor('title'),
             ]}
           />
-          {errors.title ? <ErrorText>Escribe un nombre</ErrorText> : null}
+          {errors.title ? (
+            <ErrorText color={theme.danger}>Escribe un nombre</ErrorText>
+          ) : null}
 
-          <FieldLabel>Tipo</FieldLabel>
+          <FieldLabel color={theme.muted} danger={theme.danger}>
+            Tipo
+          </FieldLabel>
           <View style={styles.categories}>
             {categories.map((item) => {
               const selected = category === item.value;
@@ -223,7 +288,9 @@ export default function AddRecaudoScreen() {
             })}
           </View>
 
-          <FieldLabel>Moneda</FieldLabel>
+          <FieldLabel color={theme.muted} danger={theme.danger}>
+            Moneda
+          </FieldLabel>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Elegir moneda"
@@ -247,7 +314,9 @@ export default function AddRecaudoScreen() {
             <AppIcon name="chevron.down" color={theme.muted} size={18} />
           </Pressable>
 
-          <FieldLabel error={errors.target}>Objetivo</FieldLabel>
+          <FieldLabel error={errors.target} color={theme.muted} danger={theme.danger}>
+            Objetivo
+          </FieldLabel>
           <AmountInput
             value={target}
             onChangeText={(value) => {
@@ -256,11 +325,18 @@ export default function AddRecaudoScreen() {
             }}
             placeholder={amountPlaceholder(currency)}
             currency={currency}
+            muted={theme.muted}
+            text={theme.text}
+            surfaceSecondary={theme.surfaceSecondary}
             errorStyle={borderFor('target')}
           />
-          {errors.target ? <ErrorText>Indica un objetivo mayor a cero</ErrorText> : null}
+          {errors.target ? (
+            <ErrorText color={theme.danger}>Indica un objetivo mayor a cero</ErrorText>
+          ) : null}
 
-          <FieldLabel error={errors.monthly}>Meta mensual</FieldLabel>
+          <FieldLabel error={errors.monthly} color={theme.muted} danger={theme.danger}>
+            Meta mensual
+          </FieldLabel>
           <AmountInput
             value={monthly}
             onChangeText={(value) => {
@@ -269,11 +345,18 @@ export default function AddRecaudoScreen() {
             }}
             placeholder={monthlyAmountPlaceholder(currency)}
             currency={currency}
+            muted={theme.muted}
+            text={theme.text}
+            surfaceSecondary={theme.surfaceSecondary}
             errorStyle={borderFor('monthly')}
           />
-          {errors.monthly ? <ErrorText>Indica una meta mensual mayor a cero</ErrorText> : null}
+          {errors.monthly ? (
+            <ErrorText color={theme.danger}>Indica una meta mensual mayor a cero</ErrorText>
+          ) : null}
 
-          <FieldLabel error={errors.deadline}>Fecha objetivo (opcional)</FieldLabel>
+          <FieldLabel error={errors.deadline} color={theme.muted} danger={theme.danger}>
+            Fecha objetivo (opcional)
+          </FieldLabel>
           {Platform.OS === 'web' ? (
             <input
               type="date"
@@ -315,7 +398,11 @@ export default function AddRecaudoScreen() {
               ]}
             />
           )}
-          {errors.deadline ? <ErrorText>Usa una fecha válida en formato AAAA-MM-DD</ErrorText> : null}
+          {errors.deadline ? (
+            <ErrorText color={theme.danger}>
+              Usa una fecha válida en formato AAAA-MM-DD
+            </ErrorText>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -411,57 +498,6 @@ export default function AddRecaudoScreen() {
       </Modal>
     </SheetScreen>
   );
-
-  function FieldLabel({
-    children,
-    error,
-  }: {
-    children: string;
-    error?: boolean;
-  }) {
-    return (
-      <Text style={[styles.label, { color: error ? theme.danger : theme.muted }]}>
-        {children}
-      </Text>
-    );
-  }
-
-  function ErrorText({ children }: { children: string }) {
-    return <Text style={[styles.error, { color: theme.danger }]}>{children}</Text>;
-  }
-
-  function AmountInput({
-    value,
-    onChangeText,
-    placeholder,
-    currency: inputCurrency,
-    errorStyle,
-  }: {
-    value: string;
-    onChangeText: (value: string) => void;
-    placeholder: string;
-    currency: string;
-    errorStyle: { borderColor: string; borderWidth: number };
-  }) {
-    return (
-      <View
-        style={[
-          styles.amountInput,
-          { backgroundColor: theme.surfaceSecondary },
-          errorStyle,
-        ]}>
-        <Text style={[styles.currency, { color: theme.muted }]}>{inputCurrency}</Text>
-        <TextInput
-          value={value}
-          onChangeText={onChangeText}
-          keyboardType="decimal-pad"
-          placeholder={placeholder}
-          placeholderTextColor={theme.muted}
-          style={[styles.amountTextInput, { color: theme.text }]}
-        />
-      </View>
-    );
-  }
 }
 
 const styles = StyleSheet.create({

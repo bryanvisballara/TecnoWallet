@@ -334,18 +334,18 @@ export default function RecaudoDetailScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (next.status === "approved") {
         Alert.alert(
-          "Pagos activados",
-          "Tu identidad quedó lista. Sigue con la cuenta bancaria.",
+          "Cuenta digital lista",
+          "Ya puedes vincular tu banco para aportar al recaudo.",
         );
       } else {
         Alert.alert(
           "Solicitud enviada",
-          "Unit está revisando tu solicitud. Actualiza en unos segundos.",
+          "Estamos revisando tu solicitud. Actualiza en unos segundos.",
         );
       }
     } catch (error) {
       Alert.alert(
-        "No se pudo activar",
+        "No se pudo abrir la cuenta",
         error instanceof Error ? error.message : "Inténtalo de nuevo.",
       );
     }
@@ -674,11 +674,11 @@ export default function RecaudoDetailScreen() {
             </View>
             <View style={styles.copy}>
               <Text style={[styles.cardTitle, { color: theme.text }]}>
-                Activar aportes con cuenta
+                Cuenta de banco digital del recaudo
               </Text>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                Débito ACH real vía Unit Sandbox. Completa estos pasos una sola
-                vez.
+                Abre una cuenta digital para este recaudo y vincula tu banco
+                para aportar con débito ACH. Solo hace falta una vez.
               </Text>
             </View>
           </View>
@@ -688,14 +688,16 @@ export default function RecaudoDetailScreen() {
               icon="person.crop.circle.badge.checkmark"
               onPress={setupBusy ? undefined : () => void activateUnit()}
             >
-              {setupBusy ? "Activando…" : "1. Activar pagos Unit"}
+              {setupBusy
+                ? "Abriendo cuenta…"
+                : "1. Abrir cuenta de banco digital"}
             </PrimaryButton>
           ) : null}
 
           {identityPending ? (
             <>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                Estado: {identity.status}. Unit está revisando tu solicitud.
+                Estado: {identity.status}. Estamos revisando tu solicitud.
               </Text>
               <PrimaryButton
                 icon="arrow.clockwise"
@@ -769,7 +771,7 @@ export default function RecaudoDetailScreen() {
               icon="wallet.pass.fill"
               onPress={setupBusy ? undefined : () => void openWallet()}
             >
-              {setupBusy ? "Abriendo…" : "3. Abrir billetera del espacio"}
+              {setupBusy ? "Abriendo…" : "3. Abrir la cuenta digital del recaudo"}
             </PrimaryButton>
           ) : null}
 
@@ -1027,10 +1029,10 @@ export default function RecaudoDetailScreen() {
         </Text>
         <Text style={[styles.rowMeta, { color: theme.muted }]}>
           {fundingReady
-            ? "Débito ACH a la billetera del recaudo. No suma a disponible hasta que Unit confirme."
+            ? "Débito ACH a la cuenta digital del recaudo. No suma a disponible hasta que el banco lo confirme."
             : demo
               ? "En demo el aporte se registra al instante en el pozo."
-              : "Activa pagos Unit y vincula tu cuenta para aportar dinero real."}
+              : "Abre tu cuenta de banco digital y vincula tu banco para aportar dinero real."}
         </Text>
         <View
           style={[
