@@ -19,6 +19,7 @@ import Svg, { Path } from 'react-native-svg';
 import { LanguagePicker } from '@/components/language-picker';
 import { Card, PrimaryButton, useAppTheme } from '@/components/ui';
 import { authCopy } from '@/i18n/languages';
+import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 
@@ -50,7 +51,17 @@ export default function AuthScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const goHome = () => router.replace('/(tabs)/inicio');
+  const goHome = async () => {
+    const inviteToken = await localStorage.get<string | null>(
+      'pending-recaudo-invite',
+      null,
+    );
+    if (inviteToken) {
+      router.replace({ pathname: '/invite/[token]', params: { token: inviteToken } });
+      return;
+    }
+    router.replace('/(tabs)/inicio');
+  };
 
   const submit = async () => {
     setLoading(true);
@@ -59,7 +70,7 @@ export default function AuthScreen() {
       if (mode === 'login') await signIn(email, password);
       else await signUp(name, email, password);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      goHome();
+      await goHome();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : copy.genericError);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -74,7 +85,7 @@ export default function AuthScreen() {
     try {
       await signInWithGoogle();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      goHome();
+      await goHome();
     } catch {
       setError(copy.genericError);
     } finally {
@@ -174,7 +185,7 @@ export default function AuthScreen() {
             style={[styles.demoButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
             onPress={async () => {
               await enterDemo();
-              goHome();
+              await goHome();
             }}>
             <Text style={[styles.demoText, { color: theme.text }]}>{copy.demo}</Text>
           </Pressable>

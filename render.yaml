@@ -33,3 +33,17 @@ services:
         sync: false
       - key: APNS_PRODUCTION
         value: "true"
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        value: contact@tecnowallet.app
+      - key: BREVO_SENDER_NAME
+        value: TecnoWallet
+      - key: UNIT_API_URL
+        value: https://api.s.unit.sh
+      - key: UNIT_API_TOKEN
+        sync: false
+      - key: UNIT_WEBHOOK_SECRET
+        sync: false
+      - key: UNIT_WALLET_TERMS
+        sync: false

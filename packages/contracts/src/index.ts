@@ -17,15 +17,15 @@ export interface VersionedEntity {
 export interface Account extends VersionedEntity {
   name: string;
   type:
-    | 'cash'
-    | 'bank'
-    | 'debit_card'
-    | 'credit_card'
-    | 'wallet'
-    | 'crypto'
-    | 'investment'
-    | 'loan'
-    | 'asset';
+    | "cash"
+    | "bank"
+    | "debit_card"
+    | "credit_card"
+    | "wallet"
+    | "crypto"
+    | "investment"
+    | "loan"
+    | "asset";
   currency: CurrencyCode;
   color: string;
   institution?: string;
@@ -44,17 +44,13 @@ export interface Envelope extends VersionedEntity {
   availableMinor: number;
   spentMinor: number;
   currency: CurrencyCode;
-  rollover: 'accumulate' | 'reset' | 'move_to_savings';
+  rollover: "accumulate" | "reset" | "move_to_savings";
   resetDay: number;
   goalMinor?: number;
 }
 
 export type TransactionType =
-  | 'income'
-  | 'expense'
-  | 'transfer'
-  | 'refund'
-  | 'envelope_transfer';
+  "income" | "expense" | "transfer" | "refund" | "envelope_transfer";
 
 export interface FinancialTransaction extends VersionedEntity {
   type: TransactionType;
@@ -71,7 +67,7 @@ export interface FinancialTransaction extends VersionedEntity {
   tags: string[];
   attachmentIds: string[];
   receiptId?: string;
-  status: 'pending' | 'cleared' | 'cancelled';
+  status: "pending" | "cleared" | "cancelled";
   private: boolean;
 }
 
@@ -99,15 +95,15 @@ export interface Bill extends VersionedEntity {
   name: string;
   amountMinor: number;
   currency: CurrencyCode;
-  frequency: 'once' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+  frequency: "once" | "weekly" | "monthly" | "quarterly" | "yearly";
   nextDueAt: string;
   autoPay: boolean;
-  status: 'upcoming' | 'paid' | 'overdue' | 'paused';
+  status: "upcoming" | "paid" | "overdue" | "paused";
 }
 
 export interface Insight {
   id: string;
-  kind: 'habit' | 'forecast' | 'saving' | 'warning';
+  kind: "habit" | "forecast" | "saving" | "warning";
   title: string;
   message: string;
   confidence: number;
@@ -130,7 +126,7 @@ export interface Page<T> {
 export interface SyncMutation {
   id: string;
   entity: string;
-  operation: 'create' | 'update' | 'delete';
+  operation: "create" | "update" | "delete";
   baseVersion?: number;
   payload: Record<string, unknown>;
   createdAt: string;
@@ -151,8 +147,136 @@ export interface SyncResult {
   }>;
   changes: Array<{
     entity: string;
-    operation: 'upsert' | 'delete';
+    operation: "upsert" | "delete";
     version: number;
     value: Record<string, unknown>;
   }>;
+}
+
+export type RecaudoStatus = "open" | "closed";
+export type RecaudoRole = "organizer" | "member";
+export type RecaudoPlanFrequency = "daily" | "weekly" | "biweekly" | "monthly";
+export type RecaudoPaymentMode = "manual" | "card_simulated";
+export type RecaudoCategory =
+  "travel" | "gift" | "event" | "purchase" | "other";
+
+export interface RecaudoPlan {
+  amountMinor: number;
+  frequency: RecaudoPlanFrequency;
+  paymentMode: RecaudoPaymentMode;
+  remindersEnabled: boolean;
+  reminderDaysBefore: number[];
+  /** Hora local HH:mm elegida por el participante. */
+  reminderTime: string;
+  simulatedCard?: {
+    brand: "visa_simulated" | "mastercard_simulated";
+    last4: string;
+  };
+}
+
+export interface RecaudoParticipant {
+  id: string;
+  recaudoId: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: RecaudoRole;
+  plan?: RecaudoPlan;
+  contributedMinor: number;
+  joinedAt: string;
+}
+
+export interface RecaudoContribution {
+  id: string;
+  recaudoId: string;
+  participantId: string;
+  userId: string;
+  participantName: string;
+  amountMinor: number;
+  currency: CurrencyCode;
+  paymentMode: RecaudoPaymentMode | "withdrawal";
+  note?: string;
+  simulatedCard?: RecaudoPlan["simulatedCard"];
+  occurredAt: string;
+  createdAt: string;
+}
+
+export interface Recaudo {
+  id: string;
+  workspaceId: string;
+  organizerId: string;
+  title: string;
+  category: RecaudoCategory;
+  description?: string;
+  targetMinor: number;
+  monthlyTargetMinor: number;
+  currency: CurrencyCode;
+  status: RecaudoStatus;
+  deadline?: string;
+  collectedMinor: number;
+  progressPercent: number;
+  participants?: RecaudoParticipant[];
+  contributions?: RecaudoContribution[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecaudoInvite {
+  id: string;
+  recaudoId: string;
+  email: string;
+  role: "member";
+  status: "pending" | "accepted" | "expired" | "revoked";
+  expiresAt: string;
+  acceptedAt?: string;
+  createdAt: string;
+}
+
+export interface RecaudoInviteDelivery {
+  invite: RecaudoInvite;
+  delivered: boolean;
+  previewLink?: string;
+}
+
+/** Financial layer (Unit) — additive contracts; Recaudos product types unchanged. */
+export type PaymentIntentStatus =
+  | "created"
+  | "pending"
+  | "clearing"
+  | "processing"
+  | "settled"
+  | "failed"
+  | "returned"
+  | "canceled"
+  | "rejected";
+
+export type PaymentFundingSource = "unit_ach" | "external_record";
+
+export interface RecaudoFinancialBalances {
+  availableMinor: number;
+  pendingMinor: number;
+  processingMinor: number;
+  failedMinor: number;
+  inFlightMinor: number;
+}
+
+export interface PaymentIntent {
+  id: string;
+  recaudoId: string;
+  participantId: string;
+  userId: string;
+  amountMinor: number;
+  currency: CurrencyCode;
+  direction: "inbound" | "outbound";
+  method: "ach_debit" | "ach_credit" | "book" | "card_future";
+  fundingSource: PaymentFundingSource;
+  status: PaymentIntentStatus;
+  provider: string;
+  providerPaymentId?: string;
+  providerTransactionId?: string;
+  contributionId?: string;
+  withdrawalId?: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
 }

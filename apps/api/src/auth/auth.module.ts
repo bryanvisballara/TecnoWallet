@@ -24,9 +24,12 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { compare, hash } from 'bcryptjs';
 import { createHash, randomUUID } from 'node:crypto';
-import { Model, Types } from 'mongoose';
+import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
-export type AuthPrincipal = { userId: string; email: string };
+export interface AuthPrincipal {
+  userId: string;
+  email: string;
+}
 
 @Schema({ timestamps: true })
 export class User {
@@ -48,7 +51,7 @@ export const UserSchema = SchemaFactory.createForClass(User);
 
 @Schema({ timestamps: true })
 export class RefreshSession {
-  @Prop({ required: true, index: true })
+  @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
   userId!: Types.ObjectId;
 
   @Prop({ required: true, unique: true })
@@ -76,7 +79,7 @@ export class Workspace {
   @Prop({ required: true, type: String, enum: ['personal', 'shared'] })
   type!: 'personal' | 'shared';
 
-  @Prop({ required: true, index: true })
+  @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
   ownerId!: Types.ObjectId;
 
   @Prop({ default: 'USD', uppercase: true })
@@ -86,10 +89,10 @@ export const WorkspaceSchema = SchemaFactory.createForClass(Workspace);
 
 @Schema({ timestamps: true })
 export class Membership {
-  @Prop({ required: true, index: true })
+  @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
   workspaceId!: Types.ObjectId;
 
-  @Prop({ required: true, index: true })
+  @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
   userId!: Types.ObjectId;
 
   @Prop({ required: true, enum: ['owner', 'admin', 'member', 'viewer'] })

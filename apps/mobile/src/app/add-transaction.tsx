@@ -1,34 +1,86 @@
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
+import { money } from '@/data/demo';
+import { toDateKey } from '@/data/calendar';
+import { isLiquidAccount } from '@/lib/accounts';
+import { notifyTransactionAdded } from '@/services/push-notifications';
 import { useAuthStore } from '@/store/auth';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger } from '@/store/ledger';
-
-const categories = ['Alimentación', 'Hogar', 'Transporte', 'Ocio', 'Salud', 'Ingresos'];
+import { usePeriodStore } from '@/store/period';
 
 export default function AddTransactionScreen() {
   const theme = useAppTheme();
   const profile = useAuthStore((state) => state.profile);
-  const { accounts, ledger } = useActiveLedger();
+  const { accounts, envelopes, ledger } = useActiveLedger();
   const addTransaction = useFinanceStore((state) => state.addTransaction);
-  const [type, setType] = useState<'expense' | 'income' | 'transfer'>('expense');
+  const year = usePeriodStore((state) => state.year);
+  const month = usePeriodStore((state) => state.month);
+  const isCurrentMonth = usePeriodStore((state) => state.isCurrentMonth);
+  const liquidAccounts = useMemo(
+    () => accounts.filter((item) => isLiquidAccount(item.kind)),
+    [accounts],
+  );
+  const [type, setType] = useState<'expense' | 'income'>('expense');
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('Alimentación');
-  const [account, setAccount] = useState(accounts[0]?.name ?? 'Efectivo');
-  const [date, setDate] = useState('Hoy');
+  const [envelopeId, setEnvelopeId] = useState('');
+  const [accountId, setAccountId] = useState(liquidAccounts[0]?.id ?? '');
+  const [date, setDate] = useState(() =>
+    isCurrentMonth
+      ? 'Hoy'
+      : toDateKey(new Date(year, month, Math.min(new Date().getDate(), new Date(year, month + 1, 0).getDate()))),
+  );
   const [note, setNote] = useState('');
   const [tags, setTags] = useState('');
   const [recurring, setRecurring] = useState(false);
   const [receipt, setReceipt] = useState<string>();
   const [saving, setSaving] = useState(false);
+
+  const envelopeOptions = useMemo(
+    () =>
+      envelopes.filter((item) =>
+        type === 'income' ? item.kind === 'income' : item.kind === 'expense' || item.kind === 'savings',
+      ),
+    [envelopes, type],
+  );
+  const selectedEnvelope = useMemo(
+    () => envelopeOptions.find((item) => item.id === envelopeId) ?? envelopeOptions[0],
+    [envelopeOptions, envelopeId],
+  );
+  const selectedAccount = useMemo(
+    () => liquidAccounts.find((item) => item.id === accountId) ?? liquidAccounts[0],
+    [liquidAccounts, accountId],
+  );
+
+  useEffect(() => {
+    if (!liquidAccounts.length) {
+      setAccountId('');
+      return;
+    }
+    if (!liquidAccounts.some((item) => item.id === accountId)) {
+      setAccountId(liquidAccounts[0].id);
+    }
+  }, [liquidAccounts, accountId]);
+
+  useEffect(() => {
+    if (!envelopeOptions.length) {
+      setEnvelopeId('');
+      return;
+    }
+    if (!envelopeOptions.some((item) => item.id === envelopeId)) {
+      setEnvelopeId(envelopeOptions[0].id);
+    }
+  }, [envelopeOptions, envelopeId]);
+
+  const accountLabel =
+    type === 'income' ? '¿A qué cuenta ingresó?' : '¿De qué cuenta salió?';
 
   const pickReceipt = async (camera = false) => {
     const result = camera
@@ -43,18 +95,52 @@ export default function AddTransactionScreen() {
       Alert.alert('Faltan datos', 'Agrega un concepto y un importe válido.');
       return;
     }
+    if (!selectedEnvelope) {
+      Alert.alert(
+        'Falta un sobre',
+        `Crea un sobre de ${type === 'income' ? 'ingresos' : 'gastos'} en ${ledger.name} para clasificar este movimiento.`,
+      );
+      return;
+    }
+    if (!selectedAccount) {
+      Alert.alert(
+        'Falta una cuenta',
+        `Crea una cuenta en el libro ${ledger.name} para registrar este movimiento.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
+      const occurredAt =
+        date.trim().toLowerCase() === 'hoy' && isCurrentMonth
+          ? toDateKey(new Date())
+          : /^\d{4}-\d{2}-\d{2}$/.test(date.trim())
+            ? date.trim()
+            : isCurrentMonth
+              ? toDateKey(new Date())
+              : toDateKey(
+                  new Date(
+                    year,
+                    month,
+                    Math.min(new Date().getDate(), new Date(year, month + 1, 0).getDate()),
+                  ),
+                );
       await addTransaction({
         title: title.trim(),
-        category,
-        account,
+        category: selectedEnvelope.name,
+        account: selectedAccount.name,
         amount: type === 'income' ? parsed : -parsed,
         note,
         tags: [...tags.split(',').map((item) => item.trim()).filter(Boolean), ...(receipt ? ['recibo', 'ocr-pendiente'] : [])],
         recurring,
-        date,
+        date: occurredAt,
         createdBy: ledger.type === 'shared' ? profile.name : undefined,
+      });
+      await notifyTransactionAdded({
+        kind: type,
+        concept: title.trim(),
+        amount: parsed,
+        ledgerName: ledger.name,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
@@ -66,21 +152,110 @@ export default function AddTransactionScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+    <SheetScreen>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}><Pressable onPress={() => router.back()}><Text style={[styles.cancel, { color: theme.primary }]}>Cancelar</Text></Pressable><Text style={[styles.headerTitle, { color: theme.text }]}>Nuevo · {ledger.name}</Text><View style={styles.headerSpacer} /></View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.segmented, { backgroundColor: theme.surfaceSecondary }]}>
-            {[['expense', 'Gasto'], ['income', 'Ingreso'], ['transfer', 'Transferencia']].map(([value, label]) => (
-              <Pressable key={value} onPress={() => setType(value as typeof type)} style={[styles.segment, type === value && { backgroundColor: theme.surface }]}>
+            {([['expense', 'Gasto'], ['income', 'Ingreso']] as const).map(([value, label]) => (
+              <Pressable key={value} onPress={() => setType(value)} style={[styles.segment, type === value && { backgroundColor: theme.surface }]}>
                 <Text style={[styles.segmentText, { color: type === value ? theme.text : theme.muted }]}>{label}</Text>
               </Pressable>
             ))}
           </View>
           <View style={styles.amountBlock}><Text style={[styles.currency, { color: theme.muted }]}>USD</Text><TextInput value={amount} onChangeText={setAmount} autoFocus keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.border} style={[styles.amountInput, { color: type === 'income' ? theme.success : theme.text }]} accessibilityLabel="Importe" /></View>
           <Field label="Concepto"><TextInput value={title} onChangeText={setTitle} placeholder="¿En qué fue?" placeholderTextColor={theme.muted} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field>
-          <Field label="Categoría"><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>{categories.map((item) => <Pressable key={item} onPress={() => setCategory(item)} style={[styles.chip, { backgroundColor: category === item ? theme.primary : theme.surface, borderColor: category === item ? theme.primary : theme.border }]}><Text style={[styles.chipText, { color: category === item ? '#FFFFFF' : theme.muted }]}>{item}</Text></Pressable>)}</ScrollView></Field>
-          <View style={styles.twoColumns}><Field label="Cuenta" style={styles.flex}><TextInput value={account} onChangeText={setAccount} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field><Field label="Fecha" style={styles.flex}><TextInput value={date} onChangeText={setDate} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field></View>
+          <Field
+            label={
+              type === 'income'
+                ? 'Sobre de ingresos'
+                : 'Sobre de gastos o ahorros'
+            }>
+            {envelopeOptions.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                {envelopeOptions.map((item) => {
+                  const selected = selectedEnvelope?.id === item.id;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => setEnvelopeId(item.id)}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: selected ? item.color : theme.surface,
+                          borderColor: selected ? item.color : theme.border,
+                        },
+                      ]}>
+                      <AppIcon name={item.icon} color={selected ? '#FFFFFF' : item.color} size={14} />
+                      <Text style={[styles.chipText, { color: selected ? '#FFFFFF' : theme.muted }]}>
+                        {item.kind === 'savings' ? `${item.name} · ahorro` : item.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : (
+              <Pressable
+                onPress={() =>
+                  router.push({ pathname: '/add-envelope', params: { kind: type } })
+                }
+                style={[styles.emptyAccounts, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
+                <Text style={[styles.accountName, { color: theme.text }]}>
+                  No hay sobres de {type === 'income' ? 'ingresos' : 'gastos'}
+                </Text>
+                <Text style={[styles.accountMeta, { color: theme.muted }]}>
+                  Toca para crear uno en {ledger.name}.
+                </Text>
+              </Pressable>
+            )}
+          </Field>
+          <Field label={accountLabel}>
+            {liquidAccounts.length ? (
+              <View style={styles.accountList}>
+                {liquidAccounts.map((item) => {
+                  const selected = selectedAccount?.id === item.id;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Seleccionar cuenta ${item.name}`}
+                      onPress={() => setAccountId(item.id)}
+                      style={[
+                        styles.accountOption,
+                        {
+                          backgroundColor: selected ? theme.primarySoft : theme.surface,
+                          borderColor: selected ? theme.primary : theme.border,
+                        },
+                      ]}>
+                      <View style={[styles.accountIcon, { backgroundColor: `${item.color}1A` }]}>
+                        <AppIcon name={item.icon} color={item.color} size={18} />
+                      </View>
+                      <View style={styles.accountCopy}>
+                        <Text style={[styles.accountName, { color: theme.text }]}>{item.name}</Text>
+                        <Text style={[styles.accountMeta, { color: theme.muted }]}>
+                          {item.kind} · {money(item.balance, true)}
+                        </Text>
+                      </View>
+                      {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => router.push('/(tabs)/mis-cuentas')}
+                style={[styles.emptyAccounts, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
+                <Text style={[styles.accountName, { color: theme.text }]}>
+                  Este libro aún no tiene cuentas líquidas
+                </Text>
+                <Text style={[styles.accountMeta, { color: theme.muted }]}>
+                  Crea una cuenta (corriente, ahorro o efectivo) en {ledger.name}. Los bienes y
+                  deudas no sirven para movimientos.
+                </Text>
+              </Pressable>
+            )}
+          </Field>
+          <Field label="Fecha"><TextInput value={date} onChangeText={setDate} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field>
           <Field label="Nota"><TextInput value={note} onChangeText={setNote} multiline placeholder="Opcional" placeholderTextColor={theme.muted} style={[styles.input, styles.note, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field>
           <Field label="Etiquetas"><TextInput value={tags} onChangeText={setTags} placeholder="hogar, compartido…" placeholderTextColor={theme.muted} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field>
           <View style={[styles.switchRow, { backgroundColor: theme.surface, borderColor: theme.border }]}><View style={styles.flex}><Text style={[styles.fieldLabel, { color: theme.text }]}>Movimiento recurrente</Text><Text style={[styles.hint, { color: theme.muted }]}>Repetir y recibir recordatorios</Text></View><Switch value={recurring} onValueChange={setRecurring} trackColor={{ true: theme.primary }} /></View>
@@ -89,7 +264,7 @@ export default function AddTransactionScreen() {
           <Text style={[styles.offline, { color: theme.muted }]}>Sin conexión se guardará y sincronizará después.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </SheetScreen>
   );
 }
 
@@ -99,15 +274,46 @@ function Field({ label, children, style }: PropsWithChildren<{ label: string; st
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 }, flex: { flex: 1 }, header: { height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18 },
+  flex: { flex: 1 }, header: { height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18 },
   cancel: { fontSize: 15, fontWeight: '600' }, headerTitle: { fontSize: 17, fontWeight: '700' }, headerSpacer: { width: 62 },
   content: { padding: 18, paddingBottom: 60, gap: 18, maxWidth: 620, width: '100%', alignSelf: 'center' },
   segmented: { padding: 4, borderRadius: 14, flexDirection: 'row' }, segment: { flex: 1, minHeight: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.06, shadowRadius: 5 },
   segmentText: { fontSize: 12, fontWeight: '600' }, amountBlock: { alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   currency: { fontSize: 12, fontWeight: '700', letterSpacing: 1 }, amountInput: { fontSize: 52, fontWeight: '700', minWidth: 200, textAlign: 'center', letterSpacing: -1.5 },
   field: { gap: 8 }, fieldLabel: { fontSize: 13, fontWeight: '600' }, input: { minHeight: 50, borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, paddingHorizontal: 14, fontSize: 15 },
-  note: { minHeight: 84, paddingTop: 13, textAlignVertical: 'top' }, chips: { gap: 8 }, chip: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 9 },
-  chipText: { fontSize: 12, fontWeight: '600' }, twoColumns: { flexDirection: 'row', gap: 10 },
+  note: { minHeight: 84, paddingTop: 13, textAlignVertical: 'top' },
+  chips: { gap: 8, alignItems: 'center' },
+  chip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  chipText: { fontSize: 12, fontWeight: '600' },
+  accountList: { gap: 8 },
+  accountOption: {
+    minHeight: 62,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  accountIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  accountCopy: { flex: 1, gap: 2, minWidth: 0 },
+  accountName: { fontSize: 14, fontWeight: '700' },
+  accountMeta: { fontSize: 11 },
+  emptyAccounts: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 4,
+  },
   switchRow: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, minHeight: 68, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' },
   hint: { fontSize: 11, marginTop: 3 }, receiptRow: { flexDirection: 'row', gap: 10 }, receiptButton: { flex: 1, minHeight: 72, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', gap: 6 },
   receiptText: { fontSize: 12, fontWeight: '600' }, offline: { textAlign: 'center', fontSize: 11 },

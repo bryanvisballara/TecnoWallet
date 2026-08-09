@@ -7,11 +7,13 @@ import { AppIcon, useAppTheme } from '@/components/ui';
 const tabs = [
   { name: 'inicio', title: 'Inicio', icon: 'house.fill' },
   { name: 'sobres', title: 'Sobres', icon: 'wallet.pass.fill' },
-  { name: 'cuentas', title: 'Cuentas', icon: 'creditcard.fill' },
-  { name: 'movimientos', title: 'Movs', icon: 'arrow.up.arrow.down.circle.fill', a11y: 'Movimientos' },
+  { name: 'cuentas', title: 'Finanzas', icon: 'creditcard.fill' },
+  { name: 'recaudos', title: 'Recaudos', icon: 'person.2.fill' },
   { name: 'calendario', title: 'Calendario', icon: 'calendar', a11y: 'Calendario' },
   { name: 'mas', title: 'Más', icon: 'ellipsis.circle.fill' },
 ];
+
+const hiddenTabs = ['mis-cuentas', 'salud-financiera', 'metas', 'movimientos'] as const;
 
 export default function TabsLayout() {
   const theme = useAppTheme();
@@ -44,6 +46,9 @@ export default function TabsLayout() {
             ),
           }}
         />
+      ))}
+      {hiddenTabs.map((name) => (
+        <Tabs.Screen key={name} name={name} options={{ href: null }} />
       ))}
     </Tabs>
   );

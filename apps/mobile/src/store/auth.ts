@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 
-import { localStorage, tokenStorage } from '@/services/persistence';
+import { apiRequest } from '@/services/api';
+import {
+  localStorage,
+  refreshTokenStorage,
+  tokenStorage,
+} from '@/services/persistence';
 
 export type UserProfile = {
   name: string;
@@ -23,6 +28,12 @@ type AuthState = {
   signOut: () => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
+};
+
+type AuthResponse = {
+  accessToken: string;
+  refreshToken: string;
+  user: { id: string; name: string; email: string };
 };
 
 const defaultProfile: UserProfile = {
@@ -53,6 +64,21 @@ async function writeProfile(profile: UserProfile) {
   ]);
 }
 
+async function persistAuthSession(auth: AuthResponse) {
+  const profile: UserProfile = {
+    name: auth.user.name,
+    email: auth.user.email.toLowerCase(),
+  };
+  await Promise.all([
+    tokenStorage.set(auth.accessToken),
+    refreshTokenStorage.set(auth.refreshToken),
+    localStorage.set('demo-session', false),
+    localStorage.set('auth-user-id', auth.user.id),
+    writeProfile(profile),
+  ]);
+  return profile;
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   hydrated: false,
   onboarded: false,
@@ -60,53 +86,60 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   demo: false,
   profile: defaultProfile,
   hydrate: async () => {
-    const [onboarded, token, demo, profile] = await Promise.all([
+    const [onboarded, token, refreshToken, demo, profile] = await Promise.all([
       localStorage.get('onboarded', false),
       tokenStorage.get(),
+      refreshTokenStorage.get(),
       localStorage.get('demo-session', false),
       readProfile(),
     ]);
-    set({ hydrated: true, onboarded, authenticated: Boolean(token) || demo, demo, profile });
+    set({
+      hydrated: true,
+      onboarded,
+      authenticated: Boolean(token || refreshToken) || demo,
+      demo,
+      profile,
+    });
   },
   finishOnboarding: async () => {
     await localStorage.set('onboarded', true);
     set({ onboarded: true });
   },
   signIn: async (email, password) => {
-    if (!email.trim() || password.length < 6) throw new Error('Revisa tu correo y contraseña.');
-    await tokenStorage.set(`demo-${Date.now()}`);
-    await localStorage.set('demo-session', false);
-    const profile = {
-      ...get().profile,
-      email: email.trim().toLowerCase(),
-    };
-    await writeProfile(profile);
+    if (!email.trim() || password.length < 8) {
+      throw new Error('Revisa tu correo y contraseña (mínimo 8 caracteres).');
+    }
+    const auth = await apiRequest<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password,
+      }),
+    });
+    const profile = await persistAuthSession(auth);
     set({ authenticated: true, demo: false, profile });
   },
   signUp: async (name, email, password) => {
-    if (!name.trim() || !email.trim() || password.length < 6) {
-      throw new Error('Revisa tu nombre, correo y contraseña.');
+    if (!name.trim() || !email.trim() || password.length < 8) {
+      throw new Error(
+        'Revisa tu nombre, correo y contraseña (mínimo 8 caracteres).',
+      );
     }
-    await tokenStorage.set(`demo-${Date.now()}`);
-    await localStorage.set('demo-session', false);
-    const profile = {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      avatarUri: get().profile.avatarUri,
-    };
-    await writeProfile(profile);
+    const auth = await apiRequest<AuthResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+      }),
+    });
+    const profile = await persistAuthSession(auth);
     set({ authenticated: true, demo: false, profile });
   },
   signInWithGoogle: async () => {
-    await tokenStorage.set(`google-${Date.now()}`);
-    await localStorage.set('demo-session', false);
-    await localStorage.set('auth-provider', 'google');
-    const profile = {
-      ...get().profile,
-      email: get().profile.email || 'google@tecnowallet.app',
-    };
-    await writeProfile(profile);
-    set({ authenticated: true, demo: false, profile });
+    throw new Error(
+      'El acceso con Google todavía no está conectado. Usa correo o entra al modo demo.',
+    );
   },
   enterDemo: async () => {
     await localStorage.set('demo-session', true);
@@ -115,7 +148,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ authenticated: true, demo: true, profile });
   },
   signOut: async () => {
-    await Promise.all([tokenStorage.clear(), localStorage.set('demo-session', false)]);
+    const refreshToken = await refreshTokenStorage.get();
+    if (refreshToken && !get().demo) {
+      try {
+        await apiRequest('/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken }),
+        });
+      } catch {
+        // Local sign-out must still finish when the API is unavailable.
+      }
+    }
+    await Promise.all([
+      tokenStorage.clear(),
+      refreshTokenStorage.clear(),
+      localStorage.set('demo-session', false),
+      localStorage.remove('auth-user-id'),
+    ]);
     set({ authenticated: false, demo: false });
   },
   updateProfile: async (patch) => {

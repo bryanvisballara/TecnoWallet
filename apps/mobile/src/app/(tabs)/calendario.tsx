@@ -11,6 +11,7 @@ import {
 import Animated, { FadeInDown, FadeOut, ZoomIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CalendarSwitcher } from '@/components/calendar-switcher';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
   buildMonthMatrix,
@@ -23,7 +24,7 @@ import {
   type CalendarItem,
   type CalendarItemType,
 } from '@/data/calendar';
-import { useCalendarStore } from '@/store/calendar';
+import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { useTabBarStore } from '@/store/tab-bar';
 
@@ -32,11 +33,14 @@ const weekDays = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 export default function CalendarScreen() {
   const theme = useAppTheme();
   const { tabsBottom, fabBottom } = useSafeLayout();
-  const items = useCalendarStore((state) => state.items);
+  const { items, calendar, activeCalendarId } = useActiveCalendar();
   const toggleTask = useCalendarStore((state) => state.toggleTask);
   const onScrollOffset = useTabBarStore((state) => state.onScrollOffset);
-  const today = useMemo(() => new Date(2026, 7, 5), []);
-  const [anchor, setAnchor] = useState(() => new Date(2026, 7, 1));
+  const today = useMemo(() => new Date(), []);
+  const todayKey = useMemo(() => toDateKey(today), [today]);
+  const [anchor, setAnchor] = useState(
+    () => new Date(today.getFullYear(), today.getMonth(), 1),
+  );
   const [selectedKey, setSelectedKey] = useState(() => toDateKey(today));
   const [view, setView] = useState<'month' | 'day'>('month');
   const [fabOpen, setFabOpen] = useState(false);
@@ -75,33 +79,43 @@ export default function CalendarScreen() {
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
       {fabOpen ? <Pressable style={styles.fabScrim} onPress={() => setFabOpen(false)} /> : null}
       <View style={styles.header}>
-        <View>
-          <Pressable onPress={() => setView(view === 'month' ? 'day' : 'month')} style={styles.monthButton}>
+        <View style={styles.headerCopy}>
+          <CalendarSwitcher />
+          <Pressable
+            onPress={() => setView(view === 'month' ? 'day' : 'month')}
+            onLongPress={() => {
+              setAnchor(new Date(today.getFullYear(), today.getMonth(), 1));
+              setSelectedKey(todayKey);
+              setView('day');
+            }}
+            style={styles.monthButton}>
             <Text style={[styles.monthTitle, { color: theme.text }]}>{formatMonthTitle(anchor)}</Text>
             <AppIcon name="chevron" color={theme.muted} size={14} />
           </Pressable>
-          <Text style={[styles.subtitle, { color: theme.muted }]}>
-            {view === 'month' ? 'Vista mensual' : formatDayLabelSafe(selectedDate)}
-          </Text>
-        </View>
-        <View style={styles.headerActions}>
-          <ScalePressable
-            accessibilityLabel="Buscar"
-            onPress={() => undefined}
-            style={[styles.iconBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <AppIcon name="magnifyingglass" color={theme.text} size={18} />
-          </ScalePressable>
-          <ScalePressable
-            accessibilityLabel="Ir a hoy"
+          <Pressable
             onPress={() => {
+              if (selectedKey === todayKey && view === 'day') return;
               setAnchor(new Date(today.getFullYear(), today.getMonth(), 1));
-              setSelectedKey(toDateKey(today));
+              setSelectedKey(todayKey);
               setView('day');
-            }}
-            style={[styles.todayBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.todayText, { color: theme.primary }]}>{today.getDate()}</Text>
-          </ScalePressable>
+            }}>
+            <Text style={[styles.subtitle, { color: theme.muted }]}>
+              {view === 'month' ? 'Vista mensual' : formatDayLabelSafe(selectedDate)}
+              {selectedKey !== todayKey ? ' · Ir a hoy' : ''}
+            </Text>
+          </Pressable>
         </View>
+        <ScalePressable
+          accessibilityLabel={`Invitar a ${calendar?.name ?? 'calendario'}`}
+          onPress={() =>
+            router.push({
+              pathname: '/calendars',
+              params: { focus: activeCalendarId, tab: 'share' },
+            })
+          }
+          style={[styles.iconBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <AppIcon name="person.badge.plus" color={theme.primary} size={20} />
+        </ScalePressable>
       </View>
 
       <ScrollView
@@ -375,12 +389,13 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: 12,
   },
-  monthButton: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  monthTitle: { fontSize: 28, fontWeight: '700', letterSpacing: -0.8 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 2 },
+  monthButton: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  monthTitle: { fontSize: 26, fontWeight: '700', letterSpacing: -0.8 },
   subtitle: { fontSize: 13, marginTop: 2 },
-  headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   iconBtn: {
     width: 40,
     height: 40,
@@ -388,16 +403,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 2,
   },
-  todayBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  todayText: { fontSize: 16, fontWeight: '800' },
   monthStrip: { maxHeight: 48 },
   monthPills: { paddingHorizontal: 18, gap: 8, alignItems: 'center' },
   monthPill: {

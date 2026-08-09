@@ -1,5 +1,13 @@
 export type CalendarItemType = 'event' | 'task' | 'birthday';
 
+export type CalendarAttachment = {
+  id: string;
+  name: string;
+  uri: string;
+  mimeType?: string;
+  kind: 'image' | 'file';
+};
+
 export type CalendarItem = {
   id: string;
   type: CalendarItemType;
@@ -12,9 +20,16 @@ export type CalendarItem = {
   color: string;
   notes?: string;
   location?: string;
+  meetingLink?: string;
   list?: string;
   reminder?: string;
+  repeat?: string;
+  assigneeName?: string;
+  assigneeEmail?: string;
   completed?: boolean;
+  attachments?: CalendarAttachment[];
+  /** Libro/calendario al que pertenece (p. ej. personal o el de un jefe). */
+  calendarId?: string;
 };
 
 export const calendarColors = {
@@ -23,6 +38,133 @@ export const calendarColors = {
   birthday: '#12B76A',
   flight: '#F79009',
 } as const;
+
+export const calendarRepeatOptions = [
+  'No se repite',
+  'Cada día',
+  'Cada semana',
+  'Cada mes',
+  'Cada año',
+] as const;
+
+export const calendarListOptions = [
+  'Mi calendario',
+  'Mis tareas',
+  'Trabajo',
+  'Personal',
+] as const;
+
+export const calendarReminderOptions = [
+  'En el momento',
+  '5 minutos antes',
+  '10 minutos antes',
+  '15 minutos antes',
+  '30 minutos antes',
+  '1 hora antes',
+  '2 horas antes',
+  'El día del evento a las 09:00',
+  '1 día antes a las 09:00',
+  '1 semana antes a las 09:00',
+  'Hora personalizada…',
+  'Sin notificación',
+] as const;
+
+export const CALENDAR_REMINDER_NONE = 'Sin notificación';
+export const CALENDAR_REMINDER_CUSTOM = 'Hora personalizada…';
+
+export function hourFromHhmm(value: string): number | undefined {
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+  if (!match) return undefined;
+  return Number(match[1]) + Number(match[2]) / 60;
+}
+
+export function hhmmFromHour(value?: number, fallback = '10:00') {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  const hours = Math.floor(value);
+  const minutes = Math.round((value - hours) * 60);
+  return `${`${hours}`.padStart(2, '0')}:${`${minutes}`.padStart(2, '0')}`;
+}
+
+export function formatReminderLabel(reminder: string) {
+  if (reminder === CALENDAR_REMINDER_NONE) return 'Sin notificación push';
+  if (reminder.startsWith('A las ')) return `Push a las ${reminder.slice(6)}`;
+  return `Push · ${reminder}`;
+}
+
+/** Calcula cuándo debe dispararse el recordatorio push. */
+export function resolveCalendarReminderAt(input: {
+  date: string;
+  allDay: boolean;
+  startHour?: number;
+  reminder?: string;
+}): Date | null {
+  const reminder = input.reminder?.trim();
+  if (!reminder || reminder === CALENDAR_REMINDER_NONE || reminder === CALENDAR_REMINDER_CUSTOM) {
+    return null;
+  }
+
+  const eventAt = (() => {
+    const date = parseDateKey(input.date);
+    if (input.allDay || input.startHour == null) {
+      date.setHours(9, 0, 0, 0);
+      return date;
+    }
+    const hours = Math.floor(input.startHour);
+    const minutes = Math.round((input.startHour - hours) * 60);
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  })();
+
+  const atTimeOnDay = (daysBefore: number, hour: number, minute: number) => {
+    const date = parseDateKey(input.date);
+    date.setDate(date.getDate() - daysBefore);
+    date.setHours(hour, minute, 0, 0);
+    return date;
+  };
+
+  const customAt = /^A las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
+  if (customAt) {
+    return atTimeOnDay(0, Number(customAt[1]), Number(customAt[2]));
+  }
+
+  const dayBeforeAt = /^El día anterior a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
+  if (dayBeforeAt) {
+    return atTimeOnDay(1, Number(dayBeforeAt[1]), Number(dayBeforeAt[2]));
+  }
+
+  const dayOfAt = /^El día del evento a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
+  if (dayOfAt) {
+    return atTimeOnDay(0, Number(dayOfAt[1]), Number(dayOfAt[2]));
+  }
+
+  const dayBeforeFixed = /^1 día antes a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
+  if (dayBeforeFixed) {
+    return atTimeOnDay(1, Number(dayBeforeFixed[1]), Number(dayBeforeFixed[2]));
+  }
+
+  const weekBeforeFixed = /^1 semana antes a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
+  if (weekBeforeFixed) {
+    return atTimeOnDay(7, Number(weekBeforeFixed[1]), Number(weekBeforeFixed[2]));
+  }
+
+  if (reminder === 'En el momento') {
+    return eventAt;
+  }
+
+  const minutesBefore = (() => {
+    const match = /^(\d+)\s+minutos?\s+antes$/i.exec(reminder);
+    if (match) return Number(match[1]);
+    if (/^1 hora antes$/i.test(reminder)) return 60;
+    if (/^2 horas antes$/i.test(reminder)) return 120;
+    return null;
+  })();
+
+  if (minutesBefore != null) {
+    return new Date(eventAt.getTime() - minutesBefore * 60_000);
+  }
+
+  return null;
+}
 
 export const seedCalendarItems: CalendarItem[] = [
   {

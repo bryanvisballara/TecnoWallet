@@ -2,54 +2,54 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
+import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger } from '@/store/ledger';
+import { usePeriodStore } from '@/store/period';
 
 const filters = ['Todos', 'Gastos', 'Ingresos', 'Recurrentes'];
-const MONTH_LABEL = 'Agosto 2026';
 
 export default function TransactionsScreen() {
   const theme = useAppTheme();
   const { fabBottom } = useSafeLayout();
-  const { ledger, summary } = useActiveLedger();
+  const { ledger } = useActiveLedger();
   const transactions = useFinanceStore((state) => state.transactions);
   const pending = useFinanceStore((state) => state.pendingIds);
+  const year = usePeriodStore((state) => state.year);
+  const month = usePeriodStore((state) => state.month);
+  const monthLabel = usePeriodStore((state) => state.label);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('Todos');
   const [calendar, setCalendar] = useState(false);
+  const period = useMemo(() => ({ year, month }), [year, month]);
+  const monthTransactions = useMemo(
+    () => filterTransactionsByMonth(transactions, period),
+    [transactions, period],
+  );
 
   const totals = useMemo(() => {
-    const fromTx = transactions.reduce(
-      (acc, item) => {
-        if (item.amount > 0) acc.income += item.amount;
-        else acc.expenses += Math.abs(item.amount);
-        return acc;
-      },
-      { income: 0, expenses: 0 },
-    );
-    // Prefer live txs when present; otherwise fall back to ledger summary (kept in sync on add).
-    const income = transactions.length ? fromTx.income : summary.income;
-    const expenses = transactions.length ? fromTx.expenses : summary.expenses;
-    return { income, expenses, balance: income - expenses };
-  }, [transactions, summary.income, summary.expenses]);
+    const fromTx = monthTotals(monthTransactions);
+    return { ...fromTx, balance: fromTx.income - fromTx.expenses };
+  }, [monthTransactions]);
 
-  const visible = useMemo(() => transactions.filter((item) => {
+  const visible = useMemo(() => monthTransactions.filter((item) => {
     const textMatch = `${item.title} ${item.category} ${item.account}`.toLowerCase().includes(query.toLowerCase());
     const filterMatch = filter === 'Todos' || (filter === 'Gastos' && item.amount < 0) || (filter === 'Ingresos' && item.amount > 0) || (filter === 'Recurrentes' && item.recurring);
     return textMatch && filterMatch;
-  }), [transactions, query, filter]);
+  }), [monthTransactions, query, filter]);
 
-  const isEmptyBook = transactions.length === 0;
+  const isEmptyBook = monthTransactions.length === 0;
   const noFilterResults = !isEmptyBook && visible.length === 0;
 
   return (
     <Screen
       withTabBar
       title="Movimientos"
-      subtitle={`${transactions.length} operaciones · ${ledger.name}`}
+      subtitle={`${monthTransactions.length} en ${monthLabel} · ${ledger.name}`}
       floating={
         <ScalePressable
           accessibilityRole="button"
@@ -59,6 +59,7 @@ export default function TransactionsScreen() {
           <AppIcon name="plus" color="#FFFFFF" size={28} />
         </ScalePressable>
       }>
+      <MonthSwitcher />
       <View style={styles.searchRow}>
         <View style={[styles.search, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <AppIcon name="magnifyingglass" color={theme.muted} />
@@ -88,11 +89,11 @@ export default function TransactionsScreen() {
         ))}
       </View>
 
-      {calendar && <CalendarStrip hasActivity={!isEmptyBook} />}
+      {calendar && <CalendarStrip label={monthLabel} hasActivity={!isEmptyBook} />}
 
       <Card style={[styles.summary, { backgroundColor: theme.primarySoft }]}>
         <View>
-          <Text style={[styles.small, { color: theme.muted }]}>Balance de agosto</Text>
+          <Text style={[styles.small, { color: theme.muted }]}>Balance · {monthLabel}</Text>
           <Text style={[styles.summaryValue, { color: theme.text }]}>{money(totals.balance)}</Text>
         </View>
         <View style={styles.summarySides}>
@@ -102,7 +103,7 @@ export default function TransactionsScreen() {
       </Card>
 
       <View style={uiStyles.between}>
-        <Text style={[styles.section, { color: theme.text }]}>{query || filter !== 'Todos' ? 'Resultados' : MONTH_LABEL}</Text>
+        <Text style={[styles.section, { color: theme.text }]}>{query || filter !== 'Todos' ? 'Resultados' : monthLabel}</Text>
         <ScalePressable style={[styles.filterButton, { backgroundColor: theme.surfaceSecondary }]}>
           <AppIcon name="line.3.horizontal.decrease" color={theme.primary} size={16} /><Text style={[styles.small, { color: theme.primary }]}>Filtrar</Text>
         </ScalePressable>
@@ -128,7 +129,7 @@ export default function TransactionsScreen() {
             <AppIcon name="doc.text.fill" color={theme.muted} size={32} />
             <Text style={[styles.rowTitle, { color: theme.text }]}>Sin movimientos</Text>
             <Text style={[styles.small, { color: theme.muted, textAlign: 'center' }]}>
-              Este libro aún no tiene operaciones. Agrega la primera con +.
+              No hay operaciones en {monthLabel}. Cambia de mes o agrega una con +.
             </Text>
           </View>
         ) : null}
@@ -144,11 +145,11 @@ export default function TransactionsScreen() {
   );
 }
 
-function CalendarStrip({ hasActivity }: { hasActivity: boolean }) {
+function CalendarStrip({ label, hasActivity }: { label: string; hasActivity: boolean }) {
   const theme = useAppTheme();
   return (
     <Card>
-      <View style={uiStyles.between}><Text style={[styles.section, { color: theme.text }]}>{MONTH_LABEL}</Text><View style={uiStyles.row}><AppIcon name="arrow.left" color={theme.muted} /><AppIcon name="chevron" color={theme.muted} /></View></View>
+      <View style={uiStyles.between}><Text style={[styles.section, { color: theme.text }]}>{label}</Text><View style={uiStyles.row}><AppIcon name="arrow.left" color={theme.muted} /><AppIcon name="chevron" color={theme.muted} /></View></View>
       <View style={styles.week}>
         {['L 3', 'M 4', 'X 5', 'J 6', 'V 7', 'S 8', 'D 9'].map((day, index) => (
           <View key={day} style={[styles.day, index === 2 && { backgroundColor: theme.primary }]}>

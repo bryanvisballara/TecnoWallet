@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -19,6 +20,7 @@ export default function LedgersScreen() {
   const activeLedgerId = useLedgerStore((state) => state.activeLedgerId);
   const setActiveLedger = useLedgerStore((state) => state.setActiveLedger);
   const createLedger = useLedgerStore((state) => state.createLedger);
+  const deleteLedger = useLedgerStore((state) => state.deleteLedger);
   const inviteMember = useLedgerStore((state) => state.inviteMember);
   const removeMember = useLedgerStore((state) => state.removeMember);
   const renameLedger = useLedgerStore((state) => state.renameLedger);
@@ -63,6 +65,35 @@ export default function LedgersScreen() {
     const id = await createLedger(newLedgerName.trim());
     setNewLedgerName('');
     setSelectedId(id);
+  };
+
+  const onDelete = () => {
+    if (ledgers.length <= 1) {
+      Alert.alert('No puedes borrar este libro', 'Debes conservar al menos un libro.');
+      return;
+    }
+
+    const remove = async () => {
+      try {
+        const nextActiveId = await deleteLedger(selected.id);
+        setSelectedId(nextActiveId);
+      } catch (error) {
+        Alert.alert(
+          'No se pudo borrar',
+          error instanceof Error ? error.message : 'Inténtalo nuevamente.',
+        );
+      }
+    };
+
+    const message = `Se borrarán permanentemente todos los movimientos, cuentas y sobres de "${selected.name}".`;
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(`${message}\n\n¿Deseas continuar?`)) void remove();
+      return;
+    }
+    Alert.alert('¿Borrar este libro?', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Borrar libro', style: 'destructive', onPress: () => void remove() },
+    ]);
   };
 
   return (
@@ -147,6 +178,20 @@ export default function LedgersScreen() {
                 Usar este libro
               </PrimaryButton>
             ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Borrar libro ${selected.name}`}
+              onPress={onDelete}
+              style={({ pressed }) => [
+                styles.deleteButton,
+                {
+                  borderColor: theme.danger,
+                  backgroundColor: pressed ? `${theme.danger}16` : 'transparent',
+                },
+              ]}>
+              <AppIcon name="trash" color={theme.danger} size={18} />
+              <Text style={[styles.deleteLabel, { color: theme.danger }]}>Borrar libro</Text>
+            </Pressable>
           </Card>
 
           <Card style={styles.block}>
@@ -219,6 +264,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
   },
+  deleteButton: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  deleteLabel: { fontSize: 15, fontWeight: '700' },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 56 },
   memberAvatar: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   memberName: { fontSize: 14, fontWeight: '700' },

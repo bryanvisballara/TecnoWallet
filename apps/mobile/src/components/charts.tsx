@@ -3,8 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 
 import { money, type Transaction } from '@/data/demo';
-import { parseTransactionMoment } from '@/lib/export-csv';
-import { AppIcon, useAppTheme } from './ui';
+import { parseTransactionDate } from '@/lib/dates';
+import { AppIcon, Pill, useAppTheme } from './ui';
 
 export function DonutChart({ value = 0, size = 132, label = 'Disponible', amount = 0 }: {
   value?: number; size?: number; label?: string; amount?: number;
@@ -36,12 +36,26 @@ export function DonutChart({ value = 0, size = 132, label = 'Disponible', amount
   );
 }
 
+export type WeeklyMode = 'expenses' | 'income' | 'both';
+
+export type DayActivityItem = {
+  id: string;
+  title: string;
+  category: string;
+  amount: number;
+  icon: string;
+};
+
 export type DaySpend = {
   key: string;
   label: string;
   fullLabel: string;
   amount: number;
-  expenses: Array<{ id: string; title: string; category: string; amount: number; icon: string }>;
+  expenses: DayActivityItem[];
+  income: number;
+  expenseTotal: number;
+  incomeItems: DayActivityItem[];
+  expenseItems: DayActivityItem[];
 };
 
 const DAY_META = [
@@ -54,8 +68,6 @@ const DAY_META = [
   { key: 'D', label: 'D', fullLabel: 'Domingo', jsDay: 0 },
 ] as const;
 
-const DEMO_TODAY = new Date(2026, 7, 5, 12, 0, 0);
-
 function startOfWeekMonday(today: Date) {
   const day = new Date(today);
   const js = day.getDay();
@@ -65,75 +77,244 @@ function startOfWeekMonday(today: Date) {
   return day;
 }
 
-export function buildWeeklySpend(transactions: Transaction[], today = DEMO_TODAY): DaySpend[] {
+export function buildWeeklySpend(transactions: Transaction[], today = new Date()): DaySpend[] {
   const weekStart = startOfWeekMonday(today);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 7);
 
   const buckets = DAY_META.map((meta) => ({
     ...meta,
-    amount: 0,
-    expenses: [] as DaySpend['expenses'],
+    income: 0,
+    expenseTotal: 0,
+    incomeItems: [] as DayActivityItem[],
+    expenseItems: [] as DayActivityItem[],
   }));
 
   transactions.forEach((tx) => {
-    if (tx.amount >= 0) return;
-    const { at } = parseTransactionMoment(tx, today);
+    const at = parseTransactionDate(tx, today);
     if (at < weekStart || at >= weekEnd) return;
     const bucket = buckets.find((item) => item.jsDay === at.getDay());
     if (!bucket) return;
-    const spent = Math.abs(tx.amount);
-    bucket.amount += spent;
-    bucket.expenses.push({
+    const entry = {
       id: tx.id,
       title: tx.title,
       category: tx.category,
       amount: tx.amount,
       icon: tx.icon,
-    });
+    };
+    if (tx.amount >= 0) {
+      bucket.income += tx.amount;
+      bucket.incomeItems.push(entry);
+    } else {
+      bucket.expenseTotal += Math.abs(tx.amount);
+      bucket.expenseItems.push(entry);
+    }
   });
 
   return buckets.map(({ jsDay: _jsDay, ...day }) => ({
     ...day,
-    expenses: day.expenses.sort((a, b) => a.amount - b.amount),
+    amount: day.expenseTotal,
+    expenses: day.expenseItems.sort((a, b) => a.amount - b.amount),
+    incomeItems: day.incomeItems.sort((a, b) => b.amount - a.amount),
+    expenseItems: day.expenseItems.sort((a, b) => a.amount - b.amount),
   }));
 }
+
+const MODE_OPTIONS: Array<{ key: WeeklyMode; label: string }> = [
+  { key: 'expenses', label: 'Gastos' },
+  { key: 'income', label: 'Ingresos' },
+  { key: 'both', label: 'Ambos' },
+];
 
 export function WeeklyBars({
   transactions = [],
   resetKey,
+  today = new Date(),
 }: {
   transactions?: Transaction[];
   resetKey?: string;
+  today?: Date;
 }) {
   const theme = useAppTheme();
-  const weekDays = useMemo(() => buildWeeklySpend(transactions), [transactions]);
-  const weekTotal = useMemo(() => weekDays.reduce((sum, day) => sum + day.amount, 0), [weekDays]);
-  const todayKey = (DAY_META.find((item) => item.jsDay === DEMO_TODAY.getDay())?.key ?? 'L') as DaySpend['key'];
+  const [mode, setMode] = useState<WeeklyMode>('expenses');
+  const weekDays = useMemo(() => buildWeeklySpend(transactions, today), [transactions, today]);
+  const todayKey = (DAY_META.find((item) => item.jsDay === today.getDay())?.key ?? 'L') as DaySpend['key'];
   const [selectedKey, setSelectedKey] = useState<DaySpend['key']>(todayKey);
 
   useEffect(() => {
     setSelectedKey(todayKey);
   }, [resetKey, todayKey]);
 
-  const maxAmount = useMemo(() => Math.max(...weekDays.map((day) => day.amount), 1), [weekDays]);
+  const totals = useMemo(() => {
+    return weekDays.reduce(
+      (acc, day) => {
+        acc.expenses += day.expenseTotal;
+        acc.income += day.income;
+        return acc;
+      },
+      { expenses: 0, income: 0 },
+    );
+  }, [weekDays]);
+
+  const maxAmount = useMemo(() => {
+    if (mode === 'both') {
+      return Math.max(...weekDays.flatMap((day) => [day.expenseTotal, day.income]), 1);
+    }
+    if (mode === 'income') {
+      return Math.max(...weekDays.map((day) => day.income), 1);
+    }
+    return Math.max(...weekDays.map((day) => day.expenseTotal), 1);
+  }, [weekDays, mode]);
+
   const selected = weekDays.find((day) => day.key === selectedKey) ?? weekDays[0];
+  const selectedItems =
+    mode === 'income'
+      ? selected.incomeItems
+      : mode === 'expenses'
+        ? selected.expenseItems
+        : [...selected.incomeItems, ...selected.expenseItems].sort(
+            (a, b) => Math.abs(b.amount) - Math.abs(a.amount),
+          );
+  const selectedAmount =
+    mode === 'income'
+      ? selected.income
+      : mode === 'expenses'
+        ? selected.expenseTotal
+        : selected.income - selected.expenseTotal;
+  const headerAmount =
+    mode === 'income' ? totals.income : mode === 'expenses' ? totals.expenses : totals.income - totals.expenses;
+  const emptyWeek =
+    mode === 'income' ? totals.income === 0 : mode === 'expenses' ? totals.expenses === 0 : totals.income === 0 && totals.expenses === 0;
 
   return (
     <View style={styles.chart}>
+      <View style={styles.modeRow}>
+        {MODE_OPTIONS.map((item) => {
+          const active = mode === item.key;
+          return (
+            <Pressable
+              key={item.key}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              onPress={() => setMode(item.key)}
+              style={[
+                styles.modeChip,
+                {
+                  backgroundColor: active ? theme.primary : theme.surfaceSecondary,
+                  borderColor: active ? theme.primary : theme.border,
+                },
+              ]}>
+              <Text style={[styles.modeChipText, { color: active ? '#FFFFFF' : theme.muted }]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.summaryHeader}>
+        <View>
+          <Text style={[styles.summaryLabel, { color: theme.muted }]}>Esta semana</Text>
+          <Text style={[styles.summaryValue, { color: theme.text }]}>{money(headerAmount)}</Text>
+        </View>
+        <Pill
+          tone={
+            mode === 'income'
+              ? totals.income > 0
+                ? 'green'
+                : 'neutral'
+              : mode === 'expenses'
+                ? totals.expenses > 0
+                  ? 'orange'
+                  : 'neutral'
+                : totals.income > 0 || totals.expenses > 0
+                  ? 'blue'
+                  : 'neutral'
+          }>
+          {mode === 'income'
+            ? totals.income > 0
+              ? 'Ingresos'
+              : 'Sin ingresos'
+            : mode === 'expenses'
+              ? totals.expenses > 0
+                ? 'Gastos'
+                : 'Sin gastos'
+              : 'Gastos e ingresos'}
+        </Pill>
+      </View>
+
+      {mode === 'both' ? (
+        <View style={styles.legendRow}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: theme.danger }]} />
+            <Text style={[styles.legendText, { color: theme.muted }]}>Gastos</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
+            <Text style={[styles.legendText, { color: theme.muted }]}>Ingresos</Text>
+          </View>
+        </View>
+      ) : null}
+
       <View
         accessible
-        accessibilityLabel="Gastos de esta semana. Toca una barra para ver el detalle."
+        accessibilityLabel="Actividad de esta semana. Toca una barra para ver el detalle."
         style={styles.barsRow}>
         {weekDays.map((day) => {
           const active = day.key === selectedKey;
-          const height = day.amount <= 0 ? 8 : Math.max(18, Math.round((day.amount / maxAmount) * 90));
+          if (mode === 'both') {
+            const expenseHeight =
+              day.expenseTotal <= 0 ? 8 : Math.max(18, Math.round((day.expenseTotal / maxAmount) * 90));
+            const incomeHeight =
+              day.income <= 0 ? 8 : Math.max(18, Math.round((day.income / maxAmount) * 90));
+            return (
+              <Pressable
+                key={day.key}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${day.fullLabel}, gastos ${money(day.expenseTotal)}, ingresos ${money(day.income)}`}
+                onPress={() => setSelectedKey(day.key)}
+                style={styles.barHit}>
+                <View style={styles.barTrack}>
+                  <View style={styles.dualBars}>
+                    <View
+                      style={[
+                        styles.dualBar,
+                        {
+                          height: expenseHeight,
+                          backgroundColor: active ? theme.danger : `${theme.danger}55`,
+                          opacity: day.expenseTotal <= 0 ? 0.35 : 1,
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.dualBar,
+                        {
+                          height: incomeHeight,
+                          backgroundColor: active ? theme.success : `${theme.success}55`,
+                          opacity: day.income <= 0 ? 0.35 : 1,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+                <Text style={[styles.day, { color: active ? theme.primary : theme.muted, fontWeight: active ? '800' : '600' }]}>
+                  {day.label}
+                </Text>
+              </Pressable>
+            );
+          }
+
+          const amount = mode === 'income' ? day.income : day.expenseTotal;
+          const height = amount <= 0 ? 8 : Math.max(18, Math.round((amount / maxAmount) * 90));
+          const color = mode === 'income' ? theme.success : theme.primary;
           return (
             <Pressable
               key={day.key}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
-              accessibilityLabel={`${day.fullLabel}, ${money(day.amount)}`}
+              accessibilityLabel={`${day.fullLabel}, ${money(amount)}`}
               onPress={() => setSelectedKey(day.key)}
               style={styles.barHit}>
               <View style={styles.barTrack}>
@@ -142,13 +323,13 @@ export function WeeklyBars({
                     styles.bar,
                     {
                       height,
-                      backgroundColor: active ? theme.primary : theme.primarySoft,
-                      opacity: day.amount <= 0 ? 0.35 : 1,
+                      backgroundColor: active ? color : mode === 'income' ? theme.successSoft : theme.primarySoft,
+                      opacity: amount <= 0 ? 0.35 : 1,
                     },
                   ]}
                 />
               </View>
-              <Text style={[styles.day, { color: active ? theme.primary : theme.muted, fontWeight: active ? '800' : '600' }]}>
+              <Text style={[styles.day, { color: active ? color : theme.muted, fontWeight: active ? '800' : '600' }]}>
                 {day.label}
               </Text>
             </Pressable>
@@ -161,38 +342,90 @@ export function WeeklyBars({
           <View>
             <Text style={[styles.dayTitle, { color: theme.text }]}>{selected.fullLabel}</Text>
             <Text style={[styles.daySubtitle, { color: theme.muted }]}>
-              {selected.expenses.length === 0
-                ? 'Sin gastos este día'
-                : `${selected.expenses.length} gasto${selected.expenses.length === 1 ? '' : 's'} · ${money(selected.amount)}`}
+              {selectedItems.length === 0
+                ? mode === 'income'
+                  ? 'Sin ingresos este día'
+                  : mode === 'expenses'
+                    ? 'Sin gastos este día'
+                    : 'Sin movimientos este día'
+                : mode === 'both'
+                  ? `${selectedItems.length} movimiento${selectedItems.length === 1 ? '' : 's'}`
+                  : `${selectedItems.length} ${mode === 'income' ? 'ingreso' : 'gasto'}${selectedItems.length === 1 ? '' : 's'} · ${money(selectedAmount)}`}
             </Text>
           </View>
-          <Text style={[styles.dayTotal, { color: selected.amount > 0 ? theme.danger : theme.muted }]}>
-            {money(selected.amount)}
+          <Text
+            style={[
+              styles.dayTotal,
+              {
+                color:
+                  mode === 'income'
+                    ? selected.income > 0
+                      ? theme.success
+                      : theme.muted
+                    : mode === 'expenses'
+                      ? selected.expenseTotal > 0
+                        ? theme.danger
+                        : theme.muted
+                      : theme.text,
+              },
+            ]}>
+            {mode === 'both' && selectedAmount > 0 ? '+' : ''}
+            {money(selectedAmount)}
           </Text>
         </View>
 
-        {selected.expenses.length === 0 ? (
+        {mode === 'both' && (selected.income > 0 || selected.expenseTotal > 0) ? (
+          <View style={styles.bothSplit}>
+            <Text style={[styles.splitText, { color: theme.success }]}>
+              +{money(selected.income, true)}
+            </Text>
+            <Text style={[styles.splitText, { color: theme.danger }]}>
+              −{money(selected.expenseTotal, true)}
+            </Text>
+          </View>
+        ) : null}
+
+        {selectedItems.length === 0 ? (
           <Text style={[styles.emptyDay, { color: theme.muted }]}>
-            {weekTotal === 0
-              ? 'Este libro aún no tiene gastos esta semana.'
+            {emptyWeek
+              ? mode === 'income'
+                ? 'Este libro aún no tiene ingresos esta semana.'
+                : mode === 'expenses'
+                  ? 'Este libro aún no tiene gastos esta semana.'
+                  : 'Este libro aún no tiene movimientos esta semana.'
               : 'No hay movimientos en este día.'}
           </Text>
         ) : (
-          selected.expenses.map((item, index) => (
+          selectedItems.map((item, index) => (
             <View
               key={item.id}
               style={[
                 styles.expenseRow,
                 index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
               ]}>
-              <View style={[styles.expenseIcon, { backgroundColor: theme.surface }]}>
-                <AppIcon name={item.icon} color={theme.primary} size={16} />
+              <View
+                style={[
+                  styles.expenseIcon,
+                  { backgroundColor: item.amount >= 0 ? theme.successSoft : theme.surface },
+                ]}>
+                <AppIcon
+                  name={item.icon}
+                  color={item.amount >= 0 ? theme.success : theme.primary}
+                  size={16}
+                />
               </View>
               <View style={styles.expenseCopy}>
                 <Text style={[styles.expenseTitle, { color: theme.text }]}>{item.title}</Text>
                 <Text style={[styles.expenseCategory, { color: theme.muted }]}>{item.category}</Text>
               </View>
-              <Text style={[styles.expenseAmount, { color: theme.text }]}>{money(item.amount)}</Text>
+              <Text
+                style={[
+                  styles.expenseAmount,
+                  { color: item.amount >= 0 ? theme.success : theme.text },
+                ]}>
+                {item.amount > 0 ? '+' : ''}
+                {money(item.amount)}
+              </Text>
             </View>
           ))
         )}
@@ -207,6 +440,28 @@ const styles = StyleSheet.create({
   donutAmount: { fontSize: 19, fontWeight: '700', letterSpacing: -0.5 },
   donutCaption: { fontSize: 10, marginTop: 1 },
   chart: { width: '100%', gap: 14 },
+  modeRow: { flexDirection: 'row', gap: 8 },
+  modeChip: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  modeChipText: { fontSize: 12, fontWeight: '700' },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  summaryLabel: { fontSize: 12, fontWeight: '600' },
+  summaryValue: { fontSize: 20, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] },
+  legendRow: { flexDirection: 'row', gap: 14 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 11, fontWeight: '600' },
   barsRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -230,6 +485,16 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     maxWidth: '70%',
   },
+  dualBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 3,
+    height: '100%',
+  },
+  dualBar: {
+    width: 10,
+    borderRadius: 6,
+  },
   day: { width: 28, textAlign: 'center', fontSize: 11 },
   dayPanel: {
     borderRadius: 16,
@@ -247,6 +512,12 @@ const styles = StyleSheet.create({
   dayTitle: { fontSize: 15, fontWeight: '700' },
   daySubtitle: { fontSize: 11, marginTop: 2 },
   dayTotal: { fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  bothSplit: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  splitText: { fontSize: 12, fontWeight: '700' },
   emptyDay: { fontSize: 13, lineHeight: 18, paddingBottom: 12 },
   expenseRow: {
     minHeight: 52,

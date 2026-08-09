@@ -18,6 +18,25 @@ export async function bootstrap(): Promise<void> {
     },
     requestIdHeader: 'x-request-id',
   });
+  // Preserve raw body for Unit webhook HMAC (X-Unit-Signature).
+  const fastifyInstance = adapter.getInstance();
+  fastifyInstance.addContentTypeParser(
+    ['application/json', 'application/vnd.api+json'],
+    { parseAs: 'buffer' },
+    (request, body, done) => {
+      const raw = Buffer.isBuffer(body) ? body : Buffer.from(String(body ?? ''));
+      (request as { rawBody?: Buffer }).rawBody = raw;
+      if (!raw.length) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(raw.toString('utf8')) as unknown);
+      } catch (error) {
+        done(error as Error, undefined);
+      }
+    },
+  );
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     adapter,

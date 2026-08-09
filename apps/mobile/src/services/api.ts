@@ -1,17 +1,67 @@
-import { offlineQueue, tokenStorage, type OfflineMutation } from './persistence';
+import {
+  offlineQueue,
+  refreshTokenStorage,
+  tokenStorage,
+  type OfflineMutation,
+} from './persistence';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+  ) {
     super(message);
   }
 }
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!API_URL) throw new ApiError('API no configurada; usando datos de demostración.', 503);
+type AuthResponse = {
+  accessToken: string;
+  refreshToken: string;
+};
+
+async function errorFromResponse(response: Response) {
+  const fallback = 'No pudimos completar la solicitud.';
+  try {
+    const body = (await response.json()) as {
+      message?: string | string[];
+      code?: string;
+    };
+    const message = Array.isArray(body.message)
+      ? body.message.join('. ')
+      : body.message || fallback;
+    return new ApiError(message, response.status, body.code);
+  } catch {
+    return new ApiError(fallback, response.status);
+  }
+}
+
+async function refreshAccessToken() {
+  if (!API_URL) return false;
+  const refreshToken = await refreshTokenStorage.get();
+  if (!refreshToken) return false;
+  const response = await fetch(`${API_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!response.ok) {
+    await Promise.all([tokenStorage.clear(), refreshTokenStorage.clear()]);
+    return false;
+  }
+  const auth = (await response.json()) as AuthResponse;
+  await Promise.all([
+    tokenStorage.set(auth.accessToken),
+    refreshTokenStorage.set(auth.refreshToken),
+  ]);
+  return true;
+}
+
+async function performRequest(path: string, init: RequestInit) {
   const token = await tokenStorage.get();
-  const response = await fetch(`${API_URL}${path}`, {
+  return fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       Accept: 'application/json',
@@ -20,7 +70,22 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       ...init.headers,
     },
   });
-  if (!response.ok) throw new ApiError('No pudimos completar la solicitud.', response.status);
+}
+
+export async function apiRequest<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  if (!API_URL) throw new ApiError('API no configurada; usando datos de demostración.', 503);
+  let response = await performRequest(path, init);
+  if (
+    response.status === 401 &&
+    !path.startsWith('/auth/') &&
+    (await refreshAccessToken())
+  ) {
+    response = await performRequest(path, init);
+  }
+  if (!response.ok) throw await errorFromResponse(response);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }

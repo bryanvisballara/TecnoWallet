@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppIcon, Card, Pill, PrimaryButton, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
+import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
 import { useActiveLedger } from '@/store/ledger';
 
@@ -13,29 +13,44 @@ export default function AccountDetailScreen() {
   const accountTx = transactions.filter((item) => item.account === account.name);
   const isCredit = account.balance < 0;
   const masked = account.lastFour === '—' ? 'Sin número' : `•••• ${account.lastFour}`;
+  const openEdit = () =>
+    router.push({ pathname: '/add-account', params: { id: account.id } });
 
   return (
     <Screen
       title={account.name}
       subtitle={`${account.kind} · ${ledger.name}`}
       right={
-        <Pressable
-          onPress={() => router.back()}
-          style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}>
-          <AppIcon name="arrow.left" color={theme.text} />
-        </Pressable>
-      }>
-      <Card style={[styles.hero, { backgroundColor: account.color }]}>
-        <View style={uiStyles.between}>
-          <View style={styles.heroIcon}>
-            <AppIcon name={account.icon} color="#FFFFFF" size={28} />
-          </View>
-          <Pill tone="neutral">{isCredit ? 'Crédito' : 'Activo'}</Pill>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => router.back()}
+            style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}>
+            <AppIcon name="arrow.left" color={theme.text} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Editar cuenta"
+            onPress={openEdit}
+            style={[styles.back, { backgroundColor: theme.primarySoft }]}>
+            <AppIcon name="paintbrush.fill" color={theme.primary} />
+          </Pressable>
         </View>
-        <Text style={styles.heroLabel}>{isCredit ? 'Saldo pendiente' : 'Saldo disponible'}</Text>
-        <Text style={styles.heroValue}>{money(account.balance)}</Text>
-        <Text style={styles.heroSmall}>{masked} · Sincronizada</Text>
-      </Card>
+      }>
+      <ScalePressable
+        accessibilityRole="button"
+        accessibilityLabel={`Editar cuenta ${account.name}`}
+        onPress={openEdit}>
+        <Card style={[styles.hero, { backgroundColor: account.color }]}>
+          <View style={uiStyles.between}>
+            <View style={styles.heroIcon}>
+              <AppIcon name={account.icon} color="#FFFFFF" size={28} />
+            </View>
+            <Pill tone="neutral">{isCredit ? 'Crédito' : 'Activo'}</Pill>
+          </View>
+          <Text style={styles.heroLabel}>{isCredit ? 'Saldo pendiente' : 'Saldo disponible'}</Text>
+          <Text style={styles.heroValue}>{money(account.balance)}</Text>
+          <Text style={styles.heroSmall}>{masked} · Toca para editar</Text>
+        </Card>
+      </ScalePressable>
 
       <Card>
         <View style={styles.metaRow}>
@@ -93,6 +108,7 @@ export default function AccountDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: { flexDirection: 'row', gap: 8 },
   back: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   hero: { borderWidth: 0, gap: 10 },
   heroIcon: {

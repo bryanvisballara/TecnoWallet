@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, Screen, uiStyles, useAppTheme } from '@/components/ui';
@@ -66,6 +66,12 @@ export default function FeatureScreen() {
   const [sounds, setSounds] = useState(false);
   const [question, setQuestion] = useState('');
   const title = feature?.title ?? 'TecnoWallet';
+
+  useEffect(() => {
+    if (slug === 'metas') router.replace('/(tabs)/metas');
+  }, [slug]);
+
+  if (slug === 'metas') return null;
 
   if (slug === 'asistente') {
     return (

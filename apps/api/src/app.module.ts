@@ -4,7 +4,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from './auth/auth.module';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { PaymentsModule } from './payments/payments.module';
 import { PlatformModule } from './platform/platform.module';
+import { RecaudosModule } from './recaudos/recaudos.module';
 
 @Module({
   imports: [
@@ -23,6 +25,8 @@ import { PlatformModule } from './platform/platform.module';
     }),
     AuthModule,
     PlatformModule,
+    RecaudosModule,
+    PaymentsModule,
     HealthModule,
   ],
 })

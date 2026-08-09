@@ -26,13 +26,15 @@ export type Account = {
 export type Envelope = {
   id: string;
   name: string;
-  kind: 'income' | 'expense';
+  kind: 'income' | 'expense' | 'savings';
   spent: number;
   budget: number;
   icon: string;
   color: string;
   rollover: boolean;
   rule: string;
+  /** Meta que creó este sobre de ahorros (solo kind === 'savings'). */
+  goalId?: string;
 };
 
 export const summary = {
@@ -98,7 +100,7 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
       { slug: 'facturas', title: 'Facturas', subtitle: '3 próximas · $1,102.90', icon: 'doc.text.fill', color: '#0878F9' },
       { slug: 'suscripciones', title: 'Suscripciones', subtitle: '$64.47 al mes', icon: 'repeat', color: '#06AED4' },
       { slug: 'recurrentes', title: 'Recurrentes', subtitle: '5 reglas activas', icon: 'arrow.clockwise', color: '#0E9384', badge: 'Activo', badgeTone: 'green' },
-      { slug: 'metas', title: 'Metas', subtitle: '3 activas · 74% promedio', icon: 'target', color: '#F79009' },
+      { slug: 'metas', title: 'Metas/Ahorros', subtitle: '3 activas · 74% promedio', icon: 'target', color: '#F79009' },
       { slug: 'estadisticas', title: 'Estadísticas', subtitle: 'Tendencias e informes', icon: 'chart.bar.fill', color: '#0878F9' },
     ],
   },

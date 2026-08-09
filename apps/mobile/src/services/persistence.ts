@@ -14,25 +14,31 @@ export type OfflineMutation = {
 };
 
 const TOKEN_KEY = 'tecnowallet.auth-token';
+const REFRESH_TOKEN_KEY = 'tecnowallet.refresh-token';
 const QUEUE_KEY = 'tecnowallet.offline-queue';
 const isWeb = Platform.OS === 'web';
 
-export const tokenStorage = {
-  async get() {
-    if (isWeb) return AsyncStorage.getItem(TOKEN_KEY);
-    return SecureStore.getItemAsync(TOKEN_KEY);
-  },
-  async set(token: string) {
-    if (isWeb) return AsyncStorage.setItem(TOKEN_KEY, token);
-    return SecureStore.setItemAsync(TOKEN_KEY, token, {
-      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    });
-  },
-  async clear() {
-    if (isWeb) return AsyncStorage.removeItem(TOKEN_KEY);
-    return SecureStore.deleteItemAsync(TOKEN_KEY);
-  },
-};
+function secureValueStorage(key: string) {
+  return {
+    async get() {
+      if (isWeb) return AsyncStorage.getItem(key);
+      return SecureStore.getItemAsync(key);
+    },
+    async set(token: string) {
+      if (isWeb) return AsyncStorage.setItem(key, token);
+      return SecureStore.setItemAsync(key, token, {
+        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      });
+    },
+    async clear() {
+      if (isWeb) return AsyncStorage.removeItem(key);
+      return SecureStore.deleteItemAsync(key);
+    },
+  };
+}
+
+export const tokenStorage = secureValueStorage(TOKEN_KEY);
+export const refreshTokenStorage = secureValueStorage(REFRESH_TOKEN_KEY);
 
 export const localStorage = {
   async get<T>(key: string, fallback: T): Promise<T> {

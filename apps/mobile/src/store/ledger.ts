@@ -8,11 +8,29 @@ import {
   type LedgerMeta,
   type LedgerSnapshot,
 } from '@/data/ledgers';
-import type { Transaction } from '@/data/demo';
+import type { Account, Envelope, Transaction } from '@/data/demo';
 import { mutateOffline } from '@/services/api';
 import { localStorage } from '@/services/persistence';
 
 type NewTransaction = Omit<Transaction, 'id' | 'date' | 'icon'> & { date?: string; icon?: string };
+type NewEnvelope = {
+  name: string;
+  kind: Envelope['kind'];
+  budget: number;
+  icon?: string;
+  color?: string;
+  rollover?: boolean;
+  rule?: string;
+  goalId?: string;
+};
+type NewAccount = {
+  name: string;
+  kind: string;
+  balance?: number;
+  icon?: string;
+  color?: string;
+  lastFour?: string;
+};
 
 type PersistedLedgerState = {
   ledgers: LedgerMeta[];
@@ -25,10 +43,21 @@ type LedgerState = PersistedLedgerState & {
   hydrate: () => Promise<void>;
   setActiveLedger: (id: string) => Promise<void>;
   createLedger: (name: string, color?: string) => Promise<string>;
+  deleteLedger: (ledgerId: string) => Promise<string>;
   inviteMember: (ledgerId: string, email: string, name?: string) => Promise<void>;
   removeMember: (ledgerId: string, memberId: string) => Promise<void>;
   renameLedger: (ledgerId: string, name: string) => Promise<void>;
   addTransaction: (value: NewTransaction) => Promise<Transaction>;
+  addAccount: (value: NewAccount) => Promise<Account>;
+  updateAccount: (
+    accountId: string,
+    patch: Partial<Omit<Account, 'id'>>,
+  ) => Promise<Account>;
+  addEnvelope: (value: NewEnvelope) => Promise<Envelope>;
+  updateEnvelope: (
+    envelopeId: string,
+    patch: Partial<Omit<Envelope, 'id' | 'kind' | 'spent'>>,
+  ) => Promise<Envelope>;
 };
 
 const DEFAULT_ID = 'hogar';
@@ -152,6 +181,27 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     return id;
   },
 
+  deleteLedger: async (ledgerId) => {
+    const current = get();
+    if (current.ledgers.length <= 1) {
+      throw new Error('Debes conservar al menos un libro.');
+    }
+    if (!current.ledgers.some((ledger) => ledger.id === ledgerId)) {
+      throw new Error('El libro ya no existe.');
+    }
+
+    const ledgers = current.ledgers.filter((ledger) => ledger.id !== ledgerId);
+    const activeLedgerId =
+      current.activeLedgerId === ledgerId ? ledgers[0].id : current.activeLedgerId;
+    const snapshots = { ...current.snapshots };
+    delete snapshots[ledgerId];
+
+    const next = { ledgers, activeLedgerId, snapshots };
+    set({ ...next, pendingIds: [] });
+    await persist(next);
+    return activeLedgerId;
+  },
+
   inviteMember: async (ledgerId, email, name) => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes('@')) throw new Error('Correo inválido.');
@@ -214,7 +264,13 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       icon: value.icon ?? (value.amount > 0 ? 'arrow.down.circle.fill' : 'banknote.fill'),
     };
     const beforeTx = slice.transactions;
+    const beforeAccounts = slice.accounts;
     const nextTx = [optimistic, ...beforeTx];
+    const nextAccounts = slice.accounts.map((account) =>
+      account.name === optimistic.account
+        ? { ...account, balance: account.balance + optimistic.amount }
+        : account,
+    );
     const incomeDelta = value.amount > 0 ? value.amount : 0;
     const expenseDelta = value.amount < 0 ? Math.abs(value.amount) : 0;
     const summary = {
@@ -226,7 +282,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     };
     const snapshots = {
       ...get().snapshots,
-      [ledgerId]: { ...slice, transactions: nextTx, summary },
+      [ledgerId]: { ...slice, transactions: nextTx, accounts: nextAccounts, summary },
     };
     set({
       snapshots,
@@ -265,7 +321,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     } catch (error) {
       const rolled = {
         ...get().snapshots,
-        [ledgerId]: { ...slice, transactions: beforeTx },
+        [ledgerId]: { ...slice, transactions: beforeTx, accounts: beforeAccounts },
       };
       set({
         snapshots: rolled,
@@ -278,6 +334,166 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       });
       throw error;
     }
+  },
+
+  addAccount: async (value) => {
+    const ledgerId = get().activeLedgerId;
+    const slice = activeSlice(get());
+    const palette = ['#0878F9', '#12B76A', '#F79009', '#7F56D9', '#06AED4', '#F04438', '#EE46BC'];
+    const digits = value.lastFour?.replace(/\D/g, '').slice(-4) ?? '';
+    const account: Account = {
+      id: `acc-${Date.now()}`,
+      name: value.name.trim(),
+      kind: value.kind.trim() || 'Cuenta corriente',
+      balance: Number.isFinite(value.balance) ? (value.balance as number) : 0,
+      icon: value.icon ?? 'creditcard.fill',
+      color: value.color ?? palette[slice.accounts.length % palette.length],
+      lastFour: digits.length === 4 ? digits : '—',
+    };
+    const snapshots = {
+      ...get().snapshots,
+      [ledgerId]: { ...slice, accounts: [account, ...slice.accounts] },
+    };
+    const next = {
+      ledgers: get().ledgers,
+      activeLedgerId: ledgerId,
+      snapshots,
+    };
+    set({ snapshots });
+    await persist(next);
+    return account;
+  },
+
+  updateAccount: async (accountId, patch) => {
+    const ledgerId = get().activeLedgerId;
+    const slice = activeSlice(get());
+    const current = slice.accounts.find((item) => item.id === accountId);
+    if (!current) throw new Error('La cuenta no existe.');
+
+    const nextName = patch.name?.trim() || current.name;
+    const digits =
+      patch.lastFour !== undefined
+        ? patch.lastFour.replace(/\D/g, '').slice(-4)
+        : current.lastFour === '—'
+          ? ''
+          : current.lastFour;
+    const updated: Account = {
+      ...current,
+      name: nextName,
+      kind: patch.kind?.trim() || current.kind,
+      balance:
+        patch.balance !== undefined && Number.isFinite(patch.balance)
+          ? patch.balance
+          : current.balance,
+      icon: patch.icon ?? current.icon,
+      color: patch.color ?? current.color,
+      lastFour: digits.length === 4 ? digits : '—',
+    };
+
+    const renamed = current.name !== nextName;
+    const transactions = renamed
+      ? slice.transactions.map((tx) =>
+          tx.account === current.name ? { ...tx, account: nextName } : tx,
+        )
+      : slice.transactions;
+
+    const snapshots = {
+      ...get().snapshots,
+      [ledgerId]: {
+        ...slice,
+        accounts: slice.accounts.map((item) =>
+          item.id === accountId ? updated : item,
+        ),
+        transactions,
+      },
+    };
+    const next = {
+      ledgers: get().ledgers,
+      activeLedgerId: ledgerId,
+      snapshots,
+    };
+    set({ snapshots });
+    await persist(next);
+    return updated;
+  },
+
+  addEnvelope: async (value) => {
+    const ledgerId = get().activeLedgerId;
+    const slice = activeSlice(get());
+    const palette = ['#0878F9', '#12B76A', '#F79009', '#7F56D9', '#06AED4', '#F04438', '#EE46BC'];
+    const defaultIcon =
+      value.kind === 'income'
+        ? 'arrow.down.circle.fill'
+        : value.kind === 'savings'
+          ? 'leaf.fill'
+          : 'cart.fill';
+    const defaultRule =
+      value.kind === 'income'
+        ? 'Meta del mes'
+        : value.kind === 'savings'
+          ? 'Sobre de ahorros · Meta'
+          : 'Presupuesto mensual';
+    const envelope: Envelope = {
+      id: `env-${Date.now()}`,
+      name: value.name.trim(),
+      kind: value.kind,
+      spent: 0,
+      budget: Math.max(0, value.budget),
+      icon: value.icon ?? defaultIcon,
+      color: value.color ?? palette[slice.envelopes.length % palette.length],
+      rollover: value.rollover ?? value.kind !== 'income',
+      rule: value.rule?.trim() || defaultRule,
+      goalId: value.goalId,
+    };
+    const snapshots = {
+      ...get().snapshots,
+      [ledgerId]: { ...slice, envelopes: [envelope, ...slice.envelopes] },
+    };
+    const next = {
+      ledgers: get().ledgers,
+      activeLedgerId: ledgerId,
+      snapshots,
+    };
+    set({ snapshots });
+    await persist(next);
+    return envelope;
+  },
+
+  updateEnvelope: async (envelopeId, patch) => {
+    const ledgerId = get().activeLedgerId;
+    const slice = activeSlice(get());
+    const current = slice.envelopes.find((item) => item.id === envelopeId);
+    if (!current) throw new Error('El sobre no existe.');
+
+    const budget =
+      patch.budget !== undefined ? Math.max(0, patch.budget) : current.budget;
+    const updated: Envelope = {
+      ...current,
+      name: patch.name?.trim() || current.name,
+      budget,
+      icon: patch.icon ?? current.icon,
+      color: patch.color ?? current.color,
+      rollover: budget > 0 ? (patch.rollover ?? current.rollover) : false,
+      rule: patch.rule !== undefined ? patch.rule.trim() || current.rule : current.rule,
+    };
+
+    const snapshots = {
+      ...get().snapshots,
+      [ledgerId]: {
+        ...slice,
+        envelopes: slice.envelopes.map((item) =>
+          item.id === envelopeId ? updated : item,
+        ),
+      },
+    };
+    const next = {
+      ledgers: get().ledgers,
+      activeLedgerId: ledgerId,
+      snapshots,
+    };
+    set({ snapshots });
+    await persist(next);
+    return updated;
   },
 }));
 

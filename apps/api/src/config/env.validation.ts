@@ -20,6 +20,16 @@ const schema = Joi.object({
   APNS_KEY_PATH: Joi.string().optional().allow(''),
   APNS_KEY_BASE64: Joi.string().optional().allow(''),
   APNS_PRODUCTION: Joi.boolean().truthy('true').falsy('false').default(false),
+  BREVO_API_KEY: Joi.string().optional().allow(''),
+  BREVO_SENDER_EMAIL: Joi.string().email().default('contact@tecnowallet.app'),
+  BREVO_SENDER_NAME: Joi.string().default('TecnoWallet'),
+  RECAUDO_INVITE_BASE_URL: Joi.string()
+    .uri()
+    .default('http://localhost:8081/invite'),
+  UNIT_API_URL: Joi.string().uri().default('https://api.s.unit.sh'),
+  UNIT_API_TOKEN: Joi.string().optional().allow(''),
+  UNIT_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  UNIT_WALLET_TERMS: Joi.string().default('walletDefault'),
 });
 
 export function validateEnvironment(config: Record<string, unknown>) {

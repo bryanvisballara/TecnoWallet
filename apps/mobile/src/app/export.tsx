@@ -12,8 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
   buildBudgetCsv,
@@ -113,128 +112,150 @@ export default function ExportScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.surface }]} edges={['top', 'bottom']}>
-      <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Cerrar"
-          onPress={() => router.back()}
-          style={styles.close}>
-          <AppIcon name="xmark" color={theme.text} size={18} />
-        </Pressable>
-        <Text style={[styles.title, { color: theme.text }]}>Exportar · {ledger.name}</Text>
-        <View style={styles.close} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.section, { color: theme.text }]}>Cuentas</Text>
-        <View style={[styles.card, { borderColor: theme.border }]}>
-          {accounts.map((account, index) => {
-            const selected = selectedAccounts.has(account.id);
-            return (
-              <ScalePressable
-                key={account.id}
-                haptic={false}
-                onPress={() => toggleAccount(account.id)}
-                style={[
-                  styles.row,
-                  index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-                ]}>
-                <Text style={[styles.rowLabel, { color: theme.text }]}>{account.name}</Text>
-                <View
-                  style={[
-                    styles.check,
-                    {
-                      backgroundColor: selected ? theme.primary : 'transparent',
-                      borderColor: selected ? theme.primary : theme.border,
-                    },
-                  ]}>
-                  {selected ? <AppIcon name="checkmark" color="#FFFFFF" size={14} /> : null}
-                </View>
-              </ScalePressable>
-            );
-          })}
+    <SheetScreen>
+      <View style={styles.body}>
+        <View style={[styles.header, { borderBottomColor: theme.border }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar"
+            onPress={() => router.back()}
+            style={styles.close}>
+            <AppIcon name="xmark" color={theme.text} size={18} />
+          </Pressable>
+          <Text style={[styles.title, { color: theme.text }]}>Exportar · {ledger.name}</Text>
+          <View style={styles.close} />
         </View>
 
-        <Text style={[styles.section, { color: theme.text }]}>Tiempo</Text>
-        <View style={[styles.card, { borderColor: theme.border }]}>
-          {exportTimeRanges.map((item, index) => {
-            const selected = range === item.id;
-            return (
-              <ScalePressable
-                key={item.id}
-                haptic={false}
-                onPress={() => setRange(item.id)}
-                style={[
-                  styles.row,
-                  index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-                ]}>
-                <Text style={[styles.rowLabel, { color: theme.text }]}>{item.label}</Text>
-                <View
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.section, { color: theme.text }]}>Cuentas</Text>
+          <View style={[styles.card, { borderColor: theme.border }]}>
+            {accounts.map((account, index) => {
+              const selected = selectedAccounts.has(account.id);
+              return (
+                <ScalePressable
+                  key={account.id}
+                  haptic={false}
+                  onPress={() => toggleAccount(account.id)}
                   style={[
-                    styles.check,
-                    {
-                      backgroundColor: selected ? theme.primary : 'transparent',
-                      borderColor: selected ? theme.primary : theme.border,
+                    styles.row,
+                    index > 0 && {
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderTopColor: theme.border,
                     },
                   ]}>
-                  {selected ? <AppIcon name="checkmark" color="#FFFFFF" size={14} /> : null}
-                </View>
-              </ScalePressable>
-            );
-          })}
-        </View>
-
-        {range === 'custom' ? (
-          <View style={styles.customRow}>
-            <View style={styles.customField}>
-              <Text style={[styles.customLabel, { color: theme.muted }]}>Desde</Text>
-              <TextInput
-                value={customFrom}
-                onChangeText={setCustomFrom}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={theme.muted}
-                autoCapitalize="none"
-                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
-              />
-            </View>
-            <View style={styles.customField}>
-              <Text style={[styles.customLabel, { color: theme.muted }]}>Hasta</Text>
-              <TextInput
-                value={customTo}
-                onChangeText={setCustomTo}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={theme.muted}
-                autoCapitalize="none"
-                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
-              />
-            </View>
+                  <Text style={[styles.rowLabel, { color: theme.text }]}>{account.name}</Text>
+                  <View
+                    style={[
+                      styles.check,
+                      {
+                        backgroundColor: selected ? theme.primary : 'transparent',
+                        borderColor: selected ? theme.primary : theme.border,
+                      },
+                    ]}>
+                    {selected ? <AppIcon name="checkmark" color="#FFFFFF" size={14} /> : null}
+                  </View>
+                </ScalePressable>
+              );
+            })}
           </View>
-        ) : null}
 
-        <Text style={[styles.hint, { color: theme.muted }]}>
-          {previewCount} movimiento{previewCount === 1 ? '' : 's'} · CSV compatible con Budget
-        </Text>
-      </ScrollView>
+          <Text style={[styles.section, { color: theme.text }]}>Tiempo</Text>
+          <View style={[styles.card, { borderColor: theme.border }]}>
+            {exportTimeRanges.map((item, index) => {
+              const selected = range === item.id;
+              return (
+                <ScalePressable
+                  key={item.id}
+                  haptic={false}
+                  onPress={() => setRange(item.id)}
+                  style={[
+                    styles.row,
+                    index > 0 && {
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderTopColor: theme.border,
+                    },
+                  ]}>
+                  <Text style={[styles.rowLabel, { color: theme.text }]}>{item.label}</Text>
+                  <View
+                    style={[
+                      styles.check,
+                      {
+                        backgroundColor: selected ? theme.primary : 'transparent',
+                        borderColor: selected ? theme.primary : theme.border,
+                      },
+                    ]}>
+                    {selected ? <AppIcon name="checkmark" color="#FFFFFF" size={14} /> : null}
+                  </View>
+                </ScalePressable>
+              );
+            })}
+          </View>
 
-      <View style={[styles.footer, { borderTopColor: theme.border }]}>
-        <ScalePressable
-          accessibilityRole="button"
-          disabled={!canExport}
-          onPress={() => void onExport()}
-          style={[
-            styles.exportButton,
-            { backgroundColor: theme.primary, opacity: canExport ? 1 : 0.5 },
-          ]}>
-          <Text style={styles.exportText}>{exporting ? 'Exportando…' : 'Exportar'}</Text>
-        </ScalePressable>
+          {range === 'custom' ? (
+            <View style={styles.customRow}>
+              <View style={styles.customField}>
+                <Text style={[styles.customLabel, { color: theme.muted }]}>Desde</Text>
+                <TextInput
+                  value={customFrom}
+                  onChangeText={setCustomFrom}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.muted}
+                  autoCapitalize="none"
+                  style={[
+                    styles.input,
+                    {
+                      color: theme.text,
+                      borderColor: theme.border,
+                      backgroundColor: theme.surfaceSecondary,
+                    },
+                  ]}
+                />
+              </View>
+              <View style={styles.customField}>
+                <Text style={[styles.customLabel, { color: theme.muted }]}>Hasta</Text>
+                <TextInput
+                  value={customTo}
+                  onChangeText={setCustomTo}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.muted}
+                  autoCapitalize="none"
+                  style={[
+                    styles.input,
+                    {
+                      color: theme.text,
+                      borderColor: theme.border,
+                      backgroundColor: theme.surfaceSecondary,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ) : null}
+
+          <Text style={[styles.hint, { color: theme.muted }]}>
+            {previewCount} movimiento{previewCount === 1 ? '' : 's'} · CSV compatible con Budget
+          </Text>
+        </ScrollView>
+
+        <View style={[styles.footer, { borderTopColor: theme.border }]}>
+          <ScalePressable
+            accessibilityRole="button"
+            disabled={!canExport}
+            onPress={() => void onExport()}
+            style={[
+              styles.exportButton,
+              { backgroundColor: theme.primary, opacity: canExport ? 1 : 0.5 },
+            ]}>
+            <Text style={styles.exportText}>{exporting ? 'Exportando…' : 'Exportar'}</Text>
+          </ScalePressable>
+        </View>
       </View>
-    </SafeAreaView>
+    </SheetScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
+  body: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

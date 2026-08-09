@@ -25,20 +25,28 @@ export type AppNotification = {
 
 type NotificationsState = {
   readIds: string[];
+  dismissedIds: string[];
   hydrated: boolean;
   hydrate: () => Promise<void>;
   markAllRead: (ids: string[]) => Promise<void>;
   markRead: (id: string) => Promise<void>;
+  dismiss: (id: string) => Promise<void>;
+  dismissMany: (ids: string[]) => Promise<void>;
 };
 
 const READ_KEY = 'notification-read-ids';
+const DISMISS_KEY = 'notification-dismissed-ids';
 
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   readIds: [],
+  dismissedIds: [],
   hydrated: false,
   hydrate: async () => {
-    const readIds = await localStorage.get<string[]>(READ_KEY, []);
-    set({ readIds, hydrated: true });
+    const [readIds, dismissedIds] = await Promise.all([
+      localStorage.get<string[]>(READ_KEY, []),
+      localStorage.get<string[]>(DISMISS_KEY, []),
+    ]);
+    set({ readIds, dismissedIds, hydrated: true });
   },
   markAllRead: async (ids) => {
     const merged = Array.from(new Set([...get().readIds, ...ids]));
@@ -50,6 +58,18 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
     const merged = [...get().readIds, id];
     set({ readIds: merged });
     await localStorage.set(READ_KEY, merged);
+  },
+  dismiss: async (id) => {
+    if (get().dismissedIds.includes(id)) return;
+    const merged = [...get().dismissedIds, id];
+    set({ dismissedIds: merged });
+    await localStorage.set(DISMISS_KEY, merged);
+  },
+  dismissMany: async (ids) => {
+    if (!ids.length) return;
+    const merged = Array.from(new Set([...get().dismissedIds, ...ids]));
+    set({ dismissedIds: merged });
+    await localStorage.set(DISMISS_KEY, merged);
   },
 }));
 
@@ -117,6 +137,10 @@ export function notificationToneColors(
 }
 
 // Helper kept next to feed builder for UI consumers.
-export function unreadCount(feed: AppNotification[], readIds: string[]) {
-  return feed.filter((item) => !readIds.includes(item.id)).length;
+export function visibleNotifications(feed: AppNotification[], dismissedIds: string[]) {
+  return feed.filter((item) => !dismissedIds.includes(item.id));
+}
+
+export function unreadCount(feed: AppNotification[], readIds: string[], dismissedIds: string[] = []) {
+  return feed.filter((item) => !dismissedIds.includes(item.id) && !readIds.includes(item.id)).length;
 }

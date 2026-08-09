@@ -1,8 +1,11 @@
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,77 +16,284 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
+  CALENDAR_REMINDER_CUSTOM,
+  CALENDAR_REMINDER_NONE,
   calendarColors,
+  calendarListOptions,
+  calendarReminderOptions,
+  calendarRepeatOptions,
   formatDayLabel,
+  formatReminderLabel,
+  hourFromHhmm,
   parseDateKey,
   toDateKey,
   typeIcons,
   typeLabels,
+  type CalendarAttachment,
   type CalendarItemType,
 } from '@/data/calendar';
-import { useCalendarStore } from '@/store/calendar';
+import {
+  notifyCalendarItemAdded,
+  scheduleCalendarReminder,
+} from '@/services/push-notifications';
+import { useAuthStore } from '@/store/auth';
+import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
+import { useActiveLedger } from '@/store/ledger';
 
 const colors = ['#0878F9', '#7F56D9', '#12B76A', '#F79009', '#F5C518', '#EE46BC', '#06AED4'];
+const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+
+function newAttachmentId() {
+  return `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function normalizeHhmm(value: string) {
+  const match = TIME_RE.exec(value.trim());
+  if (!match) return null;
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
+function pickOption(title: string, options: readonly string[], onPick: (value: string) => void) {
+  Alert.alert(title, undefined, [
+    ...options.map((option) => ({
+      text: option,
+      onPress: () => onPick(option),
+    })),
+    { text: 'Cancelar', style: 'cancel' as const },
+  ]);
+}
 
 export default function AddCalendarItemScreen() {
   const theme = useAppTheme();
   const addItem = useCalendarStore((state) => state.addItem);
+  const profile = useAuthStore((state) => state.profile);
+  const { ledger } = useActiveLedger();
+  const { calendar, activeCalendarId } = useActiveCalendar();
   const params = useLocalSearchParams<{ type?: string; date?: string }>();
   const initialType = (['event', 'task', 'birthday'].includes(params.type ?? '')
     ? params.type
     : 'event') as CalendarItemType;
   const initialDate = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
     ? params.date
-    : toDateKey(new Date(2026, 7, 5));
+    : toDateKey(new Date());
 
   const [type, setType] = useState<CalendarItemType>(initialType);
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [location, setLocation] = useState('');
+  const [meetingLink, setMeetingLink] = useState('');
   const [allDay, setAllDay] = useState(type !== 'event');
   const [dateKey, setDateKey] = useState(initialDate);
+  const [startTime, setStartTime] = useState('16:00');
+  const [endTime, setEndTime] = useState('17:00');
   const [color, setColor] = useState<string>(calendarColors[initialType]);
-  const [reminder, setReminder] = useState('El día del evento a las 09:00');
+  const [reminder, setReminder] = useState<string>(calendarReminderOptions[2]);
+  const [customReminderTime, setCustomReminderTime] = useState('13:50');
   const [list, setList] = useState(type === 'task' ? 'Mis tareas' : 'Mi calendario');
+  const [repeat, setRepeat] = useState<string>(calendarRepeatOptions[0]);
+  const [assigneeName, setAssigneeName] = useState(profile.name);
+  const [assigneeEmail, setAssigneeEmail] = useState(profile.email);
+  const [attachments, setAttachments] = useState<CalendarAttachment[]>([]);
+
+  const people = useMemo(() => {
+    const map = new Map<string, { name: string; email: string }>();
+    map.set(profile.email.toLowerCase(), { name: profile.name, email: profile.email });
+    ledger.members.forEach((member) => {
+      map.set(member.email.toLowerCase(), { name: member.name, email: member.email });
+    });
+    calendar?.members.forEach((member) => {
+      map.set(member.email.toLowerCase(), { name: member.name, email: member.email });
+    });
+    return [...map.values()];
+  }, [profile.name, profile.email, ledger.members, calendar?.members]);
 
   const dateLabel = useMemo(() => formatDayLabel(parseDateKey(dateKey)), [dateKey]);
   const titlePlaceholder = type === 'birthday' ? 'Agregar nombre' : 'Agregar título';
+  const timed = type !== 'birthday' && !allDay;
+  const reminderIsCustom =
+    reminder === CALENDAR_REMINDER_CUSTOM || reminder.startsWith('A las ');
+  const reminderDisplay = reminderIsCustom
+    ? `A las ${normalizeHhmm(customReminderTime) ?? customReminderTime}`
+    : reminder;
+
+  const pickRepeat = () => pickOption('Repetición', calendarRepeatOptions, setRepeat);
+  const pickList = () => pickOption('Lista', calendarListOptions, setList);
+  const pickReminder = () =>
+    pickOption('Recordatorio PUSH', calendarReminderOptions, (value) => {
+      if (value === CALENDAR_REMINDER_CUSTOM) {
+        setReminder(CALENDAR_REMINDER_CUSTOM);
+        return;
+      }
+      setReminder(value);
+    });
+  const pickAssignee = () => {
+    Alert.alert('Persona', undefined, [
+      ...people.map((person) => ({
+        text: `${person.name} · ${person.email}`,
+        onPress: () => {
+          setAssigneeName(person.name);
+          setAssigneeEmail(person.email);
+        },
+      })),
+      { text: 'Cancelar', style: 'cancel' as const },
+    ]);
+  };
+
+  const addAttachments = (items: CalendarAttachment[]) => {
+    if (!items.length) return;
+    setAttachments((prev) => [...prev, ...items]);
+  };
+
+  const pickPhoto = async (camera = false) => {
+    const result = camera
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.8,
+          allowsMultipleSelection: true,
+          selectionLimit: 6,
+        });
+    if (result.canceled) return;
+    addAttachments(
+      result.assets.map((asset, index) => ({
+        id: newAttachmentId() + index,
+        name: asset.fileName ?? `Foto ${attachments.length + index + 1}`,
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        kind: 'image' as const,
+      })),
+    );
+  };
+
+  const pickFile = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      multiple: true,
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
+    addAttachments(
+      result.assets.map((asset, index) => ({
+        id: newAttachmentId() + index,
+        name: asset.name,
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? undefined,
+        kind: asset.mimeType?.startsWith('image/') ? ('image' as const) : ('file' as const),
+      })),
+    );
+  };
+
+  const chooseAttachment = () => {
+    Alert.alert('Agregar adjunto', 'Elige una foto, toma una imagen o adjunta un archivo.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Tomar foto', onPress: () => void pickPhoto(true) },
+      { text: 'Elegir foto', onPress: () => void pickPhoto(false) },
+      { text: 'Archivo', onPress: () => void pickFile() },
+    ]);
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id));
+  };
 
   const save = async () => {
     if (!title.trim()) {
       Alert.alert('Falta el título', 'Escribe un nombre para esta entrada.');
       return;
     }
-    addItem({
+
+    const isAllDay = type === 'birthday' ? true : allDay;
+    let startHour: number | undefined;
+    let endHour: number | undefined;
+    if (!isAllDay) {
+      startHour = hourFromHhmm(startTime);
+      endHour = hourFromHhmm(endTime);
+      if (startHour == null || endHour == null) {
+        Alert.alert('Hora inválida', 'Usa el formato HH:mm para la hora de inicio y fin.');
+        return;
+      }
+      if (endHour <= startHour) {
+        Alert.alert('Hora inválida', 'La hora de fin debe ser posterior a la de inicio.');
+        return;
+      }
+    }
+
+    let reminderValue: string | undefined;
+    if (reminder === CALENDAR_REMINDER_NONE) {
+      reminderValue = undefined;
+    } else if (reminderIsCustom) {
+      const custom = normalizeHhmm(customReminderTime);
+      if (!custom) {
+        Alert.alert(
+          'Recordatorio inválido',
+          'Escribe la hora del push en formato HH:mm. Ej.: 13:50',
+        );
+        return;
+      }
+      reminderValue = `A las ${custom}`;
+    } else {
+      reminderValue = reminder;
+    }
+
+    const itemId = addItem({
       type,
       title: title.trim(),
       date: dateKey,
-      allDay: type === 'birthday' ? true : allDay,
-      startHour: allDay || type === 'birthday' ? undefined : 10,
-      endHour: allDay || type === 'birthday' ? undefined : 11,
+      allDay: isAllDay,
+      startHour,
+      endHour,
       color,
       notes: notes.trim() || undefined,
       location: location.trim() || undefined,
-      reminder,
+      meetingLink: type === 'event' && meetingLink.trim() ? meetingLink.trim() : undefined,
+      reminder: reminderValue,
       list,
+      repeat: repeat === 'No se repite' ? undefined : repeat,
+      assigneeName,
+      assigneeEmail,
       completed: false,
+      attachments: attachments.length ? attachments : undefined,
+      calendarId: activeCalendarId,
+    });
+
+    const reminderScheduled = reminderValue
+      ? await scheduleCalendarReminder({
+          itemId,
+          title: title.trim(),
+          typeLabel: typeLabels[type],
+          date: dateKey,
+          allDay: isAllDay,
+          startHour,
+          reminder: reminderValue,
+        })
+      : true;
+
+    await notifyCalendarItemAdded({
+      title: title.trim(),
+      date: dateLabel,
     });
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    if (reminderValue && !reminderScheduled && Platform.OS !== 'web') {
+      Alert.alert(
+        'Guardado',
+        'El elemento se creó, pero no se pudo programar el push. Revisa permisos de notificación o elige una hora futura.',
+      );
+    }
+
     router.back();
   };
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.surface }]} edges={['top', 'bottom']}>
+    <SheetScreen>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
           <Pressable accessibilityLabel="Cerrar" onPress={() => router.back()} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
-          <View style={styles.handle} />
+          <View style={styles.headerSpacer} />
           <ScalePressable onPress={() => void save()} style={[styles.save, { backgroundColor: theme.primary }]}>
             <Text style={styles.saveText}>Guardar</Text>
           </ScalePressable>
@@ -153,9 +363,40 @@ export default function AddCalendarItemScreen() {
             </Pressable>
           </Row>
 
+          {timed ? (
+            <Row icon="clock">
+              <View style={styles.timeBlock}>
+                <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>Inicio</Text>
+                <TextInput
+                  value={startTime}
+                  onChangeText={setStartTime}
+                  placeholder="16:00"
+                  placeholderTextColor={theme.muted}
+                  keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.timeInput, { color: theme.text, borderColor: theme.border }]}
+                />
+              </View>
+              <View style={styles.timeBlock}>
+                <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>Fin</Text>
+                <TextInput
+                  value={endTime}
+                  onChangeText={setEndTime}
+                  placeholder="17:00"
+                  placeholderTextColor={theme.muted}
+                  keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.timeInput, { color: theme.text, borderColor: theme.border }]}
+                />
+              </View>
+            </Row>
+          ) : null}
+
           {type === 'event' || type === 'task' ? (
-            <Row icon="repeat">
-              <Text style={[styles.rowValue, { color: theme.text }]}>No se repite</Text>
+            <Row icon="repeat" onPress={pickRepeat}>
+              <Text style={[styles.rowValue, { color: theme.text }]}>{repeat}</Text>
               <AppIcon name="chevron" color={theme.muted} size={14} />
             </Row>
           ) : null}
@@ -166,40 +407,80 @@ export default function AddCalendarItemScreen() {
             </Row>
           ) : null}
 
-          <Row icon="person.crop.circle">
+          <Row icon="person.crop.circle" onPress={pickAssignee}>
             <View style={styles.flex}>
-              <Text style={[styles.rowValue, { color: theme.text }]}>Alex Rivera</Text>
-              <Text style={[styles.rowHint, { color: theme.muted }]}>alex@tecnowallet.app</Text>
+              <Text style={[styles.rowValue, { color: theme.text }]}>{assigneeName}</Text>
+              <Text style={[styles.rowHint, { color: theme.muted }]}>{assigneeEmail}</Text>
             </View>
             <AppIcon name="chevron" color={theme.muted} size={14} />
           </Row>
 
-          <Row icon={type === 'task' ? 'line.3.horizontal.decrease' : 'calendar'}>
+          <Row
+            icon={type === 'task' ? 'line.3.horizontal.decrease' : 'calendar'}
+            onPress={pickList}>
             <Text style={[styles.rowValue, { color: theme.text }]}>{list}</Text>
             <AppIcon name="chevron" color={theme.muted} size={14} />
           </Row>
 
           {type === 'event' ? (
-            <Row icon="mappin">
-              <TextInput
-                value={location}
-                onChangeText={setLocation}
-                placeholder="Agregar ubicación"
-                placeholderTextColor={theme.muted}
-                style={[styles.inlineInput, { color: theme.text }]}
-              />
-            </Row>
+            <>
+              <Row icon="mappin">
+                <TextInput
+                  value={location}
+                  onChangeText={setLocation}
+                  placeholder="Agregar ubicación"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.inlineInput, { color: theme.text }]}
+                />
+              </Row>
+              <Row icon="video.fill">
+                <TextInput
+                  value={meetingLink}
+                  onChangeText={setMeetingLink}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder="Agregar link de reunión"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.inlineInput, { color: theme.text }]}
+                />
+              </Row>
+            </>
           ) : null}
 
-          <Row icon="bell">
+          <Row icon="bell" onPress={pickReminder}>
             <View style={styles.flex}>
-              <Text style={[styles.rowValue, { color: theme.text }]}>{reminder}</Text>
-              <Pressable onPress={() => setReminder('1 semana antes a las 09:00')}>
-                <Text style={[styles.rowHint, { color: theme.muted }]}>Agregar otra notificación</Text>
-              </Pressable>
+              <Text style={[styles.rowValue, { color: theme.text }]}>
+                {formatReminderLabel(reminderDisplay)}
+              </Text>
+              <Text style={[styles.rowHint, { color: theme.muted }]}>
+                {timed
+                  ? `Si empieza a las ${normalizeHhmm(startTime) ?? startTime}, el push puede ser relativo o a una hora fija.`
+                  : 'Define cuándo quieres el aviso push.'}
+              </Text>
             </View>
             <AppIcon name="chevron" color={theme.muted} size={14} />
           </Row>
+
+          {reminderIsCustom ? (
+            <Row icon="bell.badge">
+              <View style={styles.flex}>
+                <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>
+                  Hora del push (HH:mm)
+                </Text>
+                <TextInput
+                  value={customReminderTime}
+                  onChangeText={setCustomReminderTime}
+                  placeholder="13:50"
+                  placeholderTextColor={theme.muted}
+                  keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.timeInput, { color: theme.text, borderColor: theme.border, marginTop: 6 }]}
+                />
+              </View>
+            </Row>
+          ) : null}
 
           <Row icon="paintbrush.fill">
             <View style={[styles.swatch, { backgroundColor: color }]} />
@@ -218,7 +499,7 @@ export default function AddCalendarItemScreen() {
             </ScrollView>
           </Row>
 
-          <Row icon="doc.text.fill" last>
+          <Row icon="doc.text.fill">
             <TextInput
               value={notes}
               onChangeText={setNotes}
@@ -228,9 +509,53 @@ export default function AddCalendarItemScreen() {
               multiline
             />
           </Row>
+
+          <Row icon="paperclip" last>
+            <View style={styles.attachBlock}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Agregar foto o archivo"
+                onPress={chooseAttachment}
+                style={styles.attachHeader}>
+                <Text style={[styles.rowValue, { color: theme.text }]}>
+                  {attachments.length
+                    ? `${attachments.length} adjunto${attachments.length === 1 ? '' : 's'}`
+                    : 'Agregar foto o archivo'}
+                </Text>
+                <Text style={[styles.rowHint, { color: theme.primary, marginTop: 0 }]}>Añadir</Text>
+              </Pressable>
+
+              {attachments.length ? (
+                <View style={styles.attachList}>
+                  {attachments.map((item) => (
+                    <View
+                      key={item.id}
+                      style={[styles.attachItem, { backgroundColor: theme.surfaceSecondary }]}>
+                      {item.kind === 'image' ? (
+                        <Image source={{ uri: item.uri }} style={styles.attachThumb} />
+                      ) : (
+                        <View style={[styles.attachFileIcon, { backgroundColor: theme.primarySoft }]}>
+                          <AppIcon name="doc.fill" color={theme.primary} size={16} />
+                        </View>
+                      )}
+                      <Text numberOfLines={1} style={[styles.attachName, { color: theme.text }]}>
+                        {item.name}
+                      </Text>
+                      <Pressable
+                        accessibilityLabel={`Quitar ${item.name}`}
+                        onPress={() => removeAttachment(item.id)}
+                        hitSlop={8}>
+                        <AppIcon name="xmark" color={theme.muted} size={16} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </Row>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </SheetScreen>
   );
 }
 
@@ -238,24 +563,40 @@ function Row({
   icon,
   children,
   last,
+  onPress,
 }: {
   icon: string;
   children: ReactNode;
   last?: boolean;
+  onPress?: () => void;
 }) {
   const theme = useAppTheme();
-  return (
-    <View style={[styles.row, !last && { borderBottomColor: theme.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
+  const content = (
+    <>
       <View style={styles.rowIcon}>
         <AppIcon name={icon} color={theme.muted} size={18} />
       </View>
       <View style={styles.rowBody}>{children}</View>
+    </>
+  );
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        onPress={onPress}
+        style={[styles.row, !last && { borderBottomColor: theme.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
+        {content}
+      </Pressable>
+    );
+  }
+  return (
+    <View style={[styles.row, !last && { borderBottomColor: theme.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
+      {content}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
   flex: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -270,12 +611,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  handle: {
-    width: 36,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#D0D5DD',
-  },
+  headerSpacer: { flex: 1 },
   save: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -287,13 +623,15 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '600',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 18,
     letterSpacing: -0.5,
   },
   typeRow: {
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 12,
   },
   typeChip: {
@@ -325,6 +663,15 @@ const styles = StyleSheet.create({
   rowValue: { flex: 1, fontSize: 15, fontWeight: '500' },
   rowHint: { fontSize: 13, marginTop: 2 },
   inlineInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
+  timeBlock: { flex: 1, gap: 4 },
+  timeInput: {
+    minHeight: 40,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    fontWeight: '600',
+  },
   swatch: { width: 18, height: 18, borderRadius: 4 },
   swatches: { gap: 8, alignItems: 'center' },
   swatchOption: {
@@ -333,4 +680,29 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 2,
   },
+  attachBlock: { flex: 1, gap: 10 },
+  attachHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  attachList: { gap: 8 },
+  attachItem: {
+    minHeight: 48,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  attachThumb: { width: 34, height: 34, borderRadius: 8 },
+  attachFileIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachName: { flex: 1, fontSize: 13, fontWeight: '600' },
 });
