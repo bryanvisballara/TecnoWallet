@@ -356,12 +356,12 @@ export default function RecaudoDetailScreen() {
       await ensureWorkspaceWallet();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
-        "Billetera lista",
-        "El espacio ya puede recibir aportes con cuenta bancaria.",
+        "Cuenta digital lista",
+        "El recaudo ya puede recibir aportes con cuenta bancaria.",
       );
     } catch (error) {
       Alert.alert(
-        "No se pudo abrir la billetera",
+        "No se pudo abrir la cuenta digital",
         error instanceof Error ? error.message : "Inténtalo de nuevo.",
       );
     }
