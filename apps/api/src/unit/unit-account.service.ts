@@ -5,6 +5,10 @@ import { Model } from 'mongoose';
 import { UnitClient } from './unit-client';
 import { UnitWorkspaceAccount } from './unit.schemas';
 
+function stripQuotes(value: string) {
+  return value.trim().replace(/^['"]|['"]$/g, '');
+}
+
 @Injectable()
 export class UnitAccountService {
   constructor(
@@ -19,8 +23,11 @@ export class UnitAccountService {
   }
 
   /**
-   * Ensures a shared FBO Wallet exists for the workspace.
-   * Uses BusinessCustomer/org customer id provided by ops or creates sandbox stub.
+   * Ensures a shared Unit deposit account exists for the recaudos workspace.
+   *
+   * Unit only allows `walletAccount` for business / sole-prop customers.
+   * Our KYC path creates individual customers, so we open a `depositAccount`
+   * (checking) that still receives ACH into the recaudo pot.
    */
   async ensureWorkspaceWallet(input: {
     workspaceId: string;
@@ -31,8 +38,9 @@ export class UnitAccountService {
       return existing;
     }
 
-    const walletTerms =
-      this.config.get<string>('UNIT_WALLET_TERMS') ?? 'walletDefault';
+    const depositProduct = stripQuotes(
+      this.config.get<string>('UNIT_DEPOSIT_PRODUCT') ?? 'checking',
+    );
 
     if (!this.unit.configured) {
       return this.accounts.findOneAndUpdate(
@@ -41,7 +49,7 @@ export class UnitAccountService {
           $set: {
             unitCustomerId: input.unitCustomerId,
             unitWalletId: `sandbox-wallet-${input.workspaceId}`,
-            walletTerms,
+            walletTerms: depositProduct,
             status: 'open',
           },
         },
@@ -53,11 +61,12 @@ export class UnitAccountService {
       '/accounts',
       {
         data: {
-          type: 'walletAccount',
+          type: 'depositAccount',
           attributes: {
-            walletTerms,
+            depositProduct,
             tags: {
               tecnowalletWorkspaceId: input.workspaceId,
+              purpose: 'recaudo',
             },
           },
           relationships: {
@@ -70,7 +79,7 @@ export class UnitAccountService {
           },
         },
       },
-      `wallet-${input.workspaceId}`,
+      `deposit-${input.workspaceId}`,
     );
     const resource = this.unit.single(doc);
     const statusAttr = String(resource.attributes?.status ?? 'Open');
@@ -80,7 +89,7 @@ export class UnitAccountService {
         $set: {
           unitCustomerId: input.unitCustomerId,
           unitWalletId: resource.id,
-          walletTerms,
+          walletTerms: depositProduct,
           status: statusAttr === 'Open' ? 'open' : 'pending',
         },
       },

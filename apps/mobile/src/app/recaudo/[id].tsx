@@ -291,13 +291,18 @@ export default function RecaudoDetailScreen() {
     !demo &&
     (identity.status === "pending" ||
       identity.status === "awaitingDocuments");
-  const needsBank = !demo && identity.status === "approved" && !activeBank;
+  // Order: identity → recaudo digital account (organizer) → source bank link.
   const needsWallet =
     !demo &&
     recaudo.isOrganizer &&
     identity.status === "approved" &&
-    Boolean(activeBank) &&
     !(wallet?.unitWalletId && wallet.status === "open");
+  const walletReady = Boolean(wallet?.unitWalletId && wallet.status === "open");
+  const needsBank =
+    !demo &&
+    identity.status === "approved" &&
+    !activeBank &&
+    (!recaudo.isOrganizer || walletReady);
 
   const sendInvite = async () => {
     if (!inviteEmail.trim()) {
@@ -677,8 +682,8 @@ export default function RecaudoDetailScreen() {
                 Cuenta de banco digital del recaudo
               </Text>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                Abre una cuenta digital para este recaudo y vincula tu banco
-                para aportar con débito ACH. Solo hace falta una vez.
+                Primero se crea la cuenta digital del recaudo y después vinculas
+                el banco de origen para aportar con débito ACH.
               </Text>
             </View>
           </View>
@@ -708,10 +713,23 @@ export default function RecaudoDetailScreen() {
             </>
           ) : null}
 
+          {needsWallet ? (
+            <PrimaryButton
+              icon="wallet.pass.fill"
+              onPress={setupBusy ? undefined : () => void openWallet()}
+            >
+              {setupBusy
+                ? "Abriendo…"
+                : "2. Abrir la cuenta digital del recaudo"}
+            </PrimaryButton>
+          ) : null}
+
           {needsBank ? (
             <>
               <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-                2. Vincular cuenta bancaria (sandbox)
+                {recaudo.isOrganizer
+                  ? "3. Vincular banco de origen (sandbox)"
+                  : "2. Vincular banco de origen (sandbox)"}
               </Text>
               <TextInput
                 value={bankName}
@@ -761,23 +779,14 @@ export default function RecaudoDetailScreen() {
                 icon="link"
                 onPress={setupBusy ? undefined : () => void linkBank()}
               >
-                {setupBusy ? "Vinculando…" : "Vincular cuenta"}
+                {setupBusy ? "Vinculando…" : "Vincular banco de origen"}
               </PrimaryButton>
             </>
           ) : null}
 
-          {needsWallet ? (
-            <PrimaryButton
-              icon="wallet.pass.fill"
-              onPress={setupBusy ? undefined : () => void openWallet()}
-            >
-              {setupBusy ? "Abriendo…" : "3. Abrir la cuenta digital del recaudo"}
-            </PrimaryButton>
-          ) : null}
-
           {activeBank ? (
             <Text style={[styles.rowMeta, { color: theme.muted }]}>
-              Cuenta: {activeBank.name}
+              Banco de origen: {activeBank.name}
               {activeBank.accountNumberMask
                 ? ` · •••• ${activeBank.accountNumberMask}`
                 : ""}

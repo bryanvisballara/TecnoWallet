@@ -175,9 +175,17 @@ export class UnitController {
     if (workspace.ownerId.toString() !== user.userId) {
       throw new ForbiddenException('Only the workspace owner can open a wallet');
     }
+    const identity = await this.customers.getByUserId(user.userId);
+    const unitCustomerId =
+      identity?.unitCustomerId || dto.unitCustomerId || undefined;
+    if (!unitCustomerId || identity?.status !== 'approved') {
+      throw new BadRequestException(
+        'Complete digital bank onboarding before opening the recaudo account',
+      );
+    }
     const account = await this.accounts.ensureWorkspaceWallet({
       workspaceId: dto.workspaceId,
-      unitCustomerId: dto.unitCustomerId,
+      unitCustomerId,
     });
     return {
       workspaceId: account.workspaceId.toString(),
