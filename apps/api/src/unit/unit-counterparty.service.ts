@@ -94,6 +94,11 @@ export class UnitCounterpartyService {
     );
     const resource = this.unit.single(doc);
     const attrs = resource.attributes ?? {};
+    // Prefer the newly linked bank for funding (older CreditOnly rows stay inactive).
+    await this.counterparties.updateMany(
+      { userId: input.userId, active: true },
+      { $set: { active: false } },
+    );
     return this.counterparties.create({
       userId: input.userId,
       unitCounterpartyId: resource.id,
