@@ -182,6 +182,37 @@ class CreateWorkspaceDto {
   @IsString()
   @Length(3, 3)
   baseCurrency!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(4, 16)
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  icon?: string;
+}
+
+class UpdateWorkspaceDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  name?: string;
+
+  @IsOptional()
+  @IsEnum(['personal', 'shared'])
+  type?: 'personal' | 'shared';
+
+  @IsOptional()
+  @IsString()
+  @Length(4, 16)
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  icon?: string;
 }
 
 class AddMemberDto {
@@ -477,6 +508,7 @@ class WorkspaceController {
     const memberships = await this.memberships.find({ userId: user.userId });
     return this.workspaces.find({
       _id: { $in: memberships.map((member) => member.workspaceId) },
+      deletedAt: { $exists: false },
     });
   }
 
@@ -486,9 +518,12 @@ class WorkspaceController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     const workspace = await this.workspaces.create({
-      ...dto,
+      name: dto.name.trim(),
+      type: dto.type,
       baseCurrency: dto.baseCurrency.toUpperCase(),
       ownerId: user.userId,
+      color: dto.color?.trim() || '#F5C518',
+      icon: dto.icon?.trim() || 'wallet.pass.fill',
     });
     await this.memberships.create({
       workspaceId: workspace._id,
@@ -496,6 +531,63 @@ class WorkspaceController {
       role: 'owner',
     });
     return workspace;
+  }
+
+  @Patch(':id')
+  async update(
+    @Param('id') workspaceId: string,
+    @Body() dto: UpdateWorkspaceDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    const requester = await this.memberships.findOne({
+      workspaceId,
+      userId: user.userId,
+      role: { $in: ['owner', 'admin'] },
+    });
+    if (!requester) throw new ForbiddenException('Admin access required');
+    const workspace = await this.workspaces.findOne({
+      _id: workspaceId,
+      deletedAt: { $exists: false },
+    });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+    if (dto.name !== undefined) workspace.name = dto.name.trim();
+    if (dto.type !== undefined) workspace.type = dto.type;
+    if (dto.color !== undefined) workspace.color = dto.color.trim();
+    if (dto.icon !== undefined) workspace.icon = dto.icon.trim();
+    return workspace.save();
+  }
+
+  @Delete(':id')
+  async remove(
+    @Param('id') workspaceId: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    const requester = await this.memberships.findOne({
+      workspaceId,
+      userId: user.userId,
+      role: 'owner',
+    });
+    if (!requester) throw new ForbiddenException('Owner access required');
+    const activeCount = await this.memberships
+      .find({ userId: user.userId })
+      .then(async (memberships) => {
+        const ids = memberships.map((member) => member.workspaceId);
+        return this.workspaces.countDocuments({
+          _id: { $in: ids },
+          deletedAt: { $exists: false },
+        });
+      });
+    if (activeCount <= 1) {
+      throw new BadRequestException('Debes conservar al menos un libro.');
+    }
+    const workspace = await this.workspaces.findOne({
+      _id: workspaceId,
+      deletedAt: { $exists: false },
+    });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+    workspace.deletedAt = new Date();
+    await workspace.save();
+    return { deleted: true, id: workspaceId };
   }
 
   @Get(':id/members')
@@ -540,6 +632,10 @@ class WorkspaceController {
       active: true,
     });
     if (!invited) throw new NotFoundException('User not found');
+    await this.workspaces.updateOne(
+      { _id: workspaceId, deletedAt: { $exists: false } },
+      { $set: { type: 'shared' } },
+    );
     return this.memberships.findOneAndUpdate(
       { workspaceId, userId: invited._id },
       { $set: { role: dto.role } },

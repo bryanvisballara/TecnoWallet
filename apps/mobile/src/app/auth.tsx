@@ -49,13 +49,16 @@ export default function AuthScreen() {
   const copy = authCopy[locale];
   const signIn = useAuthStore((state) => state.signIn);
   const signUp = useAuthStore((state) => state.signUp);
+  const verifyEmail = useAuthStore((state) => state.verifyEmail);
+  const resendVerification = useAuthStore((state) => state.resendVerification);
   const signInWithGoogle = useAuthStore((state) => state.signInWithGoogle);
-  const enterDemo = useAuthStore((state) => state.enterDemo);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'verify'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleRequest, , promptGoogle] = Google.useIdTokenAuthRequest({
     clientId: GOOGLE_WEB_CLIENT_ID || undefined,
@@ -78,11 +81,60 @@ export default function AuthScreen() {
   const submit = async () => {
     setLoading(true);
     setError('');
+    setInfo('');
     try {
-      if (mode === 'login') await signIn(email, password);
-      else await signUp(name, email, password);
+      if (mode === 'login') {
+        await signIn(email, password);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await goHome();
+        return;
+      }
+      const result = await signUp(name, email, password);
+      setEmail(result.email);
+      setCode(result.devCode ?? '');
+      setMode('verify');
+      setInfo(
+        result.devCode
+          ? `${copy.codeSent} (dev: ${result.devCode})`
+          : copy.codeSent,
+      );
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : copy.genericError);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitVerify = async () => {
+    setLoading(true);
+    setError('');
+    setInfo('');
+    try {
+      await verifyEmail(email, code);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await goHome();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : copy.genericError);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitResend = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await resendVerification(email);
+      if (result.devCode) setCode(result.devCode);
+      setInfo(
+        result.devCode
+          ? `${copy.codeSent} (dev: ${result.devCode})`
+          : copy.codeSent,
+      );
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : copy.genericError);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -146,93 +198,131 @@ export default function AuthScreen() {
           />
           <View style={styles.heading}>
             <Text style={[styles.title, { color: theme.text }]}>
-              {mode === 'login' ? copy.welcomeTitle : copy.registerTitle}
+              {mode === 'login'
+                ? copy.welcomeTitle
+                : mode === 'verify'
+                  ? copy.verifyTitle
+                  : copy.registerTitle}
             </Text>
           </View>
 
           <Card style={styles.form}>
-            {mode === 'register' ? (
+            {mode === 'verify' ? (
               <>
-                <Text style={[styles.label, { color: theme.text }]}>{copy.name}</Text>
+                <Text style={[styles.verifyHint, { color: theme.muted }]}>
+                  {copy.verifyHint.replace('{email}', email.trim().toLowerCase())}
+                </Text>
+                <Text style={[styles.label, { color: theme.text }]}>{copy.verifyCode}</Text>
                 <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  autoComplete="name"
-                  placeholder={copy.namePlaceholder}
+                  value={code}
+                  onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="000000"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.input, styles.codeInput, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+                />
+                {info ? <Text style={[styles.info, { color: theme.primary }]}>{info}</Text> : null}
+                {error ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
+                <PrimaryButton onPress={loading ? undefined : () => void submitVerify()}>
+                  {loading ? copy.verifying : copy.verifyAction}
+                </PrimaryButton>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={loading}
+                  onPress={() => void submitResend()}
+                >
+                  <Text style={[styles.forgot, { color: theme.primary }]}>
+                    {loading ? copy.resending : copy.resendCode}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                {mode === 'register' ? (
+                  <>
+                    <Text style={[styles.label, { color: theme.text }]}>{copy.name}</Text>
+                    <TextInput
+                      value={name}
+                      onChangeText={setName}
+                      autoComplete="name"
+                      placeholder={copy.namePlaceholder}
+                      placeholderTextColor={theme.muted}
+                      style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+                    />
+                  </>
+                ) : null}
+                <Text style={[styles.label, { color: theme.text }]}>{copy.email}</Text>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  keyboardType="email-address"
+                  placeholder={copy.emailPlaceholder}
                   placeholderTextColor={theme.muted}
                   style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
                 />
+                <Text style={[styles.label, { color: theme.text }]}>{copy.password}</Text>
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  autoComplete={mode === 'login' ? 'password' : 'new-password'}
+                  placeholder={copy.passwordPlaceholder}
+                  placeholderTextColor={theme.muted}
+                  style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+                />
+                {error ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
+                <PrimaryButton onPress={loading ? undefined : () => void submit()}>
+                  {loading
+                    ? mode === 'login'
+                      ? copy.signingIn
+                      : copy.creating
+                    : mode === 'login'
+                      ? copy.signIn
+                      : copy.signUp}
+                </PrimaryButton>
+                {mode === 'login' ? (
+                  <Pressable accessibilityRole="button">
+                    <Text style={[styles.forgot, { color: theme.primary }]}>{copy.forgot}</Text>
+                  </Pressable>
+                ) : null}
               </>
-            ) : null}
-            <Text style={[styles.label, { color: theme.text }]}>{copy.email}</Text>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              autoComplete="email"
-              keyboardType="email-address"
-              placeholder={copy.emailPlaceholder}
-              placeholderTextColor={theme.muted}
-              style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
-            />
-            <Text style={[styles.label, { color: theme.text }]}>{copy.password}</Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete={mode === 'login' ? 'password' : 'new-password'}
-              placeholder={copy.passwordPlaceholder}
-              placeholderTextColor={theme.muted}
-              style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
-            />
-            {error ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
-            <PrimaryButton onPress={loading ? undefined : submit}>
-              {loading
-                ? mode === 'login'
-                  ? copy.signingIn
-                  : copy.creating
-                : mode === 'login'
-                  ? copy.signIn
-                  : copy.signUp}
-            </PrimaryButton>
-            {mode === 'login' ? (
-              <Pressable accessibilityRole="button">
-                <Text style={[styles.forgot, { color: theme.primary }]}>{copy.forgot}</Text>
-              </Pressable>
-            ) : null}
+            )}
           </Card>
 
-          <View style={styles.demo}>
-            <View style={[styles.line, { backgroundColor: theme.border }]} />
-            <Text style={[styles.or, { color: theme.muted }]}>{copy.or}</Text>
-            <View style={[styles.line, { backgroundColor: theme.border }]} />
-          </View>
+          {mode !== 'verify' ? (
+            <>
+              <View style={styles.demo}>
+                <View style={[styles.line, { backgroundColor: theme.border }]} />
+                <Text style={[styles.or, { color: theme.muted }]}>{copy.or}</Text>
+                <View style={[styles.line, { backgroundColor: theme.border }]} />
+              </View>
 
-          <Pressable
-            accessibilityRole="button"
-            disabled={loading || !googleRequest}
-            style={[styles.socialButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
-            onPress={() => void submitGoogle()}>
-            <GoogleMark />
-            <Text style={[styles.socialText, { color: theme.text }]}>{copy.google}</Text>
-          </Pressable>
-
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.demoButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
-            onPress={async () => {
-              await enterDemo();
-              await goHome();
-            }}>
-            <Text style={[styles.demoText, { color: theme.text }]}>{copy.demo}</Text>
-          </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={loading || !googleRequest}
+                style={[styles.socialButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                onPress={() => void submitGoogle()}>
+                <GoogleMark />
+                <Text style={[styles.socialText, { color: theme.text }]}>{copy.google}</Text>
+              </Pressable>
+            </>
+          ) : null}
 
           <Pressable
             accessibilityRole="button"
             style={styles.switchMode}
             onPress={() => {
               setError('');
-              setMode((current) => (current === 'login' ? 'register' : 'login'));
+              setInfo('');
+              setCode('');
+              setMode((current) =>
+                current === 'login' ? 'register' : 'login',
+              );
             }}>
             <Text style={[styles.switchText, { color: theme.muted }]}>
               {mode === 'login' ? copy.noAccount : copy.hasAccount}{' '}
@@ -283,6 +373,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   error: { fontSize: 13 },
+  info: { fontSize: 13, lineHeight: 18 },
+  verifyHint: { fontSize: 14, lineHeight: 20 },
+  codeInput: {
+    letterSpacing: 8,
+    textAlign: 'center',
+    fontSize: 22,
+    fontWeight: '700',
+  },
   forgot: { textAlign: 'center', fontSize: 14, fontWeight: '600', paddingTop: 3 },
   demo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   line: { flex: 1, height: StyleSheet.hairlineWidth },
@@ -297,14 +395,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   socialText: { fontSize: 15, fontWeight: '600' },
-  demoButton: {
-    minHeight: 50,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  demoText: { fontSize: 15, fontWeight: '600' },
   switchMode: { alignItems: 'center', paddingVertical: 4 },
   switchText: { fontSize: 14, textAlign: 'center' },
   legal: { fontSize: 11, lineHeight: 16, textAlign: 'center', paddingHorizontal: 20 },

@@ -5,7 +5,10 @@ import {
   type CalendarItem,
   type CalendarItemType,
 } from '@/data/calendar';
+import { apiRequest } from '@/services/api';
+import { objectId } from '@/services/ledgers-api';
 import { localStorage } from '@/services/persistence';
+import { useLedgerStore } from '@/store/ledger';
 
 export type CalendarMemberRole = 'owner' | 'editor' | 'viewer';
 
@@ -48,13 +51,13 @@ type CalendarState = PersistedCalendarState & {
   removeItem: (id: string) => void;
 };
 
-const STORAGE_KEY = 'calendars-v1';
 const COLORS = ['#0878F9', '#7F56D9', '#12B76A', '#F79009', '#EE46BC', '#06AED4'];
+const SETTING_NAME = 'calendar-state';
 
 export const ownerSelf: CalendarMember = {
   id: 'me',
-  name: 'Alex Rivera',
-  email: 'alex@tecnowallet.app',
+  name: 'Usuario',
+  email: '',
   role: 'owner',
 };
 
@@ -73,42 +76,116 @@ const defaultItems: CalendarItem[] = seedCalendarItems.map((item) => ({
   calendarId: item.calendarId ?? 'personal',
 }));
 
+type SettingResource = {
+  _id?: string;
+  id?: string;
+  name: string;
+  data?: Record<string, unknown>;
+  version?: number;
+};
+
+let settingResourceId: string | null = null;
+
+function workspaceId() {
+  return useLedgerStore.getState().activeLedgerId;
+}
+
+function sanitize(state: PersistedCalendarState): PersistedCalendarState {
+  return {
+    calendars: state.calendars,
+    activeCalendarId: state.activeCalendarId,
+    items: state.items,
+  };
+}
+
 async function persist(state: PersistedCalendarState) {
-  await localStorage.set(STORAGE_KEY, state);
+  const demo = await localStorage.get('demo-session', false);
+  const ws = workspaceId();
+  if (demo || !ws) return;
+  const payload = sanitize(state);
+  if (settingResourceId) {
+    await apiRequest(`/resources/setting/${settingResourceId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ data: payload }),
+    });
+    return;
+  }
+  const created = await apiRequest<SettingResource>('/resources/setting', {
+    method: 'POST',
+    body: JSON.stringify({
+      workspaceId: ws,
+      name: SETTING_NAME,
+      privacy: 'workspace',
+      data: payload,
+    }),
+  });
+  settingResourceId = objectId(created);
 }
 
 export const useCalendarStore = create<CalendarState>((set, get) => ({
   calendars: defaultCalendars,
   activeCalendarId: 'personal',
-  items: defaultItems,
+  items: [],
   hydrated: false,
 
   hydrate: async () => {
-    const saved = await localStorage.get<PersistedCalendarState | null>(STORAGE_KEY, null);
-    if (!saved?.calendars?.length) {
-      const initial = {
+    const demo = await localStorage.get('demo-session', false);
+    if (demo) {
+      set({
         calendars: defaultCalendars,
         activeCalendarId: 'personal',
         items: defaultItems,
-      };
-      await persist(initial);
-      set({ ...initial, hydrated: true });
+        hydrated: true,
+      });
       return;
     }
-    const activeCalendarId = saved.calendars.some((item) => item.id === saved.activeCalendarId)
-      ? saved.activeCalendarId
-      : saved.calendars[0].id;
-    const items = (saved.items?.length ? saved.items : defaultItems).map((item) => ({
-      ...item,
-      calendarId: item.calendarId ?? activeCalendarId,
-    }));
-    const next = {
-      calendars: saved.calendars,
-      activeCalendarId,
-      items,
-    };
-    await persist(next);
-    set({ ...next, hydrated: true });
+
+    const ws = workspaceId();
+    if (!ws) {
+      set({
+        calendars: defaultCalendars,
+        activeCalendarId: 'personal',
+        items: [],
+        hydrated: true,
+      });
+      return;
+    }
+
+    try {
+      const settings = await apiRequest<SettingResource[]>(
+        `/resources/setting?workspaceId=${encodeURIComponent(ws)}&limit=50`,
+      );
+      const found = settings.find((item) => item.name === SETTING_NAME);
+      if (!found) {
+        const initial = {
+          calendars: defaultCalendars,
+          activeCalendarId: 'personal',
+          items: [] as CalendarItem[],
+        };
+        settingResourceId = null;
+        await persist(initial);
+        set({ ...initial, hydrated: true });
+        return;
+      }
+      settingResourceId = objectId(found);
+      const data = (found.data ?? {}) as Partial<PersistedCalendarState>;
+      const calendars =
+        Array.isArray(data.calendars) && data.calendars.length
+          ? data.calendars
+          : defaultCalendars;
+      const activeCalendarId = calendars.some(
+        (item) => item.id === data.activeCalendarId,
+      )
+        ? (data.activeCalendarId as string)
+        : calendars[0].id;
+      const items = (Array.isArray(data.items) ? data.items : []).map((item) => ({
+        ...item,
+        calendarId: item.calendarId ?? activeCalendarId,
+      }));
+      set({ calendars, activeCalendarId, items, hydrated: true });
+    } catch {
+      set({ hydrated: true });
+    }
   },
 
   setActiveCalendar: async (id) => {
@@ -165,7 +242,9 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         return {
           ...calendar,
           members: calendar.members.map((member) =>
-            member.email === trimmed ? { ...member, role, name: name?.trim() || member.name } : member,
+            member.email === trimmed
+              ? { ...member, role, name: name?.trim() || member.name }
+              : member,
           ),
         };
       }
@@ -259,7 +338,9 @@ export function useActiveCalendar() {
   const calendars = useCalendarStore((state) => state.calendars);
   const items = useCalendarStore((state) => state.items);
   const calendar = calendars.find((item) => item.id === activeCalendarId) ?? calendars[0];
-  const calendarItems = items.filter((item) => (item.calendarId ?? 'personal') === activeCalendarId);
+  const calendarItems = items.filter(
+    (item) => (item.calendarId ?? 'personal') === activeCalendarId,
+  );
   return { calendar, calendars, items: calendarItems, activeCalendarId };
 }
 

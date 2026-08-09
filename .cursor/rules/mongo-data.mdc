@@ -1,0 +1,6 @@
+# Datos de producto → MongoDB
+
+- Los datos de producto (libros/workspaces, cuentas, sobres, transacciones, metas, recaudos, miembros, etc.) se persisten en **MongoDB vía la API**.
+- No uses `localStorage` / AsyncStorage como fuente de verdad para esos datos.
+- En el cliente solo: tokens de sesión, preferencias UI efímeras (locale, banners, ids de notificaciones locales) y caché opcional revalidada desde la API.
+- Cuenta nueva → un workspace **Hogar** en Mongo (no seeds locales Teach Me / Amazon).

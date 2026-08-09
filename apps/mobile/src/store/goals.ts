@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 
+import { apiRequest } from '@/services/api';
+import { objectId, toMinor, fromMinor } from '@/services/ledgers-api';
+import { useLedgerStore } from '@/store/ledger';
 import { localStorage } from '@/services/persistence';
 
 export type GoalPeriod = 'week' | 'month' | 'year' | 'date';
@@ -36,7 +39,6 @@ type GoalsState = {
   removeGoal: (id: string) => Promise<void>;
 };
 
-const STORAGE_KEY = 'goals-v1';
 const COLORS = ['#0878F9', '#12B76A', '#F79009', '#7F56D9', '#06AED4', '#EE46BC'];
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -58,8 +60,57 @@ export function isValidGoalDateKey(value: string) {
   );
 }
 
-async function persist(goals: UserGoal[]) {
-  await localStorage.set(STORAGE_KEY, goals);
+type ApiGoal = {
+  _id?: string;
+  id?: string;
+  name: string;
+  data?: Record<string, unknown>;
+};
+
+function workspaceIdOrThrow() {
+  const id = useLedgerStore.getState().activeLedgerId;
+  if (!id) throw new Error('Selecciona un libro antes de gestionar metas.');
+  return id;
+}
+
+function mapGoal(resource: ApiGoal): UserGoal {
+  const data = resource.data ?? {};
+  const periodRaw = typeof data.period === 'string' ? data.period : 'month';
+  const period = (['week', 'month', 'year', 'date'].includes(periodRaw)
+    ? periodRaw
+    : 'month') as GoalPeriod;
+  return {
+    id: objectId(resource),
+    title: resource.name,
+    period,
+    targetDate: typeof data.targetDate === 'string' ? data.targetDate : undefined,
+    targetAmount:
+      typeof data.targetMinor === 'number'
+        ? fromMinor(data.targetMinor)
+        : undefined,
+    completed: Boolean(data.completed),
+    color: typeof data.color === 'string' ? data.color : COLORS[0],
+    createdAt:
+      typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+    completedAt:
+      typeof data.completedAt === 'string' ? data.completedAt : undefined,
+    envelopeId: typeof data.envelopeId === 'string' ? data.envelopeId : undefined,
+  };
+}
+
+function goalData(goal: Omit<UserGoal, 'id' | 'title'>) {
+  return {
+    period: goal.period,
+    ...(goal.targetDate ? { targetDate: goal.targetDate } : {}),
+    ...(goal.targetAmount !== undefined
+      ? { targetMinor: toMinor(goal.targetAmount), savedMinor: 0 }
+      : { targetMinor: 0, savedMinor: 0 }),
+    completed: goal.completed,
+    color: goal.color,
+    createdAt: goal.createdAt,
+    ...(goal.completedAt ? { completedAt: goal.completedAt } : {}),
+    ...(goal.envelopeId ? { envelopeId: goal.envelopeId } : {}),
+  };
 }
 
 export const useGoalsStore = create<GoalsState>((set, get) => ({
@@ -67,17 +118,34 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
   hydrated: false,
 
   hydrate: async () => {
-    const saved = await localStorage.get<UserGoal[] | null>(STORAGE_KEY, null);
-    set({ goals: Array.isArray(saved) ? saved : [], hydrated: true });
+    const demo = await localStorage.get('demo-session', false);
+    const workspaceId = useLedgerStore.getState().activeLedgerId;
+    if (demo || !workspaceId) {
+      set({ goals: [], hydrated: true });
+      return;
+    }
+    try {
+      const resources = await apiRequest<ApiGoal[]>(
+        `/resources/goal?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`,
+      );
+      set({
+        goals: resources.map(mapGoal),
+        hydrated: true,
+      });
+    } catch {
+      set({ hydrated: true });
+    }
   },
 
   addGoal: async (value) => {
-    const goal: UserGoal = {
-      id: `goal-${Date.now()}`,
+    const workspaceId = workspaceIdOrThrow();
+    const payload = {
       title: value.title.trim(),
       period: value.period,
       targetDate:
-        value.period === 'date' && value.targetDate && isValidGoalDateKey(value.targetDate)
+        value.period === 'date' &&
+        value.targetDate &&
+        isValidGoalDateKey(value.targetDate)
           ? value.targetDate
           : undefined,
       targetAmount:
@@ -89,37 +157,58 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
       createdAt: new Date().toISOString(),
       envelopeId: value.envelopeId,
     };
-    const goals = [goal, ...get().goals];
-    set({ goals });
-    await persist(goals);
+    const created = await apiRequest<ApiGoal>('/resources/goal', {
+      method: 'POST',
+      body: JSON.stringify({
+        workspaceId,
+        name: payload.title,
+        privacy: 'workspace',
+        data: goalData(payload),
+      }),
+    });
+    const goal = mapGoal(created);
+    set({ goals: [goal, ...get().goals] });
     return goal;
   },
 
   linkEnvelope: async (goalId, envelopeId) => {
-    const goals = get().goals.map((item) =>
-      item.id === goalId ? { ...item, envelopeId } : item,
-    );
-    set({ goals });
-    await persist(goals);
+    const current = get().goals.find((item) => item.id === goalId);
+    if (!current) return;
+    const { title, id: _id, ...rest } = current;
+    await apiRequest(`/resources/goal/${goalId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        data: goalData({ ...rest, envelopeId }),
+      }),
+    });
+    set({
+      goals: get().goals.map((item) =>
+        item.id === goalId ? { ...item, envelopeId } : item,
+      ),
+    });
   },
 
   toggleCompleted: async (id) => {
-    const goals = get().goals.map((item) => {
-      if (item.id !== id) return item;
-      const completed = !item.completed;
-      return {
-        ...item,
-        completed,
-        completedAt: completed ? new Date().toISOString() : undefined,
-      };
+    const current = get().goals.find((item) => item.id === id);
+    if (!current) return;
+    const completed = !current.completed;
+    const next = {
+      ...current,
+      completed,
+      completedAt: completed ? new Date().toISOString() : undefined,
+    };
+    const { title, id: _id, ...rest } = next;
+    await apiRequest(`/resources/goal/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ data: goalData(rest) }),
     });
-    set({ goals });
-    await persist(goals);
+    set({
+      goals: get().goals.map((item) => (item.id === id ? next : item)),
+    });
   },
 
   removeGoal: async (id) => {
-    const goals = get().goals.filter((item) => item.id !== id);
-    set({ goals });
-    await persist(goals);
+    await apiRequest(`/resources/goal/${id}`, { method: 'DELETE' });
+    set({ goals: get().goals.filter((item) => item.id !== id) });
   },
 }));

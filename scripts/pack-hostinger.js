@@ -29,6 +29,12 @@ fs.writeFileSync(path.join(staging, '.htaccess'), htaccess);
 fs.mkdirSync(hostDir, { recursive: true });
 fs.rmSync(zipPath, { force: true });
 execSync(`cd "${staging}" && zip -r "${zipPath}" . -x "*.DS_Store"`, { stdio: 'inherit' });
+
+// Keep an unpacked public_html mirror in sync with the zip (for local checks / FTP).
+const publicHtml = path.join(hostDir, 'tecnowallet-public-html');
+fs.rmSync(publicHtml, { recursive: true, force: true });
+fs.cpSync(staging, publicHtml, { recursive: true });
+
 fs.rmSync(staging, { recursive: true, force: true });
 
 const readme = `# HOST — Frontend Hostinger

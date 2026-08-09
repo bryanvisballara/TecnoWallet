@@ -22,6 +22,8 @@ type AuthResponse = {
   refreshToken: string;
 };
 
+let refreshInFlight: Promise<boolean> | null = null;
+
 async function errorFromResponse(response: Response) {
   const fallback = 'No pudimos completar la solicitud.';
   try {
@@ -40,23 +42,47 @@ async function errorFromResponse(response: Response) {
 
 async function refreshAccessToken() {
   if (!API_URL) return false;
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refreshToken = await refreshTokenStorage.get();
+    if (!refreshToken) return false;
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (response.status === 401 || response.status === 403) {
+        await Promise.all([tokenStorage.clear(), refreshTokenStorage.clear()]);
+        return false;
+      }
+      if (!response.ok) {
+        // Keep local session on transient/server errors.
+        return false;
+      }
+      const auth = (await response.json()) as AuthResponse;
+      await Promise.all([
+        tokenStorage.set(auth.accessToken),
+        refreshTokenStorage.set(auth.refreshToken),
+      ]);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+/** Renew tokens if a refresh session exists (keeps login persistent across app restarts). */
+export async function ensureAuthSession() {
   const refreshToken = await refreshTokenStorage.get();
   if (!refreshToken) return false;
-  const response = await fetch(`${API_URL}/auth/refresh`, {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  });
-  if (!response.ok) {
-    await Promise.all([tokenStorage.clear(), refreshTokenStorage.clear()]);
-    return false;
-  }
-  const auth = (await response.json()) as AuthResponse;
-  await Promise.all([
-    tokenStorage.set(auth.accessToken),
-    refreshTokenStorage.set(auth.refreshToken),
-  ]);
-  return true;
+  return refreshAccessToken();
 }
 
 async function performRequest(path: string, init: RequestInit) {
@@ -76,7 +102,8 @@ export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  if (!API_URL) throw new ApiError('API no configurada; usando datos de demostración.', 503);
+  if (!API_URL)
+    throw new ApiError('API no configurada; usando datos de demostración.', 503);
   let response = await performRequest(path, init);
   if (
     response.status === 401 &&
@@ -91,7 +118,10 @@ export async function apiRequest<T>(
 }
 
 export async function mutateOffline<T>(
-  mutation: Omit<OfflineMutation, 'id' | 'idempotencyKey' | 'createdAt' | 'attempts'>,
+  mutation: Omit<
+    OfflineMutation,
+    'id' | 'idempotencyKey' | 'createdAt' | 'attempts'
+  >,
 ): Promise<{ queued: boolean; data?: T }> {
   const idempotencyKey =
     globalThis.crypto?.randomUUID?.() ??
@@ -104,7 +134,14 @@ export async function mutateOffline<T>(
     });
     return { queued: false, data };
   } catch (error) {
-    if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408) throw error;
+    if (
+      error instanceof ApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      error.status !== 408
+    ) {
+      throw error;
+    }
     await offlineQueue.enqueue({ ...mutation, idempotencyKey });
     return { queued: true };
   }

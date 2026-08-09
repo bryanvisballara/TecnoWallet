@@ -26,6 +26,21 @@ async function availablePort(): Promise<number> {
   });
 }
 
+async function registerVerified(
+  server: App,
+  credentials: { email: string; password: string; name: string },
+) {
+  const registered = await request(server)
+    .post('/api/v1/auth/register')
+    .send(credentials)
+    .expect(201);
+  const verified = await request(server)
+    .post('/api/v1/auth/verify-email')
+    .send({ email: credentials.email, code: registered.body.devCode })
+    .expect(201);
+  return verified;
+}
+
 describe('payments / unit financial layer (e2e)', () => {
   let app: INestApplication<App>;
   let mongo: MongoMemoryServer;
@@ -62,14 +77,11 @@ describe('payments / unit financial layer (e2e)', () => {
   });
 
   it('funds a contribution via sandbox stubs and settles available balance', async () => {
-    const registered = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send({
-        email: 'funder@example.com',
-        password: 'strong-password',
-        name: 'Funder User',
-      })
-      .expect(201);
+    const registered = await registerVerified(app.getHttpServer(), {
+      email: 'funder@example.com',
+      password: 'strong-password',
+      name: 'Funder User',
+    });
     const auth = { Authorization: `Bearer ${registered.body.accessToken}` };
 
     const workspace = await request(app.getHttpServer())

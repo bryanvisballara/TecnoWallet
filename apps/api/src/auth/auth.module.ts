@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   CanActivate,
   Controller,
@@ -7,6 +8,7 @@ import {
   Injectable,
   Module,
   Post,
+  ServiceUnavailableException,
   SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -21,10 +23,16 @@ import {
   SchemaFactory,
 } from '@nestjs/mongoose';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  Length,
+  Matches,
+  MinLength,
+} from 'class-validator';
 import { compare, hash } from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
 export interface AuthPrincipal {
@@ -47,6 +55,16 @@ export class User {
 
   @Prop({ unique: true, sparse: true, trim: true })
   googleId?: string;
+
+  /** Password accounts require email OTP; Google accounts are trusted. */
+  @Prop({ default: true })
+  emailVerified!: boolean;
+
+  @Prop({ select: false })
+  emailVerificationCodeHash?: string;
+
+  @Prop()
+  emailVerificationExpiresAt?: Date;
 
   @Prop({ default: true })
   active!: boolean;
@@ -86,8 +104,18 @@ export class Workspace {
   @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
   ownerId!: Types.ObjectId;
 
-  @Prop({ default: 'USD', uppercase: true })
+  @Prop({ default: 'COP', uppercase: true })
   baseCurrency!: string;
+
+  /** UI accent for the book switcher (stored in Mongo, not local). */
+  @Prop({ trim: true, default: '#F5C518' })
+  color?: string;
+
+  @Prop({ trim: true, default: 'house.fill' })
+  icon?: string;
+
+  @Prop({ index: true })
+  deletedAt?: Date;
 }
 export const WorkspaceSchema = SchemaFactory.createForClass(Workspace);
 
@@ -135,6 +163,21 @@ class GoogleLoginDto {
   @IsString()
   @MinLength(20)
   idToken!: string;
+}
+
+class VerifyEmailDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @Length(6, 6)
+  @Matches(/^\d{6}$/)
+  code!: string;
+}
+
+class ResendVerificationDto {
+  @IsEmail()
+  email!: string;
 }
 
 const IS_PUBLIC = 'isPublic';
@@ -201,27 +244,109 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const existing = await this.users.exists({
-      email: dto.email.toLowerCase(),
-    });
-    if (existing)
+    const email = dto.email.toLowerCase();
+    const existing = await this.users
+      .findOne({ email })
+      .select('+passwordHash +emailVerificationCodeHash');
+    if (existing?.emailVerified) {
       throw new UnauthorizedException('Email is already registered');
-    const user = await this.users.create({
-      email: dto.email.toLowerCase(),
-      passwordHash: await hash(dto.password, 12),
-      name: dto.name,
-    });
-    const workspace = await this.workspaces.create({
-      name: `${dto.name}'s Wallet`,
-      type: 'personal',
-      ownerId: user._id,
-    });
-    await this.memberships.create({
-      workspaceId: workspace._id,
-      userId: user._id,
-      role: 'owner',
-    });
+    }
+
+    const passwordHash = await hash(dto.password, 12);
+    let user = existing;
+    if (!user) {
+      user = await this.users.create({
+        email,
+        passwordHash,
+        name: dto.name.trim(),
+        emailVerified: false,
+      });
+      const workspace = await this.workspaces.create({
+        name: 'Hogar',
+        type: 'personal',
+        ownerId: user._id,
+        baseCurrency: 'COP',
+        color: '#F5C518',
+        icon: 'house.fill',
+      });
+      await this.memberships.create({
+        workspaceId: workspace._id,
+        userId: user._id,
+        role: 'owner',
+      });
+    } else {
+      user.passwordHash = passwordHash;
+      user.name = dto.name.trim();
+      user.emailVerified = false;
+      await user.save();
+    }
+
+    const { code, delivered } = await this.issueEmailVerification(user);
+    if (!delivered && !this.shouldExposeDevCode()) {
+      throw new ServiceUnavailableException(
+        'No se pudo enviar el correo de verificación. Inténtalo de nuevo.',
+      );
+    }
+    return {
+      requiresVerification: true as const,
+      email: user.email,
+      delivered,
+      ...(this.shouldExposeDevCode() ? { devCode: code } : {}),
+    };
+  }
+
+  async verifyEmail(dto: VerifyEmailDto) {
+    const email = dto.email.toLowerCase();
+    const user = await this.users
+      .findOne({ email, active: true })
+      .select('+emailVerificationCodeHash +passwordHash');
+    if (!user) {
+      throw new UnauthorizedException('Invalid verification code');
+    }
+    if (user.emailVerified) {
+      return this.issueTokens(user);
+    }
+    if (
+      !user.emailVerificationCodeHash ||
+      !user.emailVerificationExpiresAt ||
+      user.emailVerificationExpiresAt.getTime() < Date.now()
+    ) {
+      throw new BadRequestException(
+        'Verification code expired. Request a new one.',
+      );
+    }
+    if (this.digest(dto.code) !== user.emailVerificationCodeHash) {
+      throw new UnauthorizedException('Invalid verification code');
+    }
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $set: { emailVerified: true },
+        $unset: {
+          emailVerificationCodeHash: 1,
+          emailVerificationExpiresAt: 1,
+        },
+      },
+    );
+    user.emailVerified = true;
     return this.issueTokens(user);
+  }
+
+  async resendVerification(dto: ResendVerificationDto) {
+    const email = dto.email.toLowerCase();
+    const user = await this.users.findOne({ email, active: true });
+    if (!user) {
+      return { accepted: true as const };
+    }
+    if (user.emailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+    const { code, delivered } = await this.issueEmailVerification(user);
+    return {
+      accepted: true as const,
+      delivered,
+      ...(this.shouldExposeDevCode() ? { devCode: code } : {}),
+    };
   }
 
   async login(dto: LoginDto) {
@@ -234,6 +359,11 @@ export class AuthService {
       !(await compare(dto.password, user.passwordHash))
     ) {
       throw new UnauthorizedException('Invalid credentials');
+    }
+    if (!user.emailVerified) {
+      throw new UnauthorizedException(
+        'Verify your email before signing in. Check your inbox for the 6-digit code.',
+      );
     }
     return this.issueTokens(user);
   }
@@ -280,19 +410,24 @@ export class AuthService {
         email,
         name,
         googleId,
+        emailVerified: true,
       });
       const workspace = await this.workspaces.create({
-        name: `${name}'s Wallet`,
+        name: 'Hogar',
         type: 'personal',
         ownerId: user._id,
+        baseCurrency: 'COP',
+        color: '#F5C518',
+        icon: 'house.fill',
       });
       await this.memberships.create({
         workspaceId: workspace._id,
         userId: user._id,
         role: 'owner',
       });
-    } else if (!user.googleId) {
-      user.googleId = googleId;
+    } else {
+      user.googleId = user.googleId ?? googleId;
+      user.emailVerified = true;
       if (!user.name?.trim()) user.name = name;
       await user.save();
     }
@@ -320,11 +455,14 @@ export class AuthService {
       expiresAt: { $gt: new Date() },
     });
     if (!session) throw new UnauthorizedException('Refresh token was revoked');
-    session.revokedAt = new Date();
-    await session.save();
     const user = await this.users.findById(payload.sub);
     if (!user?.active) throw new UnauthorizedException('User is inactive');
-    return this.issueTokens(user);
+    // Sliding renewal: mint a new pair without revoking the previous refresh first.
+    // This avoids logging users out when multiple tabs/devices refresh concurrently.
+    const tokens = await this.issueTokens(user);
+    session.revokedAt = new Date();
+    await session.save();
+    return tokens;
   }
 
   async logout(rawToken: string) {
@@ -341,7 +479,7 @@ export class AuthService {
       { sub: user._id.toString(), email: user.email, kind: 'access' },
       {
         secret: this.config.getOrThrow('JWT_ACCESS_SECRET'),
-        expiresIn: this.config.get('JWT_ACCESS_TTL', '15m'),
+        expiresIn: this.config.get('JWT_ACCESS_TTL', '30d'),
       },
     );
     const refreshToken = await this.jwt.signAsync(
@@ -353,7 +491,7 @@ export class AuthService {
       },
       {
         secret: this.config.getOrThrow('JWT_REFRESH_SECRET'),
-        expiresIn: this.config.get('JWT_REFRESH_TTL', '30d'),
+        expiresIn: this.config.get('JWT_REFRESH_TTL', '3650d'),
       },
     );
     const decoded: unknown = this.jwt.decode(refreshToken);
@@ -381,6 +519,68 @@ export class AuthService {
   private digest(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
+
+  private shouldExposeDevCode() {
+    const env = this.config.get<string>('NODE_ENV', 'development');
+    return env === 'test' || env === 'development';
+  }
+
+  private async issueEmailVerification(user: User) {
+    const code = String(randomInt(100000, 1000000));
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          emailVerificationCodeHash: this.digest(code),
+          emailVerificationExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      },
+    );
+    const delivered = await this.sendVerificationEmail(user.email, code);
+    return { code, delivered };
+  }
+
+  private async sendVerificationEmail(to: string, code: string) {
+    const apiKey = this.config.get<string>('BREVO_API_KEY');
+    if (!apiKey?.trim()) {
+      if (this.config.get('NODE_ENV', 'development') === 'production') {
+        throw new ServiceUnavailableException(
+          'Email provider unavailable for verification',
+        );
+      }
+      return false;
+    }
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: {
+          email: this.config.get<string>(
+            'BREVO_SENDER_EMAIL',
+            'contact@tecnowallet.app',
+          ),
+          name: this.config.get<string>('BREVO_SENDER_NAME', 'TecnoWallet'),
+        },
+        to: [{ email: to }],
+        subject: `${code} es tu código de verificación TecnoWallet`,
+        htmlContent:
+          `<p>Tu código de verificación es:</p>` +
+          `<p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>` +
+          `<p>Caduca en 15 minutos. Si no creaste una cuenta en TecnoWallet, ignora este correo.</p>`,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new ServiceUnavailableException(
+        `Verification email could not be sent${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+      );
+    }
+    return true;
+  }
 }
 
 @ApiTags('auth')
@@ -392,6 +592,18 @@ export class AuthController {
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
+  }
+
+  @Public()
+  @Post('verify-email')
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.auth.verifyEmail(dto);
+  }
+
+  @Public()
+  @Post('resend-verification')
+  resendVerification(@Body() dto: ResendVerificationDto) {
+    return this.auth.resendVerification(dto);
   }
 
   @Public()

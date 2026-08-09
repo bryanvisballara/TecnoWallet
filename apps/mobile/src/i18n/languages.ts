@@ -142,7 +142,6 @@ type AuthCopy = {
   forgot: string;
   or: string;
   google: string;
-  demo: string;
   noAccount: string;
   hasAccount: string;
   registerLink: string;
@@ -150,6 +149,14 @@ type AuthCopy = {
   legal: string;
   invalid: string;
   genericError: string;
+  verifyTitle: string;
+  verifyHint: string;
+  verifyCode: string;
+  verifyAction: string;
+  verifying: string;
+  resendCode: string;
+  resending: string;
+  codeSent: string;
 };
 
 export const authCopy: Record<Locale, AuthCopy> = {
@@ -171,7 +178,6 @@ export const authCopy: Record<Locale, AuthCopy> = {
     forgot: '¿Olvidaste tu contraseña?',
     or: 'o',
     google: 'Inicia sesión con Google',
-    demo: 'Explorar con datos demo',
     noAccount: '¿Aún no tienes cuenta?',
     hasAccount: '¿Ya tienes cuenta?',
     registerLink: 'Regístrate',
@@ -179,6 +185,14 @@ export const authCopy: Record<Locale, AuthCopy> = {
     legal: 'Al continuar aceptas los Términos y la Política de privacidad.',
     invalid: 'Revisa tu correo y contraseña.',
     genericError: 'No pudimos completar la solicitud.',
+    verifyTitle: 'Verifica tu correo',
+    verifyHint: 'Te enviamos un código de 6 dígitos a {email}.',
+    verifyCode: 'Código de verificación',
+    verifyAction: 'Verificar y entrar',
+    verifying: 'Verificando…',
+    resendCode: 'Reenviar código',
+    resending: 'Reenviando…',
+    codeSent: 'Código enviado. Revisa tu correo.',
   },
   en: {
     language: 'Language',
@@ -198,7 +212,6 @@ export const authCopy: Record<Locale, AuthCopy> = {
     forgot: 'Forgot your password?',
     or: 'or',
     google: 'Sign in with Google',
-    demo: 'Explore with demo data',
     noAccount: "Don't have an account?",
     hasAccount: 'Already have an account?',
     registerLink: 'Sign up',
@@ -206,6 +219,14 @@ export const authCopy: Record<Locale, AuthCopy> = {
     legal: 'By continuing you accept the Terms and Privacy Policy.',
     invalid: 'Check your email and password.',
     genericError: 'We could not complete the request.',
+    verifyTitle: 'Verify your email',
+    verifyHint: 'We sent a 6-digit code to {email}.',
+    verifyCode: 'Verification code',
+    verifyAction: 'Verify and continue',
+    verifying: 'Verifying…',
+    resendCode: 'Resend code',
+    resending: 'Resending…',
+    codeSent: 'Code sent. Check your inbox.',
   },
   zh: {
     language: '语言',
@@ -225,7 +246,6 @@ export const authCopy: Record<Locale, AuthCopy> = {
     forgot: '忘记密码？',
     or: '或',
     google: '使用 Google 登录',
-    demo: '使用演示数据体验',
     noAccount: '还没有账户？',
     hasAccount: '已有账户？',
     registerLink: '注册',
@@ -233,6 +253,14 @@ export const authCopy: Record<Locale, AuthCopy> = {
     legal: '继续即表示你同意条款与隐私政策。',
     invalid: '请检查邮箱和密码。',
     genericError: '无法完成请求。',
+    verifyTitle: '验证邮箱',
+    verifyHint: '我们已向 {email} 发送 6 位验证码。',
+    verifyCode: '验证码',
+    verifyAction: '验证并继续',
+    verifying: '验证中…',
+    resendCode: '重新发送',
+    resending: '发送中…',
+    codeSent: '验证码已发送，请查收邮箱。',
   },
   hi: {
     language: 'भाषा',
@@ -252,7 +280,6 @@ export const authCopy: Record<Locale, AuthCopy> = {
     forgot: 'पासवर्ड भूल गए?',
     or: 'या',
     google: 'Google से साइन इन करें',
-    demo: 'डेमो डेटा से देखें',
     noAccount: 'अभी खाता नहीं है?',
     hasAccount: 'पहले से खाता है?',
     registerLink: 'रजिस्टर करें',
@@ -260,6 +287,14 @@ export const authCopy: Record<Locale, AuthCopy> = {
     legal: 'जारी रखकर आप नियम और गोपनीयता नीति स्वीकार करते हैं।',
     invalid: 'अपना ईमेल और पासवर्ड जांचें।',
     genericError: 'अनुरोध पूरा नहीं हो सका।',
+    verifyTitle: 'ईमेल सत्यापित करें',
+    verifyHint: 'हमने {email} पर 6 अंकों का कोड भेजा है।',
+    verifyCode: 'सत्यापन कोड',
+    verifyAction: 'सत्यापित करें और जारी रखें',
+    verifying: 'सत्यापित हो रहा है…',
+    resendCode: 'कोड फिर भेजें',
+    resending: 'भेजा जा रहा है…',
+    codeSent: 'कोड भेज दिया गया। अपना इनबॉक्स देखें।',
   },
   ar: {
     language: 'اللغة',
@@ -279,7 +314,6 @@ export const authCopy: Record<Locale, AuthCopy> = {
     forgot: 'هل نسيت كلمة المرور؟',
     or: 'أو',
     google: 'تسجيل الدخول عبر Google',
-    demo: 'استكشف ببيانات تجريبية',
     noAccount: 'ليس لديك حساب بعد؟',
     hasAccount: 'هل لديك حساب بالفعل؟',
     registerLink: 'سجّل الآن',
@@ -287,5 +321,13 @@ export const authCopy: Record<Locale, AuthCopy> = {
     legal: 'بالمتابعة فإنك توافق على الشروط وسياسة الخصوصية.',
     invalid: 'تحقق من بريدك وكلمة المرور.',
     genericError: 'تعذر إكمال الطلب.',
+    verifyTitle: 'تحقق من بريدك',
+    verifyHint: 'أرسلنا رمزًا مكونًا من 6 أرقام إلى {email}.',
+    verifyCode: 'رمز التحقق',
+    verifyAction: 'تحقق ومتابعة',
+    verifying: 'جارٍ التحقق…',
+    resendCode: 'إعادة إرسال الرمز',
+    resending: 'جارٍ الإرسال…',
+    codeSent: 'تم إرسال الرمز. تحقق من بريدك.',
   },
 };

@@ -9,7 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import '@/polyfills/web-dom-props';
 import '@/global.css';
 import { Colors } from '@/constants/theme';
-import { flushOfflineQueue } from '@/services/api';
+import { ensureAuthSession, flushOfflineQueue } from '@/services/api';
 import { configureActivityNotifications } from '@/services/push-notifications';
 import { useAuthStore } from '@/store/auth';
 import { useFinanceStore } from '@/store/finance';
@@ -41,16 +41,19 @@ export default function RootLayout() {
   const palette = Colors.light;
 
   useEffect(() => {
-    void Promise.all([
-      hydrateAuth(),
-      hydrateLedger(),
-      hydrateCalendar(),
-      hydrateFinance(),
-      hydrateLanguage(),
-      hydrateNotifications(),
-      hydrateGoals(),
-      hydrateRecaudos(),
-    ]);
+    void (async () => {
+      // Auth → ledgers (Mongo workspaces) → dependent stores.
+      await hydrateAuth();
+      await hydrateLedger();
+      await Promise.all([
+        hydrateCalendar(),
+        hydrateFinance(),
+        hydrateLanguage(),
+        hydrateNotifications(),
+        hydrateGoals(),
+        hydrateRecaudos(),
+      ]);
+    })();
   }, [
     hydrateAuth,
     hydrateLedger,
@@ -80,9 +83,11 @@ export default function RootLayout() {
     });
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        void flushOfflineQueue().then(() => {
-          if (authenticated) return refreshRecaudos();
-        });
+        void ensureAuthSession().then(() =>
+          flushOfflineQueue().then(() => {
+            if (authenticated) return refreshRecaudos();
+          }),
+        );
       }
     });
     return () => subscription.remove();

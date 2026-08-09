@@ -2,17 +2,32 @@ import { create } from 'zustand';
 
 import {
   emptySnapshot,
-  ownerSelf,
-  seedLedgers,
-  seedSnapshots,
   type LedgerMeta,
   type LedgerSnapshot,
 } from '@/data/ledgers';
 import type { Account, Envelope, Transaction } from '@/data/demo';
-import { mutateOffline } from '@/services/api';
+import {
+  addWorkspaceMember,
+  createLedgerTransaction,
+  createResource,
+  createWorkspace,
+  deleteWorkspace,
+  listMembers,
+  listWorkspaces,
+  loadWorkspaceSnapshot,
+  mapApiMember,
+  mapWorkspaceToLedger,
+  objectId,
+  toMinor,
+  updateResource,
+  updateWorkspace,
+} from '@/services/ledgers-api';
 import { localStorage } from '@/services/persistence';
 
-type NewTransaction = Omit<Transaction, 'id' | 'date' | 'icon'> & { date?: string; icon?: string };
+type NewTransaction = Omit<Transaction, 'id' | 'date' | 'icon'> & {
+  date?: string;
+  icon?: string;
+};
 type NewEnvelope = {
   name: string;
   kind: Envelope['kind'];
@@ -32,15 +47,15 @@ type NewAccount = {
   lastFour?: string;
 };
 
-type PersistedLedgerState = {
+type LedgerState = {
   ledgers: LedgerMeta[];
   activeLedgerId: string;
   snapshots: Record<string, LedgerSnapshot>;
-};
-
-type LedgerState = PersistedLedgerState & {
+  clearingIds: Record<string, string>;
   pendingIds: string[];
+  hydrated: boolean;
   hydrate: () => Promise<void>;
+  resetToDefaultHogar: () => Promise<void>;
   setActiveLedger: (id: string) => Promise<void>;
   createLedger: (name: string, color?: string) => Promise<string>;
   deleteLedger: (ledgerId: string) => Promise<string>;
@@ -60,308 +75,273 @@ type LedgerState = PersistedLedgerState & {
   ) => Promise<Envelope>;
 };
 
-const DEFAULT_ID = 'hogar';
 const colors = ['#F5C518', '#F04438', '#06AED4', '#0878F9', '#12B76A', '#7F56D9', '#EE46BC'];
 
-async function persist(state: PersistedLedgerState) {
-  await localStorage.set('ledgers-v1', state);
-}
-
-function activeSlice(state: PersistedLedgerState) {
+function activeSlice(state: Pick<LedgerState, 'snapshots' | 'activeLedgerId'>) {
   return state.snapshots[state.activeLedgerId] ?? emptySnapshot();
 }
 
-const SEED_LEDGER_IDS = new Set(['hogar', 'teach-me', 'amazon']);
-
-/** Clear leftover demo budgets on unused user-created books (old emptySnapshot used 500). */
-function scrubUnusedBookSnapshots(
-  ledgers: LedgerMeta[],
-  snapshots: Record<string, LedgerSnapshot>,
-): Record<string, LedgerSnapshot> {
-  const next = { ...snapshots };
-  ledgers.forEach((ledger) => {
-    if (SEED_LEDGER_IDS.has(ledger.id)) return;
-    const snap = next[ledger.id];
-    if (!snap) return;
-    const unused =
-      snap.transactions.length === 0 &&
-      snap.envelopes.every((item) => item.spent === 0) &&
-      snap.accounts.every((item) => item.balance === 0);
-    if (!unused) return;
-    next[ledger.id] = {
-      ...snap,
-      summary: { ...emptySnapshot().summary },
-      upcoming: [],
-      envelopes: snap.envelopes.map((item) => ({ ...item, budget: 0, spent: 0 })),
-    };
-  });
-  return next;
+async function currentUserId() {
+  return localStorage.get<string | null>('auth-user-id', null);
 }
 
-/** Backfill createdBy on known seed transactions so team alerts work after updates. */
-function enrichTeamAuthorship(
-  snapshots: Record<string, LedgerSnapshot>,
-): Record<string, LedgerSnapshot> {
-  const next = { ...snapshots };
-  Object.entries(seedSnapshots).forEach(([ledgerId, seed]) => {
-    const snap = next[ledgerId];
-    if (!snap) return;
-    const byId = new Map(seed.transactions.map((item) => [item.id, item.createdBy]));
-    next[ledgerId] = {
-      ...snap,
-      transactions: snap.transactions.map((tx) =>
-        tx.createdBy || !byId.get(tx.id) ? tx : { ...tx, createdBy: byId.get(tx.id) },
-      ),
-    };
-  });
-  return next;
+async function currencyFor(ledger: LedgerMeta | undefined) {
+  return (ledger?.baseCurrency || 'COP').toUpperCase();
+}
+
+async function fetchLedgersFromApi(): Promise<{
+  ledgers: LedgerMeta[];
+  snapshots: Record<string, LedgerSnapshot>;
+  clearingIds: Record<string, string>;
+  activeLedgerId: string;
+}> {
+  const selfId = await currentUserId();
+  const workspaces = await listWorkspaces();
+  if (!workspaces.length) {
+    const created = await createWorkspace({
+      name: 'Hogar',
+      type: 'personal',
+      baseCurrency: 'COP',
+      color: '#F5C518',
+      icon: 'house.fill',
+    });
+    workspaces.push(created);
+  }
+
+  const ledgers: LedgerMeta[] = [];
+  const snapshots: Record<string, LedgerSnapshot> = {};
+  const clearingIds: Record<string, string> = {};
+
+  for (const workspace of workspaces) {
+    const id = objectId(workspace);
+    if (!id) continue;
+    const membersRaw = await listMembers(id);
+    const members = membersRaw.map((member) => mapApiMember(member, selfId));
+    const meta = mapWorkspaceToLedger(workspace, members);
+    meta.baseCurrency = (workspace.baseCurrency || 'COP').toUpperCase();
+    ledgers.push(meta);
+    const loaded = await loadWorkspaceSnapshot(id, meta.baseCurrency);
+    snapshots[id] = loaded.snapshot;
+    clearingIds[id] = loaded.clearingId;
+  }
+
+  if (!ledgers.length) {
+    throw new Error('No pudimos cargar tus libros desde el servidor.');
+  }
+
+  return {
+    ledgers,
+    snapshots,
+    clearingIds,
+    activeLedgerId: ledgers[0].id,
+  };
 }
 
 export const useLedgerStore = create<LedgerState>((set, get) => ({
-  ledgers: seedLedgers,
-  activeLedgerId: DEFAULT_ID,
-  snapshots: seedSnapshots,
+  ledgers: [],
+  activeLedgerId: '',
+  snapshots: {},
+  clearingIds: {},
   pendingIds: [],
+  hydrated: false,
 
   hydrate: async () => {
-    const saved = await localStorage.get<PersistedLedgerState | null>('ledgers-v1', null);
-    if (!saved?.ledgers?.length || !saved.snapshots || !saved.activeLedgerId) {
-      const initial = {
+    const demo = await localStorage.get('demo-session', false);
+    if (demo) {
+      // Demo mode keeps seed data in memory only (never written as product truth).
+      const { seedLedgers, seedSnapshots } = await import('@/data/ledgers');
+      set({
         ledgers: seedLedgers,
-        activeLedgerId: DEFAULT_ID,
+        activeLedgerId: seedLedgers[0]?.id ?? 'hogar',
         snapshots: seedSnapshots,
-      };
-      await persist(initial);
-      set({ ...initial, pendingIds: [] });
+        clearingIds: {},
+        pendingIds: [],
+        hydrated: true,
+      });
       return;
     }
-    const activeLedgerId = saved.ledgers.some((item) => item.id === saved.activeLedgerId)
-      ? saved.activeLedgerId
-      : saved.ledgers[0].id;
-    const snapshots = enrichTeamAuthorship(
-      scrubUnusedBookSnapshots(saved.ledgers, saved.snapshots),
-    );
-    const next = {
-      ledgers: saved.ledgers,
-      activeLedgerId,
-      snapshots,
-    };
-    await persist(next);
-    set({ ...next, pendingIds: [] });
+
+    const userId = await currentUserId();
+    if (!userId) {
+      set({
+        ledgers: [],
+        activeLedgerId: '',
+        snapshots: {},
+        clearingIds: {},
+        pendingIds: [],
+        hydrated: true,
+      });
+      return;
+    }
+
+    try {
+      const next = await fetchLedgersFromApi();
+      const previousActive = get().activeLedgerId;
+      const activeLedgerId = next.ledgers.some((item) => item.id === previousActive)
+        ? previousActive
+        : next.activeLedgerId;
+      set({ ...next, activeLedgerId, pendingIds: [], hydrated: true });
+    } catch {
+      // Keep prior in-memory state if the API is briefly unavailable.
+      set({ hydrated: true });
+    }
+  },
+
+  resetToDefaultHogar: async () => {
+    // Source of truth is Mongo: ensure at least Hogar exists, then reload.
+    const workspaces = await listWorkspaces();
+    if (!workspaces.length) {
+      await createWorkspace({
+        name: 'Hogar',
+        type: 'personal',
+        baseCurrency: 'COP',
+        color: '#F5C518',
+        icon: 'house.fill',
+      });
+    } else {
+      const first = workspaces[0];
+      const id = objectId(first);
+      if (id && first.name !== 'Hogar') {
+        // Only auto-rename the legacy default wallet name.
+        if (/'s Wallet$/i.test(first.name)) {
+          await updateWorkspace(id, {
+            name: 'Hogar',
+            color: '#F5C518',
+            icon: 'house.fill',
+          });
+        }
+      }
+    }
+    await get().hydrate();
   },
 
   setActiveLedger: async (id) => {
     if (!get().snapshots[id]) return;
-    const next = {
-      ledgers: get().ledgers,
-      activeLedgerId: id,
-      snapshots: get().snapshots,
-    };
     set({ activeLedgerId: id });
-    await persist(next);
   },
 
   createLedger: async (name, color) => {
-    const id = `ledger-${Date.now()}`;
-    const ledger: LedgerMeta = {
-      id,
+    const workspace = await createWorkspace({
       name: name.trim() || 'Nuevo libro',
+      type: 'personal',
+      baseCurrency: 'COP',
       color: color ?? colors[get().ledgers.length % colors.length],
       icon: 'wallet.pass.fill',
-      type: 'personal',
-      members: [{ ...ownerSelf }],
-    };
-    const next = {
-      ledgers: [...get().ledgers, ledger],
-      activeLedgerId: id,
-      snapshots: { ...get().snapshots, [id]: emptySnapshot() },
-    };
-    set({ ...next, pendingIds: [] });
-    await persist(next);
+    });
+    const id = objectId(workspace);
+    await get().hydrate();
+    if (id) set({ activeLedgerId: id });
     return id;
   },
 
   deleteLedger: async (ledgerId) => {
-    const current = get();
-    if (current.ledgers.length <= 1) {
+    if (get().ledgers.length <= 1) {
       throw new Error('Debes conservar al menos un libro.');
     }
-    if (!current.ledgers.some((ledger) => ledger.id === ledgerId)) {
-      throw new Error('El libro ya no existe.');
-    }
-
-    const ledgers = current.ledgers.filter((ledger) => ledger.id !== ledgerId);
-    const activeLedgerId =
-      current.activeLedgerId === ledgerId ? ledgers[0].id : current.activeLedgerId;
-    const snapshots = { ...current.snapshots };
-    delete snapshots[ledgerId];
-
-    const next = { ledgers, activeLedgerId, snapshots };
-    set({ ...next, pendingIds: [] });
-    await persist(next);
-    return activeLedgerId;
+    await deleteWorkspace(ledgerId);
+    await get().hydrate();
+    return get().activeLedgerId;
   },
 
-  inviteMember: async (ledgerId, email, name) => {
+  inviteMember: async (ledgerId, email) => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes('@')) throw new Error('Correo inválido.');
-    const ledgers = get().ledgers.map((ledger) => {
-      if (ledger.id !== ledgerId) return ledger;
-      if (ledger.members.some((member) => member.email === trimmed)) return ledger;
-      return {
-        ...ledger,
-        type: 'shared' as const,
-        members: [
-          ...ledger.members,
-          {
-            id: `m-${Date.now()}`,
-            name: name?.trim() || trimmed.split('@')[0],
-            email: trimmed,
-            role: 'member' as const,
-          },
-        ],
-      };
-    });
-    const next = { ledgers, activeLedgerId: get().activeLedgerId, snapshots: get().snapshots };
-    set({ ledgers });
-    await persist(next);
+    await addWorkspaceMember(ledgerId, trimmed, 'member');
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
   },
 
-  removeMember: async (ledgerId, memberId) => {
+  removeMember: async (_ledgerId, memberId) => {
     if (memberId === 'me') return;
-    const ledgers = get().ledgers.map((ledger) => {
-      if (ledger.id !== ledgerId) return ledger;
-      const members = ledger.members.filter((member) => member.id !== memberId);
-      return {
-        ...ledger,
-        members,
-        type: members.length > 1 ? ('shared' as const) : ('personal' as const),
-      };
-    });
-    const next = { ledgers, activeLedgerId: get().activeLedgerId, snapshots: get().snapshots };
-    set({ ledgers });
-    await persist(next);
+    throw new Error(
+      'Quitar miembros aún no está disponible en el servidor. Usa el panel de administración.',
+    );
   },
 
   renameLedger: async (ledgerId, name) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const ledgers = get().ledgers.map((ledger) =>
-      ledger.id === ledgerId ? { ...ledger, name: trimmed } : ledger,
-    );
-    const next = { ledgers, activeLedgerId: get().activeLedgerId, snapshots: get().snapshots };
-    set({ ledgers });
-    await persist(next);
+    await updateWorkspace(ledgerId, { name: trimmed });
+    set({
+      ledgers: get().ledgers.map((ledger) =>
+        ledger.id === ledgerId ? { ...ledger, name: trimmed } : ledger,
+      ),
+    });
   },
 
   addTransaction: async (value) => {
     const ledgerId = get().activeLedgerId;
     const slice = activeSlice(get());
-    const optimistic: Transaction = {
-      ...value,
-      id: `local-${Date.now()}`,
-      date: value.date ?? 'Ahora',
-      icon: value.icon ?? (value.amount > 0 ? 'arrow.down.circle.fill' : 'banknote.fill'),
-    };
-    const beforeTx = slice.transactions;
-    const beforeAccounts = slice.accounts;
-    const nextTx = [optimistic, ...beforeTx];
-    const nextAccounts = slice.accounts.map((account) =>
-      account.name === optimistic.account
-        ? { ...account, balance: account.balance + optimistic.amount }
-        : account,
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const currency = await currencyFor(ledger);
+    const clearingId = get().clearingIds[ledgerId];
+    const account = slice.accounts.find((item) => item.name === value.account);
+    if (!account) throw new Error('Selecciona una cuenta válida.');
+    if (!clearingId) throw new Error('El libro aún no está listo. Recarga e intenta de nuevo.');
+
+    const kind = value.amount >= 0 ? 'income' : 'expense';
+    const idempotencyKey =
+      globalThis.crypto?.randomUUID?.() ?? `tx-${Date.now()}-${Math.random()}`;
+    const created = await createLedgerTransaction({
+      workspaceId: ledgerId,
+      kind,
+      description: value.title.trim() || 'Movimiento',
+      occurredAt: new Date().toISOString(),
+      accountId: account.id,
+      clearingAccountId: clearingId,
+      amountMajor: value.amount,
+      currency,
+      idempotencyKey,
+    });
+
+    // Keep account balance in Mongo resource in sync with the UI model.
+    const nextBalanceMinor = toMinor(account.balance + value.amount);
+    await updateResource('account', account.id, {
+      balanceMinor: nextBalanceMinor,
+      currency,
+      kind: account.kind,
+      icon: account.icon,
+      color: account.color,
+      lastFour: account.lastFour,
+    });
+
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    const mapped = get().snapshots[ledgerId]?.transactions.find(
+      (item) => item.id === objectId(created),
     );
-    const incomeDelta = value.amount > 0 ? value.amount : 0;
-    const expenseDelta = value.amount < 0 ? Math.abs(value.amount) : 0;
-    const summary = {
-      ...slice.summary,
-      income: slice.summary.income + incomeDelta,
-      expenses: slice.summary.expenses + expenseDelta,
-      remaining: slice.summary.remaining + value.amount,
-      total: slice.summary.total + value.amount,
-    };
-    const snapshots = {
-      ...get().snapshots,
-      [ledgerId]: { ...slice, transactions: nextTx, accounts: nextAccounts, summary },
-    };
-    set({
-      snapshots,
-      pendingIds: [...get().pendingIds, optimistic.id],
-    });
-    await persist({
-      ledgers: get().ledgers,
-      activeLedgerId: ledgerId,
-      snapshots,
-    });
-    try {
-      const result = await mutateOffline<Transaction>({
-        endpoint: '/transactions',
-        method: 'POST',
-        payload: { ...optimistic, workspaceId: ledgerId },
-      });
-      const committedTx = result.data
-        ? get().snapshots[ledgerId].transactions.map((item) =>
-            item.id === optimistic.id ? result.data! : item,
-          )
-        : get().snapshots[ledgerId].transactions;
-      const committed = {
-        ...get().snapshots,
-        [ledgerId]: { ...get().snapshots[ledgerId], transactions: committedTx },
-      };
-      set({
-        snapshots: committed,
-        pendingIds: get().pendingIds.filter((id) => id !== optimistic.id),
-      });
-      await persist({
-        ledgers: get().ledgers,
-        activeLedgerId: get().activeLedgerId,
-        snapshots: committed,
-      });
-      return result.data ?? optimistic;
-    } catch (error) {
-      const rolled = {
-        ...get().snapshots,
-        [ledgerId]: { ...slice, transactions: beforeTx, accounts: beforeAccounts },
-      };
-      set({
-        snapshots: rolled,
-        pendingIds: get().pendingIds.filter((id) => id !== optimistic.id),
-      });
-      await persist({
-        ledgers: get().ledgers,
-        activeLedgerId: get().activeLedgerId,
-        snapshots: rolled,
-      });
-      throw error;
-    }
+    return (
+      mapped ?? {
+        ...value,
+        id: objectId(created),
+        date: value.date ?? 'Ahora',
+        icon: value.icon ?? (value.amount > 0 ? 'arrow.down.circle.fill' : 'banknote.fill'),
+      }
+    );
   },
 
   addAccount: async (value) => {
     const ledgerId = get().activeLedgerId;
-    const slice = activeSlice(get());
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const currency = await currencyFor(ledger);
     const palette = ['#0878F9', '#12B76A', '#F79009', '#7F56D9', '#06AED4', '#F04438', '#EE46BC'];
     const digits = value.lastFour?.replace(/\D/g, '').slice(-4) ?? '';
-    const account: Account = {
-      id: `acc-${Date.now()}`,
-      name: value.name.trim(),
+    const balance = Number.isFinite(value.balance) ? (value.balance as number) : 0;
+    const created = await createResource('account', ledgerId, value.name.trim(), {
+      balanceMinor: toMinor(balance),
+      currency,
       kind: value.kind.trim() || 'Cuenta corriente',
-      balance: Number.isFinite(value.balance) ? (value.balance as number) : 0,
       icon: value.icon ?? 'creditcard.fill',
-      color: value.color ?? palette[slice.accounts.length % palette.length],
+      color: value.color ?? palette[activeSlice(get()).accounts.length % palette.length],
       lastFour: digits.length === 4 ? digits : '—',
-    };
-    const snapshots = {
-      ...get().snapshots,
-      [ledgerId]: { ...slice, accounts: [account, ...slice.accounts] },
-    };
-    const next = {
-      ledgers: get().ledgers,
-      activeLedgerId: ledgerId,
-      snapshots,
-    };
-    set({ snapshots });
-    await persist(next);
-    return account;
+    });
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    const mapped = get().snapshots[ledgerId]?.accounts.find(
+      (item) => item.id === objectId(created),
+    );
+    if (!mapped) throw new Error('No se pudo crear la cuenta.');
+    return mapped;
   },
 
   updateAccount: async (accountId, patch) => {
@@ -369,6 +349,8 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     const slice = activeSlice(get());
     const current = slice.accounts.find((item) => item.id === accountId);
     if (!current) throw new Error('La cuenta no existe.');
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const currency = await currencyFor(ledger);
 
     const nextName = patch.name?.trim() || current.name;
     const digits =
@@ -377,49 +359,35 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         : current.lastFour === '—'
           ? ''
           : current.lastFour;
-    const updated: Account = {
-      ...current,
-      name: nextName,
-      kind: patch.kind?.trim() || current.kind,
-      balance:
-        patch.balance !== undefined && Number.isFinite(patch.balance)
-          ? patch.balance
-          : current.balance,
-      icon: patch.icon ?? current.icon,
-      color: patch.color ?? current.color,
-      lastFour: digits.length === 4 ? digits : '—',
-    };
+    const balance =
+      patch.balance !== undefined && Number.isFinite(patch.balance)
+        ? patch.balance
+        : current.balance;
 
-    const renamed = current.name !== nextName;
-    const transactions = renamed
-      ? slice.transactions.map((tx) =>
-          tx.account === current.name ? { ...tx, account: nextName } : tx,
-        )
-      : slice.transactions;
-
-    const snapshots = {
-      ...get().snapshots,
-      [ledgerId]: {
-        ...slice,
-        accounts: slice.accounts.map((item) =>
-          item.id === accountId ? updated : item,
-        ),
-        transactions,
+    await updateResource(
+      'account',
+      accountId,
+      {
+        balanceMinor: toMinor(balance),
+        currency,
+        kind: patch.kind?.trim() || current.kind,
+        icon: patch.icon ?? current.icon,
+        color: patch.color ?? current.color,
+        lastFour: digits.length === 4 ? digits : '—',
       },
-    };
-    const next = {
-      ledgers: get().ledgers,
-      activeLedgerId: ledgerId,
-      snapshots,
-    };
-    set({ snapshots });
-    await persist(next);
+      nextName,
+    );
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    const updated = get().snapshots[ledgerId]?.accounts.find((item) => item.id === accountId);
+    if (!updated) throw new Error('No se pudo actualizar la cuenta.');
     return updated;
   },
 
   addEnvelope: async (value) => {
     const ledgerId = get().activeLedgerId;
-    const slice = activeSlice(get());
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const currency = await currencyFor(ledger);
     const palette = ['#0878F9', '#12B76A', '#F79009', '#7F56D9', '#06AED4', '#F04438', '#EE46BC'];
     const defaultIcon =
       value.kind === 'income'
@@ -433,30 +401,25 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         : value.kind === 'savings'
           ? 'Sobre de ahorros · Meta'
           : 'Presupuesto mensual';
-    const envelope: Envelope = {
-      id: `env-${Date.now()}`,
-      name: value.name.trim(),
+    const created = await createResource('envelope', ledgerId, value.name.trim(), {
       kind: value.kind,
-      spent: 0,
-      budget: Math.max(0, value.budget),
+      budgetMinor: toMinor(Math.max(0, value.budget)),
+      spentMinor: 0,
+      balanceMinor: 0,
+      currency,
       icon: value.icon ?? defaultIcon,
-      color: value.color ?? palette[slice.envelopes.length % palette.length],
+      color: value.color ?? palette[activeSlice(get()).envelopes.length % palette.length],
       rollover: value.rollover ?? value.kind !== 'income',
       rule: value.rule?.trim() || defaultRule,
-      goalId: value.goalId,
-    };
-    const snapshots = {
-      ...get().snapshots,
-      [ledgerId]: { ...slice, envelopes: [envelope, ...slice.envelopes] },
-    };
-    const next = {
-      ledgers: get().ledgers,
-      activeLedgerId: ledgerId,
-      snapshots,
-    };
-    set({ snapshots });
-    await persist(next);
-    return envelope;
+      ...(value.goalId ? { goalId: value.goalId } : {}),
+    });
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    const mapped = get().snapshots[ledgerId]?.envelopes.find(
+      (item) => item.id === objectId(created),
+    );
+    if (!mapped) throw new Error('No se pudo crear el sobre.');
+    return mapped;
   },
 
   updateEnvelope: async (envelopeId, patch) => {
@@ -464,35 +427,37 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     const slice = activeSlice(get());
     const current = slice.envelopes.find((item) => item.id === envelopeId);
     if (!current) throw new Error('El sobre no existe.');
-
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const currency = await currencyFor(ledger);
     const budget =
       patch.budget !== undefined ? Math.max(0, patch.budget) : current.budget;
-    const updated: Envelope = {
-      ...current,
-      name: patch.name?.trim() || current.name,
-      budget,
-      icon: patch.icon ?? current.icon,
-      color: patch.color ?? current.color,
-      rollover: budget > 0 ? (patch.rollover ?? current.rollover) : false,
-      rule: patch.rule !== undefined ? patch.rule.trim() || current.rule : current.rule,
-    };
 
-    const snapshots = {
-      ...get().snapshots,
-      [ledgerId]: {
-        ...slice,
-        envelopes: slice.envelopes.map((item) =>
-          item.id === envelopeId ? updated : item,
-        ),
+    await updateResource(
+      'envelope',
+      envelopeId,
+      {
+        kind: current.kind,
+        budgetMinor: toMinor(budget),
+        spentMinor: toMinor(current.spent),
+        balanceMinor: toMinor(current.spent),
+        currency,
+        icon: patch.icon ?? current.icon,
+        color: patch.color ?? current.color,
+        rollover: budget > 0 ? (patch.rollover ?? current.rollover) : false,
+        rule:
+          patch.rule !== undefined
+            ? patch.rule.trim() || current.rule
+            : current.rule,
+        ...(current.goalId ? { goalId: current.goalId } : {}),
       },
-    };
-    const next = {
-      ledgers: get().ledgers,
-      activeLedgerId: ledgerId,
-      snapshots,
-    };
-    set({ snapshots });
-    await persist(next);
+      patch.name?.trim() || current.name,
+    );
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    const updated = get().snapshots[ledgerId]?.envelopes.find(
+      (item) => item.id === envelopeId,
+    );
+    if (!updated) throw new Error('No se pudo actualizar el sobre.');
     return updated;
   },
 }));

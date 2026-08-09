@@ -45,6 +45,8 @@ export type LedgerMeta = {
   icon: string;
   type: 'personal' | 'shared';
   members: LedgerMember[];
+  /** ISO 4217 from Mongo workspace (source of truth). */
+  baseCurrency?: string;
 };
 
 export const ownerSelf: LedgerMember = {
@@ -55,6 +57,7 @@ export const ownerSelf: LedgerMember = {
 };
 
 export function emptySnapshot(): LedgerSnapshot {
+  const stamp = Date.now();
   return {
     summary: {
       total: 0,
@@ -69,7 +72,7 @@ export function emptySnapshot(): LedgerSnapshot {
     },
     accounts: [
       {
-        id: `cash-${Date.now()}`,
+        id: `cash-${stamp}`,
         name: 'Efectivo',
         kind: 'Efectivo',
         balance: 0,
@@ -80,7 +83,7 @@ export function emptySnapshot(): LedgerSnapshot {
     ],
     envelopes: [
       {
-        id: `inc-${Date.now()}`,
+        id: `inc-${stamp}`,
         name: 'Ingresos',
         kind: 'income',
         spent: 0,
@@ -91,7 +94,7 @@ export function emptySnapshot(): LedgerSnapshot {
         rule: 'Sin regla aún',
       },
       {
-        id: `exp-${Date.now()}`,
+        id: `exp-${stamp}`,
         name: 'Gastos generales',
         kind: 'expense',
         spent: 0,
@@ -104,6 +107,39 @@ export function emptySnapshot(): LedgerSnapshot {
     ],
     transactions: [],
     upcoming: [],
+  };
+}
+
+/** Default book for a brand-new account: only Hogar, empty, owned by the user. */
+export function defaultHogarState(owner: {
+  name: string;
+  email: string;
+}): {
+  ledgers: LedgerMeta[];
+  activeLedgerId: string;
+  snapshots: Record<string, LedgerSnapshot>;
+} {
+  const member: LedgerMember = {
+    id: 'me',
+    name: owner.name.trim() || 'Usuario',
+    email: owner.email.trim().toLowerCase(),
+    role: 'owner',
+  };
+  return {
+    ledgers: [
+      {
+        id: 'hogar',
+        name: 'Hogar',
+        color: '#F5C518',
+        icon: 'house.fill',
+        type: 'personal',
+        members: [member],
+      },
+    ],
+    activeLedgerId: 'hogar',
+    snapshots: {
+      hogar: emptySnapshot(),
+    },
   };
 }
 

@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 
-import { apiRequest } from '@/services/api';
+import { apiRequest, ensureAuthSession } from '@/services/api';
 import {
   localStorage,
   refreshTokenStorage,
   tokenStorage,
 } from '@/services/persistence';
+import { useLedgerStore } from '@/store/ledger';
 
 export type UserProfile = {
   name: string;
@@ -22,9 +23,16 @@ type AuthState = {
   hydrate: () => Promise<void>;
   finishOnboarding: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<void>;
+  signUp: (
+    name: string,
+    email: string,
+    password: string,
+  ) => Promise<{ requiresVerification: true; email: string; devCode?: string }>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
+  resendVerification: (
+    email: string,
+  ) => Promise<{ delivered: boolean; devCode?: string }>;
   signInWithGoogle: (idToken: string) => Promise<void>;
-  enterDemo: () => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
@@ -35,6 +43,15 @@ type AuthResponse = {
   refreshToken: string;
   user: { id: string; name: string; email: string };
 };
+
+type RegisterResponse =
+  | AuthResponse
+  | {
+      requiresVerification: true;
+      email: string;
+      delivered?: boolean;
+      devCode?: string;
+    };
 
 const defaultProfile: UserProfile = {
   name: 'Alex Rivera',
@@ -64,7 +81,10 @@ async function writeProfile(profile: UserProfile) {
   ]);
 }
 
-async function persistAuthSession(auth: AuthResponse) {
+async function persistAuthSession(
+  auth: AuthResponse,
+  options?: { freshAccount?: boolean },
+) {
   const profile: UserProfile = {
     name: auth.user.name,
     email: auth.user.email.toLowerCase(),
@@ -73,10 +93,49 @@ async function persistAuthSession(auth: AuthResponse) {
     tokenStorage.set(auth.accessToken),
     refreshTokenStorage.set(auth.refreshToken),
     localStorage.set('demo-session', false),
-    localStorage.set('auth-user-id', auth.user.id),
+    localStorage.set('auth-user-id', String(auth.user.id)),
     writeProfile(profile),
   ]);
+  // Product data lives in Mongo. Reload books (and dependents) after auth.
+  if (options?.freshAccount) {
+    await useLedgerStore.getState().resetToDefaultHogar();
+  } else {
+    await useLedgerStore.getState().hydrate();
+  }
+  const { useGoalsStore } = await import('@/store/goals');
+  const { useCalendarStore } = await import('@/store/calendar');
+  const { useRecaudosStore } = await import('@/store/recaudos');
+  await Promise.all([
+    useGoalsStore.getState().hydrate(),
+    useCalendarStore.getState().hydrate(),
+    useRecaudosStore.getState().refresh(),
+  ]);
   return profile;
+}
+
+async function clearLocalSession() {
+  await Promise.all([
+    tokenStorage.clear(),
+    refreshTokenStorage.clear(),
+    localStorage.set('demo-session', false),
+    localStorage.remove('auth-user-id'),
+  ]);
+}
+
+/** Best-effort read of JWT `sub` (user id) without verifying signature. */
+function decodeJwtSub(token: string | null | undefined): string | null {
+  if (!token) return null;
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const normalized = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    if (typeof globalThis.atob !== 'function') return null;
+    const payload = JSON.parse(globalThis.atob(padded)) as { sub?: string };
+    return payload.sub ? String(payload.sub) : null;
+  } catch {
+    return null;
+  }
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -93,10 +152,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.get('demo-session', false),
       readProfile(),
     ]);
+    let stillAuthed = Boolean(token || refreshToken) || demo;
+    if (!demo && refreshToken) {
+      // Renew tokens on launch so the session stays alive indefinitely.
+      await ensureAuthSession();
+      const [nextAccess, nextRefresh] = await Promise.all([
+        tokenStorage.get(),
+        refreshTokenStorage.get(),
+      ]);
+      stillAuthed = Boolean(nextAccess || nextRefresh);
+    }
+    if (!demo && stillAuthed) {
+      const access = (await tokenStorage.get()) || token;
+      const userId = decodeJwtSub(access);
+      if (userId) await localStorage.set('auth-user-id', userId);
+    }
     set({
       hydrated: true,
       onboarded,
-      authenticated: Boolean(token || refreshToken) || demo,
+      authenticated: stillAuthed,
       demo,
       profile,
     });
@@ -109,6 +183,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!email.trim() || password.length < 8) {
       throw new Error('Revisa tu correo y contraseña (mínimo 8 caracteres).');
     }
+    await clearLocalSession();
+    set({ authenticated: false, demo: false });
     const auth = await apiRequest<AuthResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({
@@ -125,7 +201,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         'Revisa tu nombre, correo y contraseña (mínimo 8 caracteres).',
       );
     }
-    const auth = await apiRequest<AuthResponse>('/auth/register', {
+    // Prevent entering the app with a previous session while verifying email.
+    await clearLocalSession();
+    set({ authenticated: false, demo: false });
+    const result = await apiRequest<RegisterResponse>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({
         name: name.trim(),
@@ -133,25 +212,71 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         password,
       }),
     });
-    const profile = await persistAuthSession(auth);
+    if ('accessToken' in result && result.accessToken) {
+      throw new Error(
+        'El servidor aún no exige verificación de correo. Actualiza/redeploy del API.',
+      );
+    }
+    if ('requiresVerification' in result && result.requiresVerification) {
+      if (!result.devCode && result.delivered === false) {
+        throw new Error(
+          'No pudimos enviar el código al correo. Revisa Brevo o intenta reenviar.',
+        );
+      }
+      return {
+        requiresVerification: true as const,
+        email: result.email,
+        devCode: result.devCode,
+      };
+    }
+    throw new Error('Respuesta inesperada del registro.');
+  },
+  verifyEmail: async (email, code) => {
+    const normalized = code.replace(/\D/g, '');
+    if (!/^\d{6}$/.test(normalized)) {
+      throw new Error('El código debe tener 6 dígitos.');
+    }
+    const auth = await apiRequest<AuthResponse>('/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        code: normalized,
+      }),
+    });
+    const profile = await persistAuthSession(auth, { freshAccount: true });
     set({ authenticated: true, demo: false, profile });
+  },
+  resendVerification: async (email) => {
+    const result = await apiRequest<{
+      accepted: boolean;
+      delivered?: boolean;
+      devCode?: string;
+    }>('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim().toLowerCase() }),
+    });
+    if (!result.devCode && result.delivered === false) {
+      throw new Error(
+        'No pudimos reenviar el código. Revisa la configuración de correo.',
+      );
+    }
+    return {
+      delivered: Boolean(result.delivered),
+      devCode: result.devCode,
+    };
   },
   signInWithGoogle: async (idToken) => {
     if (!idToken?.trim()) {
       throw new Error('No recibimos el token de Google. Inténtalo de nuevo.');
     }
+    await clearLocalSession();
+    set({ authenticated: false, demo: false });
     const auth = await apiRequest<AuthResponse>('/auth/google', {
       method: 'POST',
       body: JSON.stringify({ idToken }),
     });
     const profile = await persistAuthSession(auth);
     set({ authenticated: true, demo: false, profile });
-  },
-  enterDemo: async () => {
-    await localStorage.set('demo-session', true);
-    const profile = defaultProfile;
-    await writeProfile(profile);
-    set({ authenticated: true, demo: true, profile });
   },
   signOut: async () => {
     const refreshToken = await refreshTokenStorage.get();
@@ -165,12 +290,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // Local sign-out must still finish when the API is unavailable.
       }
     }
-    await Promise.all([
-      tokenStorage.clear(),
-      refreshTokenStorage.clear(),
-      localStorage.set('demo-session', false),
-      localStorage.remove('auth-user-id'),
-    ]);
+    await clearLocalSession();
+    await useLedgerStore.getState().hydrate();
     set({ authenticated: false, demo: false });
   },
   updateProfile: async (patch) => {

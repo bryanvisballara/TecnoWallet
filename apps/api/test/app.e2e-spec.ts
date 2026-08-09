@@ -25,6 +25,24 @@ async function availablePort(): Promise<number> {
   });
 }
 
+async function registerVerified(
+  server: App,
+  credentials: { email: string; password: string; name: string },
+) {
+  const registered = await request(server)
+    .post('/api/v1/auth/register')
+    .send(credentials)
+    .expect(201);
+  expect(registered.body.requiresVerification).toBe(true);
+  expect(registered.body.devCode).toMatch(/^\d{6}$/);
+  const verified = await request(server)
+    .post('/api/v1/auth/verify-email')
+    .send({ email: credentials.email, code: registered.body.devCode })
+    .expect(201);
+  expect(verified.body.accessToken).toEqual(expect.any(String));
+  return verified;
+}
+
 describe('health and auth (e2e)', () => {
   let app: INestApplication<App>;
   let mongo: MongoMemoryServer;
@@ -66,36 +84,27 @@ describe('health and auth (e2e)', () => {
       password: 'strong-password',
       name: 'Wallet User',
     };
-    const registered = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send(credentials)
-      .expect(201);
-    expect(registered.body.accessToken).toEqual(expect.any(String));
+    const registered = await registerVerified(app.getHttpServer(), credentials);
 
     const loggedIn = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: credentials.email, password: credentials.password })
       .expect(201);
     expect(loggedIn.body.refreshToken).toEqual(expect.any(String));
+    expect(registered.body.accessToken).toEqual(expect.any(String));
   });
 
   it('enforces Recaudo roles, invitations, plans, and idempotent contributions', async () => {
-    const organizer = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send({
-        email: 'organizer@example.com',
-        password: 'strong-password',
-        name: 'Organizer',
-      })
-      .expect(201);
-    const member = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send({
-        email: 'member@example.com',
-        password: 'strong-password',
-        name: 'Member',
-      })
-      .expect(201);
+    const organizer = await registerVerified(app.getHttpServer(), {
+      email: 'organizer@example.com',
+      password: 'strong-password',
+      name: 'Organizer',
+    });
+    const member = await registerVerified(app.getHttpServer(), {
+      email: 'member@example.com',
+      password: 'strong-password',
+      name: 'Member',
+    });
     const organizerAuth = {
       Authorization: `Bearer ${organizer.body.accessToken}`,
     };

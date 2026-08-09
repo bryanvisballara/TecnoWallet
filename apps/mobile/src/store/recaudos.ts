@@ -1,7 +1,6 @@
 import { create } from "zustand";
 
 import { apiRequest, mutateOffline } from "@/services/api";
-import { localStorage } from "@/services/persistence";
 import { scheduleRecaudoReminder } from "@/services/push-notifications";
 import { useAuthStore } from "@/store/auth";
 
@@ -102,9 +101,6 @@ type RecaudosState = {
   ) => Promise<{ reminderScheduled: boolean }>;
   acceptInvite: (token: string) => Promise<Recaudo>;
 };
-
-const STORAGE_KEY = "recaudos-v1";
-const WORKSPACE_KEY = "recaudos-workspace-id";
 
 function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -224,10 +220,6 @@ function seedRecaudos(): Recaudo[] {
       updatedAt: createdAt,
     },
   ];
-}
-
-async function persist(recaudos: Recaudo[]) {
-  await localStorage.set(STORAGE_KEY, recaudos);
 }
 
 function messageFrom(error: unknown) {
@@ -387,21 +379,25 @@ function normalizeRecaudo(raw: unknown): Recaudo {
 }
 
 async function resolveWorkspaceId() {
-  const saved = await localStorage.get<string | null>(WORKSPACE_KEY, null);
-  if (saved) return saved;
-  const workspaces =
-    await apiRequest<Array<{ id?: string; _id?: string }>>("/workspaces");
-  let workspaceId = objectId(workspaces[0]);
+  // Always resolve from Mongo workspaces (no localStorage). Prefer Hogar.
+  const workspaces = await apiRequest<
+    Array<{ id?: string; _id?: string; name?: string }>
+  >("/workspaces");
+  const hogar = workspaces.find(
+    (item) => (item.name || "").trim().toLowerCase() === "hogar",
+  );
+  let workspaceId = objectId(hogar) || objectId(workspaces[0]);
   if (!workspaceId) {
-    const profile = useAuthStore.getState().profile;
     const created = await apiRequest<{ id?: string; _id?: string }>(
       "/workspaces",
       {
         method: "POST",
         body: JSON.stringify({
-          name: `${profile.name} · Recaudos`,
+          name: "Hogar",
           type: "personal",
           baseCurrency: "COP",
+          color: "#F5C518",
+          icon: "house.fill",
         }),
       },
     );
@@ -412,7 +408,6 @@ async function resolveWorkspaceId() {
       "No encontramos un espacio de trabajo para crear el recaudo.",
     );
   }
-  await localStorage.set(WORKSPACE_KEY, workspaceId);
   return workspaceId;
 }
 
@@ -427,8 +422,10 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
   loading: false,
 
   hydrate: async () => {
-    const saved = await localStorage.get<Recaudo[]>(STORAGE_KEY, []);
-    set({ recaudos: saved, hydrated: true });
+    set({ hydrated: true });
+    if (!useAuthStore.getState().demo) {
+      await get().refresh();
+    }
   },
 
   refresh: async () => {
@@ -436,7 +433,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
       if (!get().recaudos.length) {
         const recaudos = seedRecaudos();
         set({ recaudos });
-        await persist(recaudos);
       }
       return;
     }
@@ -455,7 +451,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         }),
       );
       set({ recaudos, loading: false });
-      await persist(recaudos);
     } catch (error) {
       set({ loading: false, error: messageFrom(error) });
     }
@@ -494,7 +489,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     if (demo) {
       const recaudos = [optimistic, ...get().recaudos];
       set({ recaudos });
-      await persist(recaudos);
       return optimistic;
     }
 
@@ -507,7 +501,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     );
     const recaudos = [created, ...get().recaudos];
     set({ recaudos });
-    await persist(recaudos);
     return created;
   },
 
@@ -547,7 +540,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         : item,
     );
     set({ recaudos });
-    await persist(recaudos);
     if (demo) return;
     try {
       const result = await mutateOffline<RecaudoContribution>({
@@ -602,7 +594,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         : item,
     );
     set({ recaudos });
-    await persist(recaudos);
     if (demo) return;
     try {
       const result = await mutateOffline<{ collectedMinor?: number }>({
@@ -665,7 +656,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         return { ...item, participants, updatedAt: now() };
       });
       set({ recaudos });
-      await persist(recaudos);
       const recaudo = recaudos.find((item) => item.id === recaudoId);
       if (recaudo) {
         const reminderScheduled = await scheduleRecaudoReminder({
@@ -701,7 +691,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
       item.id === recaudoId ? updated : item,
     );
     set({ recaudos });
-    await persist(recaudos);
     const reminderScheduled = await scheduleRecaudoReminder({
       recaudoId,
       title: updated.title,
@@ -725,7 +714,6 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
       ...get().recaudos.filter((item) => item.id !== recaudo.id),
     ];
     set({ recaudos });
-    await persist(recaudos);
     return recaudo;
   },
 }));

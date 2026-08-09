@@ -8,8 +8,9 @@ const schema = Joi.object({
   MONGODB_URI: Joi.string().uri().required(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
-  JWT_ACCESS_TTL: Joi.string().default('15m'),
-  JWT_REFRESH_TTL: Joi.string().default('30d'),
+  // Persistent sessions: long-lived access + refresh (logout is explicit only).
+  JWT_ACCESS_TTL: Joi.string().default('30d'),
+  JWT_REFRESH_TTL: Joi.string().default('3650d'),
   CORS_ORIGINS: Joi.string().default('http://localhost:3000'),
   RATE_LIMIT_MAX: Joi.number().integer().min(1).default(100),
   LOG_LEVEL: Joi.string().default('info'),
