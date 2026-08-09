@@ -40,6 +40,10 @@ import {
 } from 'class-validator';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import {
+  inviteEmailHtml,
+  inviteEmailSubject,
+} from '../mail/invite-email';
+import {
   HydratedDocument,
   Model,
   Schema as MongooseSchema,
@@ -426,6 +430,7 @@ export abstract class RecaudoMailer {
     to: string;
     recaudoTitle: string;
     acceptLink: string;
+    inviterName?: string;
   }): Promise<{ delivered: boolean }>;
 }
 
@@ -437,6 +442,7 @@ class ConfiguredRecaudoMailer implements RecaudoMailer {
     to: string;
     recaudoTitle: string;
     acceptLink: string;
+    inviterName?: string;
   }): Promise<{ delivered: boolean }> {
     const apiKey = this.config.get<string>('BREVO_API_KEY');
     if (!apiKey) {
@@ -463,10 +469,18 @@ class ConfiguredRecaudoMailer implements RecaudoMailer {
           name: this.config.get<string>('BREVO_SENDER_NAME', 'TecnoWallet'),
         },
         to: [{ email: input.to }],
-        subject: `Invitación a ${input.recaudoTitle}`,
-        htmlContent:
-          '<p>Te invitaron a colaborar en un recaudo de TecnoWallet.</p>' +
-          `<p><a href="${escapeHtml(input.acceptLink)}">Aceptar invitación</a></p>`,
+        subject: inviteEmailSubject({
+          kind: 'recaudo',
+          resourceName: input.recaudoTitle,
+          acceptLink: input.acceptLink,
+          inviterName: input.inviterName,
+        }),
+        htmlContent: inviteEmailHtml({
+          kind: 'recaudo',
+          resourceName: input.recaudoTitle,
+          acceptLink: input.acceptLink,
+          inviterName: input.inviterName,
+        }),
       }),
     });
     if (!response.ok) {
@@ -930,10 +944,15 @@ export class RecaudosService {
     const acceptLink = `${acceptBase}/${encodeURIComponent(rawToken)}`;
     let delivery: { delivered: boolean };
     try {
+      const inviter = await this.users.findById(principal.userId).lean();
       delivery = await this.mailer.sendInvite({
         to: email,
         recaudoTitle: recaudo.title,
         acceptLink,
+        inviterName:
+          typeof inviter?.name === 'string' && inviter.name.trim()
+            ? inviter.name.trim()
+            : principal.email.split('@')[0],
       });
     } catch (error: unknown) {
       await this.invites.updateOne(

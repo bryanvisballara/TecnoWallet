@@ -59,8 +59,8 @@ export default function CalendarsScreen() {
       Alert.alert(
         'Invitación lista',
         inviteRole === 'editor'
-          ? `${inviteEmail} podrá ver y editar este calendario.`
-          : `${inviteEmail} podrá ver este calendario (sin editar).`,
+          ? `Enviamos un correo a ${inviteEmail}. Podrá ver y editar este calendario.`
+          : `Enviamos un correo a ${inviteEmail}. Podrá ver este calendario (sin editar).`,
       );
     } catch (error) {
       Alert.alert(

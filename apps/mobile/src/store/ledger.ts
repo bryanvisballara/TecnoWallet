@@ -59,7 +59,11 @@ type LedgerState = {
   setActiveLedger: (id: string) => Promise<void>;
   createLedger: (name: string, color?: string) => Promise<string>;
   deleteLedger: (ledgerId: string) => Promise<string>;
-  inviteMember: (ledgerId: string, email: string, name?: string) => Promise<void>;
+  inviteMember: (
+    ledgerId: string,
+    email: string,
+    name?: string,
+  ) => Promise<{ pendingSignup?: boolean; delivered?: boolean }>;
   removeMember: (ledgerId: string, memberId: string) => Promise<void>;
   renameLedger: (ledgerId: string, name: string) => Promise<void>;
   addTransaction: (value: NewTransaction) => Promise<Transaction>;
@@ -246,9 +250,16 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   inviteMember: async (ledgerId, email) => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes('@')) throw new Error('Correo inválido.');
-    await addWorkspaceMember(ledgerId, trimmed, 'member');
+    const result = (await addWorkspaceMember(ledgerId, trimmed, 'member')) as {
+      pendingSignup?: boolean;
+      delivered?: boolean;
+    };
     await get().hydrate();
     set({ activeLedgerId: ledgerId });
+    return {
+      pendingSignup: Boolean(result?.pendingSignup),
+      delivered: result?.delivered,
+    };
   },
 
   removeMember: async (_ledgerId, memberId) => {

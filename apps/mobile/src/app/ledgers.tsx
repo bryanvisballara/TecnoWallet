@@ -51,10 +51,23 @@ export default function LedgersScreen() {
 
   const onInvite = async () => {
     try {
-      await inviteMember(selected.id, inviteEmail, inviteName);
+      const result = await inviteMember(selected.id, inviteEmail, inviteName);
+      const emailed = inviteEmail.trim();
       setInviteEmail('');
       setInviteName('');
-      Alert.alert('Invitación lista', `${inviteEmail} podrá ver y editar este libro.`);
+      if (result.pendingSignup) {
+        Alert.alert(
+          'Correo enviado',
+          result.delivered === false
+            ? `${emailed} aún no tiene cuenta. Cuando se registre en TecnoWallet, invítala de nuevo al libro.`
+            : `Enviamos un correo a ${emailed} para que cree su cuenta. Cuando se registre, invítala de nuevo para agregarla al libro.`,
+        );
+        return;
+      }
+      Alert.alert(
+        'Invitación lista',
+        `Agregamos a ${emailed} al libro y le enviamos un correo con acceso.`,
+      );
     } catch (error) {
       Alert.alert('No se pudo invitar', error instanceof Error ? error.message : 'Revisa el correo.');
     }

@@ -8,6 +8,7 @@ import {
 import { apiRequest } from '@/services/api';
 import { objectId } from '@/services/ledgers-api';
 import { localStorage } from '@/services/persistence';
+import { useAuthStore } from '@/store/auth';
 import { useLedgerStore } from '@/store/ledger';
 
 export type CalendarMemberRole = 'owner' | 'editor' | 'viewer';
@@ -236,12 +237,14 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   inviteMember: async (calendarId, email, role, name) => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes('@')) throw new Error('Correo inválido.');
-    const calendars = get().calendars.map((calendar) => {
-      if (calendar.id !== calendarId) return calendar;
-      if (calendar.members.some((member) => member.email === trimmed)) {
+    const calendar = get().calendars.find((item) => item.id === calendarId);
+    if (!calendar) throw new Error('Calendario no encontrado.');
+    const calendars = get().calendars.map((item) => {
+      if (item.id !== calendarId) return item;
+      if (item.members.some((member) => member.email === trimmed)) {
         return {
-          ...calendar,
-          members: calendar.members.map((member) =>
+          ...item,
+          members: item.members.map((member) =>
             member.email === trimmed
               ? { ...member, role, name: name?.trim() || member.name }
               : member,
@@ -249,9 +252,9 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         };
       }
       return {
-        ...calendar,
+        ...item,
         members: [
-          ...calendar.members,
+          ...item.members,
           {
             id: `cm-${Date.now()}`,
             name: name?.trim() || trimmed.split('@')[0],
@@ -268,6 +271,19 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     };
     set({ calendars });
     await persist(next);
+    if (!useAuthStore.getState().demo) {
+      const profile = useAuthStore.getState().profile;
+      await apiRequest('/mail/invites', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: 'calendar',
+          to: trimmed,
+          resourceName: calendar.name,
+          inviterName: profile.name,
+          roleLabel: role === 'editor' ? 'editor' : 'solo lectura',
+        }),
+      });
+    }
   },
 
   removeMember: async (calendarId, memberId) => {

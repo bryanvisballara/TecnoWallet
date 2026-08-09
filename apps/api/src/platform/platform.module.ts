@@ -52,6 +52,10 @@ import {
   LedgerTransaction,
   LedgerTransactionSchema,
 } from '../ledger/ledger';
+import { BrevoMailer } from '../mail/brevo';
+import { inviteEmailHtml, inviteEmailSubject } from '../mail/invite-email';
+import { MailModule } from '../mail/mail.module';
+import { ConfigService } from '@nestjs/config';
 
 const resourceKinds = [
   'category',
@@ -501,6 +505,8 @@ class WorkspaceController {
     @InjectModel(Membership.name)
     private readonly memberships: Model<Membership>,
     @InjectModel(User.name) private readonly users: Model<User>,
+    private readonly mailer: BrevoMailer,
+    private readonly config: ConfigService,
   ) {}
 
   @Get()
@@ -627,20 +633,80 @@ class WorkspaceController {
       role: { $in: ['owner', 'admin'] },
     });
     if (!requester) throw new ForbiddenException('Admin access required');
+    const workspace = await this.workspaces.findOne({
+      _id: workspaceId,
+      deletedAt: { $exists: false },
+    });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+    const inviter = await this.users.findById(user.userId).lean();
+    const inviterName =
+      typeof inviter?.name === 'string' && inviter.name.trim()
+        ? inviter.name.trim()
+        : user.email.split('@')[0];
+    const appBase = (
+      this.config.get<string>('APP_PUBLIC_URL') ||
+      this.config.get<string>('RECAUDO_INVITE_BASE_URL') ||
+      'https://tecnowallet.app'
+    )
+      .replace(/\/invite\/?$/, '')
+      .replace(/\/+$/, '');
+    const roleLabel =
+      dto.role === 'admin'
+        ? 'admin'
+        : dto.role === 'viewer'
+          ? 'solo lectura'
+          : 'miembro';
+
     const invited = await this.users.findOne({
       email: dto.email.toLowerCase(),
       active: true,
     });
-    if (!invited) throw new NotFoundException('User not found');
+    if (!invited) {
+      const payload = {
+        kind: 'workspace' as const,
+        resourceName: workspace.name,
+        acceptLink: `${appBase}/auth`,
+        inviterName,
+        roleLabel,
+        pendingSignup: true,
+      };
+      const delivery = await this.mailer.sendHtml({
+        to: dto.email.toLowerCase(),
+        subject: inviteEmailSubject(payload),
+        htmlContent: inviteEmailHtml(payload),
+      });
+      return {
+        pendingSignup: true,
+        email: dto.email.toLowerCase(),
+        delivered: delivery.delivered,
+      };
+    }
     await this.workspaces.updateOne(
       { _id: workspaceId, deletedAt: { $exists: false } },
       { $set: { type: 'shared' } },
     );
-    return this.memberships.findOneAndUpdate(
+    const membership = await this.memberships.findOneAndUpdate(
       { workspaceId, userId: invited._id },
       { $set: { role: dto.role } },
       { upsert: true, new: true },
     );
+    const payload = {
+      kind: 'workspace' as const,
+      resourceName: workspace.name,
+      acceptLink: `${appBase}/`,
+      inviterName,
+      roleLabel,
+    };
+    const delivery = await this.mailer.sendHtml({
+      to: invited.email,
+      subject: inviteEmailSubject(payload),
+      htmlContent: inviteEmailHtml(payload),
+    });
+    return {
+      ...membership.toObject(),
+      pendingSignup: false,
+      delivered: delivery.delivered,
+    };
   }
 }
 
@@ -1021,6 +1087,7 @@ function escapeRegex(value: string): string {
 @Module({
   imports: [
     AuthModule,
+    MailModule,
     MongooseModule.forFeature([
       { name: FinanceResource.name, schema: FinanceResourceSchema },
       { name: LedgerTransaction.name, schema: LedgerTransactionSchema },
