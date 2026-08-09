@@ -1,6 +1,8 @@
+import * as Google from 'expo-auth-session/providers/google';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -22,6 +24,11 @@ import { authCopy } from '@/i18n/languages';
 import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
 
 function GoogleMark() {
   return (
@@ -50,6 +57,11 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleRequest, , promptGoogle] = Google.useIdTokenAuthRequest({
+    clientId: GOOGLE_WEB_CLIENT_ID || undefined,
+    webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+    iosClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+  });
 
   const goHome = async () => {
     const inviteToken = await localStorage.get<string | null>(
@@ -80,14 +92,39 @@ export default function AuthScreen() {
   };
 
   const submitGoogle = async () => {
+    if (!GOOGLE_WEB_CLIENT_ID) {
+      setError(
+        'Google Sign-In no está configurado (falta EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID).',
+      );
+      return;
+    }
+    if (!googleRequest) {
+      setError('Google todavía se está preparando. Inténtalo en un segundo.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await signInWithGoogle();
+      const result = await promptGoogle();
+      if (result.type === 'dismiss' || result.type === 'cancel') {
+        return;
+      }
+      if (result.type !== 'success') {
+        throw new Error('No se completó el inicio con Google.');
+      }
+      const idToken =
+        result.params.id_token ??
+        (result as { authentication?: { idToken?: string } }).authentication
+          ?.idToken;
+      if (!idToken) {
+        throw new Error('Google no devolvió un ID token.');
+      }
+      await signInWithGoogle(idToken);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await goHome();
-    } catch {
-      setError(copy.genericError);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : copy.genericError);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
     }
@@ -173,9 +210,9 @@ export default function AuthScreen() {
 
           <Pressable
             accessibilityRole="button"
-            disabled={loading}
+            disabled={loading || !googleRequest}
             style={[styles.socialButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
-            onPress={submitGoogle}>
+            onPress={() => void submitGoogle()}>
             <GoogleMark />
             <Text style={[styles.socialText, { color: theme.text }]}>{copy.google}</Text>
           </Pressable>

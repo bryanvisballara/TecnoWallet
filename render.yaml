@@ -47,3 +47,7 @@ services:
         sync: false
       - key: UNIT_WALLET_TERMS
         sync: false
+      - key: GOOGLE_CLIENT_ID_WEB
+        sync: false
+      - key: GOOGLE_CLIENT_ID_IOS
+        sync: false

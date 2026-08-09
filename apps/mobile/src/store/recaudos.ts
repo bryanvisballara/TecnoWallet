@@ -416,6 +416,11 @@ async function resolveWorkspaceId() {
   return workspaceId;
 }
 
+/** Shared workspace id used by Recaudos + Unit wallet setup. */
+export async function getRecaudosWorkspaceId() {
+  return resolveWorkspaceId();
+}
+
 export const useRecaudosStore = create<RecaudosState>((set, get) => ({
   recaudos: [],
   hydrated: false,

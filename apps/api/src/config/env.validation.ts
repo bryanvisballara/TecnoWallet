@@ -30,6 +30,9 @@ const schema = Joi.object({
   UNIT_API_TOKEN: Joi.string().optional().allow(''),
   UNIT_WEBHOOK_SECRET: Joi.string().optional().allow(''),
   UNIT_WALLET_TERMS: Joi.string().default('walletDefault'),
+  GOOGLE_CLIENT_ID_WEB: Joi.string().optional().allow(''),
+  GOOGLE_CLIENT_ID_IOS: Joi.string().optional().allow(''),
+  GOOGLE_CLIENT_SECRET: Joi.string().optional().allow(''),
 });
 
 export function validateEnvironment(config: Record<string, unknown>) {

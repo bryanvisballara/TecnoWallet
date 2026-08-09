@@ -23,6 +23,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { compare, hash } from 'bcryptjs';
+import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomUUID } from 'node:crypto';
 import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
@@ -38,11 +39,14 @@ export class User {
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email!: string;
 
-  @Prop({ required: true, select: false })
-  passwordHash!: string;
+  @Prop({ required: false, select: false })
+  passwordHash?: string;
 
   @Prop({ required: true, trim: true })
   name!: string;
+
+  @Prop({ unique: true, sparse: true, trim: true })
+  googleId?: string;
 
   @Prop({ default: true })
   active!: boolean;
@@ -125,6 +129,12 @@ class LoginDto {
 class RefreshDto {
   @IsString()
   refreshToken!: string;
+}
+
+class GoogleLoginDto {
+  @IsString()
+  @MinLength(20)
+  idToken!: string;
 }
 
 const IS_PUBLIC = 'isPublic';
@@ -218,9 +228,75 @@ export class AuthService {
     const user = await this.users
       .findOne({ email: dto.email.toLowerCase(), active: true })
       .select('+passwordHash');
-    if (!user || !(await compare(dto.password, user.passwordHash))) {
+    if (
+      !user ||
+      !user.passwordHash ||
+      !(await compare(dto.password, user.passwordHash))
+    ) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    return this.issueTokens(user);
+  }
+
+  async loginWithGoogle(dto: GoogleLoginDto) {
+    const audiences = [
+      this.config.get<string>('GOOGLE_CLIENT_ID_WEB'),
+      this.config.get<string>('GOOGLE_CLIENT_ID_IOS'),
+    ].filter((value): value is string => Boolean(value?.trim()));
+    if (!audiences.length) {
+      throw new UnauthorizedException('Google Sign-In is not configured');
+    }
+
+    let email = '';
+    let googleId = '';
+    let name = 'Usuario';
+    try {
+      const client = new OAuth2Client(audiences[0]);
+      const ticket = await client.verifyIdToken({
+        idToken: dto.idToken,
+        audience: audiences,
+      });
+      const payload = ticket.getPayload();
+      if (!payload?.email || !payload.email_verified || !payload.sub) {
+        throw new Error('Unverified Google account');
+      }
+      email = payload.email.toLowerCase();
+      googleId = payload.sub;
+      name =
+        payload.name?.trim() ||
+        payload.given_name?.trim() ||
+        email.split('@')[0] ||
+        'Usuario';
+    } catch {
+      throw new UnauthorizedException('Invalid Google ID token');
+    }
+
+    let user = await this.users.findOne({
+      $or: [{ googleId }, { email }],
+      active: true,
+    });
+    if (!user) {
+      user = await this.users.create({
+        email,
+        name,
+        googleId,
+      });
+      const workspace = await this.workspaces.create({
+        name: `${name}'s Wallet`,
+        type: 'personal',
+        ownerId: user._id,
+      });
+      await this.memberships.create({
+        workspaceId: workspace._id,
+        userId: user._id,
+        role: 'owner',
+      });
+    } else if (!user.googleId) {
+      user.googleId = googleId;
+      if (!user.name?.trim()) user.name = name;
+      await user.save();
+    }
+
     return this.issueTokens(user);
   }
 
@@ -322,6 +398,12 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
+  }
+
+  @Public()
+  @Post('google')
+  google(@Body() dto: GoogleLoginDto) {
+    return this.auth.loginWithGoogle(dto);
   }
 
   @Public()

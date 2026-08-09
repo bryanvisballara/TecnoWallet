@@ -35,6 +35,7 @@ import {
   type ContributionMode,
   type RecaudoCategory,
 } from "@/store/recaudos";
+import { useUnitFundingStore } from "@/store/unit-funding";
 
 const categoryInfo: Record<
   RecaudoCategory,
@@ -110,8 +111,34 @@ export default function RecaudoDetailScreen() {
   const addContribution = useRecaudosStore((state) => state.addContribution);
   const withdraw = useRecaudosStore((state) => state.withdraw);
   const updateMyPlan = useRecaudosStore((state) => state.updateMyPlan);
+  const refreshRecaudos = useRecaudosStore((state) => state.refresh);
   const profile = useAuthStore((state) => state.profile);
+  const demo = useAuthStore((state) => state.demo);
   const recaudo = recaudos.find((item) => item.id === id);
+
+  const identity = useUnitFundingStore((state) => state.identity);
+  const counterparties = useUnitFundingStore((state) => state.counterparties);
+  const wallet = useUnitFundingStore((state) => state.wallet);
+  const balancesByRecaudo = useUnitFundingStore(
+    (state) => state.balancesByRecaudo,
+  );
+  const setupBusy = useUnitFundingStore((state) => state.setupBusy);
+  const bootstrapForRecaudo = useUnitFundingStore(
+    (state) => state.bootstrapForRecaudo,
+  );
+  const activatePayments = useUnitFundingStore(
+    (state) => state.activatePayments,
+  );
+  const ensureWorkspaceWallet = useUnitFundingStore(
+    (state) => state.ensureWorkspaceWallet,
+  );
+  const linkBankAccount = useUnitFundingStore((state) => state.linkBankAccount);
+  const fundContribution = useUnitFundingStore(
+    (state) => state.fundContribution,
+  );
+  const fundWithdrawal = useUnitFundingStore((state) => state.fundWithdrawal);
+  const refreshBalances = useUnitFundingStore((state) => state.refreshBalances);
+  const refreshIdentity = useUnitFundingStore((state) => state.refreshIdentity);
 
   const myParticipant = useMemo(() => {
     if (!recaudo) return undefined;
@@ -128,10 +155,12 @@ export default function RecaudoDetailScreen() {
   const [contributionAmount, setContributionAmount] = useState("");
   const [contributionNote, setContributionNote] = useState("");
   const [contributing, setContributing] = useState(false);
+  const [fundingContribution, setFundingContribution] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawNote, setWithdrawNote] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showManualContribute, setShowManualContribute] = useState(false);
   const [monthlyAmount, setMonthlyAmount] = useState("");
   const [frequency, setFrequency] = useState<ContributionFrequency>("monthly");
   const [mode, setMode] = useState<ContributionMode>("manual");
@@ -139,10 +168,55 @@ export default function RecaudoDetailScreen() {
   const [reminderTime, setReminderTime] = useState("09:00");
   const [savingPlan, setSavingPlan] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>();
+  const [bankName, setBankName] = useState("");
+  const [routingNumber, setRoutingNumber] = useState("011401533");
+  const [accountNumber, setAccountNumber] = useState("123456789");
 
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrate, hydrated]);
+
+  useEffect(() => {
+    if (!recaudo || demo) return;
+    void bootstrapForRecaudo(recaudo.id);
+  }, [bootstrapForRecaudo, demo, recaudo?.id]);
+
+  useEffect(() => {
+    if (
+      demo ||
+      !recaudo?.isOrganizer ||
+      identity.status !== "approved" ||
+      !identity.unitCustomerId ||
+      counterparties.every((item) => !item.active) ||
+      (wallet?.unitWalletId && wallet.status === "open") ||
+      setupBusy
+    ) {
+      return;
+    }
+    void ensureWorkspaceWallet().catch(() => undefined);
+  }, [
+    counterparties,
+    demo,
+    ensureWorkspaceWallet,
+    identity.status,
+    identity.unitCustomerId,
+    recaudo?.isOrganizer,
+    setupBusy,
+    wallet?.status,
+    wallet?.unitWalletId,
+  ]);
+
+  useEffect(() => {
+    if (!recaudo || demo) return;
+    const balances = balancesByRecaudo[recaudo.id];
+    const inFlight =
+      (balances?.pendingMinor ?? 0) + (balances?.processingMinor ?? 0);
+    if (inFlight <= 0) return;
+    const timer = setInterval(() => {
+      void refreshBalances(recaudo.id).then(() => refreshRecaudos());
+    }, 12_000);
+    return () => clearInterval(timer);
+  }, [balancesByRecaudo, demo, recaudo?.id, refreshBalances, refreshRecaudos]);
 
   useEffect(() => {
     if (!myParticipant || !recaudo) return;
@@ -151,12 +225,14 @@ export default function RecaudoDetailScreen() {
     setMode(myParticipant.mode);
     setRemindersEnabled(myParticipant.remindersEnabled);
     setReminderTime(myParticipant.reminderTime || "09:00");
+    setBankName((current) => current || profile.name || "Mi cuenta");
   }, [
     myParticipant?.id,
     myParticipant?.frequency,
     myParticipant?.mode,
     myParticipant?.remindersEnabled,
     myParticipant?.reminderTime,
+    profile.name,
     recaudo?.currency,
   ]);
 
@@ -186,6 +262,17 @@ export default function RecaudoDetailScreen() {
   }
 
   const category = categoryInfo[recaudo.category];
+  const fundingReady = useUnitFundingStore
+    .getState()
+    .isFundingReady(recaudo.isOrganizer);
+  const balances = balancesByRecaudo[recaudo.id];
+  const availableMinor = balances?.availableMinor ?? 0;
+  const pendingMinor = balances?.pendingMinor ?? 0;
+  const processingMinor = balances?.processingMinor ?? 0;
+  const inTransitMinor = pendingMinor + processingMinor;
+  const withdrawableMinor = fundingReady
+    ? availableMinor
+    : recaudo.collectedMinor;
   const ratio =
     recaudo.targetMinor > 0 ? recaudo.collectedMinor / recaudo.targetMinor : 0;
   const percent = Math.min(100, Math.round(ratio * 100));
@@ -194,6 +281,23 @@ export default function RecaudoDetailScreen() {
     (a, b) =>
       new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
   );
+  const activeBank = counterparties.find((item) => item.active);
+  const needsIdentity =
+    !demo &&
+    (identity.status === "none" ||
+      identity.status === "denied" ||
+      identity.status === "canceled");
+  const identityPending =
+    !demo &&
+    (identity.status === "pending" ||
+      identity.status === "awaitingDocuments");
+  const needsBank = !demo && identity.status === "approved" && !activeBank;
+  const needsWallet =
+    !demo &&
+    recaudo.isOrganizer &&
+    identity.status === "approved" &&
+    Boolean(activeBank) &&
+    !(wallet?.unitWalletId && wallet.status === "open");
 
   const sendInvite = async () => {
     if (!inviteEmail.trim()) {
@@ -224,6 +328,103 @@ export default function RecaudoDetailScreen() {
     }
   };
 
+  const activateUnit = async () => {
+    try {
+      const next = await activatePayments();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (next.status === "approved") {
+        Alert.alert(
+          "Pagos activados",
+          "Tu identidad quedó lista. Sigue con la cuenta bancaria.",
+        );
+      } else {
+        Alert.alert(
+          "Solicitud enviada",
+          "Unit está revisando tu solicitud. Actualiza en unos segundos.",
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        "No se pudo activar",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    }
+  };
+
+  const openWallet = async () => {
+    try {
+      await ensureWorkspaceWallet();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        "Billetera lista",
+        "El espacio ya puede recibir aportes con cuenta bancaria.",
+      );
+    } catch (error) {
+      Alert.alert(
+        "No se pudo abrir la billetera",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    }
+  };
+
+  const linkBank = async () => {
+    if (!bankName.trim() || !routingNumber.trim() || !accountNumber.trim()) {
+      Alert.alert(
+        "Datos incompletos",
+        "Completa nombre, routing y número de cuenta.",
+      );
+      return;
+    }
+    try {
+      await linkBankAccount({
+        name: bankName,
+        routingNumber,
+        accountNumber,
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Cuenta vinculada", "Ya puedes aportar desde esa cuenta.");
+    } catch (error) {
+      Alert.alert(
+        "No se pudo vincular",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    }
+  };
+
+  const contributeFunded = async () => {
+    const amountMinor = amountToMinorUnits(contributionAmount, recaudo.currency);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      Alert.alert("Aporte inválido", "Escribe un monto mayor a cero.");
+      return;
+    }
+    setFundingContribution(true);
+    try {
+      const result = await fundContribution({
+        recaudoId: recaudo.id,
+        amountMinor,
+        note: contributionNote.trim() || undefined,
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setContributionAmount("");
+      setContributionNote("");
+      await refreshRecaudos();
+      const settled = result.intent.status === "settled";
+      Alert.alert(
+        settled ? "Aporte acreditado" : "Aporte en tránsito",
+        settled
+          ? "El dinero ya suma al pozo disponible."
+          : "El débito ACH quedó pendiente. El pozo disponible se actualizará cuando Unit lo confirme.",
+      );
+    } catch (error) {
+      Alert.alert(
+        "No se pudo aportar",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    } finally {
+      setFundingContribution(false);
+    }
+  };
+
   const contribute = async () => {
     const amountMinor = amountToMinorUnits(contributionAmount, recaudo.currency);
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
@@ -238,7 +439,7 @@ export default function RecaudoDetailScreen() {
       setContributionNote("");
       Alert.alert(
         "Aporte registrado",
-        "El aporte manual ya aparece en el pozo.",
+        "El aporte manual ya aparece en el pozo (no mueve dinero bancario).",
       );
     } catch (error) {
       Alert.alert(
@@ -256,26 +457,47 @@ export default function RecaudoDetailScreen() {
       Alert.alert("Retiro inválido", "Escribe un monto mayor a cero.");
       return;
     }
-    const available = recaudo.collectedMinor;
-    if (amountMinor > available) {
+    if (amountMinor > withdrawableMinor) {
       Alert.alert(
         "Monto demasiado alto",
-        `Solo hay ${formatMinor(available, recaudo.currency)} en el pozo.`,
+        `Solo hay ${formatMinor(withdrawableMinor, recaudo.currency)} disponible para retirar.`,
       );
       return;
     }
     setWithdrawing(true);
     try {
-      await withdraw(recaudo.id, amountMinor, withdrawNote);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setWithdrawAmount("");
-      setWithdrawNote("");
-      setShowWithdraw(false);
-      setSuccessMessage(
-        amountMinor >= available
-          ? "Retiraste el pozo completo. El recaudo quedó cerrado."
-          : `Retiraste ${formatMinor(amountMinor, recaudo.currency)} del pozo.`,
-      );
+      if (fundingReady && !demo) {
+        const result = await fundWithdrawal({
+          recaudoId: recaudo.id,
+          amountMinor,
+          note: withdrawNote.trim() || undefined,
+        });
+        await refreshRecaudos();
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        );
+        setWithdrawAmount("");
+        setWithdrawNote("");
+        setShowWithdraw(false);
+        setSuccessMessage(
+          result.intent.status === "settled"
+            ? `Retiro acreditado por ${formatMinor(amountMinor, recaudo.currency)}.`
+            : `Retiro ACH en tránsito por ${formatMinor(amountMinor, recaudo.currency)}.`,
+        );
+      } else {
+        await withdraw(recaudo.id, amountMinor, withdrawNote);
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        );
+        setWithdrawAmount("");
+        setWithdrawNote("");
+        setShowWithdraw(false);
+        setSuccessMessage(
+          amountMinor >= withdrawableMinor
+            ? "Retiraste el pozo completo. El recaudo quedó cerrado."
+            : `Retiraste ${formatMinor(amountMinor, recaudo.currency)} del pozo.`,
+        );
+      }
     } catch (error) {
       Alert.alert(
         "No se pudo retirar",
@@ -371,13 +593,21 @@ export default function RecaudoDetailScreen() {
             {percent}% completado
           </Pill>
         </View>
-        <Text style={styles.heroLabel}>Pozo recaudado</Text>
+        <Text style={styles.heroLabel}>
+          {fundingReady ? "Pozo disponible" : "Pozo recaudado"}
+        </Text>
         <Text style={styles.heroValue}>
-          {formatMinor(recaudo.collectedMinor, recaudo.currency)}
+          {formatMinor(
+            fundingReady ? availableMinor : recaudo.collectedMinor,
+            recaudo.currency,
+          )}
         </Text>
         <Text style={styles.heroHint}>
           de {formatMinor(recaudo.targetMinor, recaudo.currency)} · faltan{" "}
           {formatMinor(remaining, recaudo.currency)}
+          {fundingReady && inTransitMinor > 0
+            ? ` · ${formatMinor(inTransitMinor, recaudo.currency)} en tránsito`
+            : ""}
         </Text>
         <View style={styles.heroTrack}>
           <View
@@ -389,9 +619,174 @@ export default function RecaudoDetailScreen() {
         </View>
       </Card>
 
+      {!demo ? (
+        <Card style={styles.balanceCard}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>
+            Dinero del recaudo
+          </Text>
+          <View style={styles.stats}>
+            <View
+              style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
+            >
+              <Text style={[styles.statLabel, { color: theme.muted }]}>
+                Disponible
+              </Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>
+                {formatMinor(availableMinor, recaudo.currency)}
+              </Text>
+            </View>
+            <View
+              style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
+            >
+              <Text style={[styles.statLabel, { color: theme.muted }]}>
+                En tránsito
+              </Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>
+                {formatMinor(inTransitMinor, recaudo.currency)}
+              </Text>
+            </View>
+            <View
+              style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
+            >
+              <Text style={[styles.statLabel, { color: theme.muted }]}>
+                Registrado
+              </Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>
+                {formatMinor(recaudo.collectedMinor, recaudo.currency)}
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.rowMeta, { color: theme.muted }]}>
+            Solo lo disponible (confirmado por Unit) se puede retirar a tu
+            cuenta. Los registros manuales no mueven dinero bancario.
+          </Text>
+        </Card>
+      ) : null}
+
+      {!demo &&
+      (needsIdentity || identityPending || needsBank || needsWallet) ? (
+        <Card style={styles.formCard}>
+          <View style={styles.formHeading}>
+            <View
+              style={[styles.smallIcon, { backgroundColor: theme.primarySoft }]}
+            >
+              <AppIcon name="building.columns.fill" color={theme.primary} size={19} />
+            </View>
+            <View style={styles.copy}>
+              <Text style={[styles.cardTitle, { color: theme.text }]}>
+                Activar aportes con cuenta
+              </Text>
+              <Text style={[styles.rowMeta, { color: theme.muted }]}>
+                Débito ACH real vía Unit Sandbox. Completa estos pasos una sola
+                vez.
+              </Text>
+            </View>
+          </View>
+
+          {needsIdentity ? (
+            <PrimaryButton
+              icon="person.crop.circle.badge.checkmark"
+              onPress={setupBusy ? undefined : () => void activateUnit()}
+            >
+              {setupBusy ? "Activando…" : "1. Activar pagos Unit"}
+            </PrimaryButton>
+          ) : null}
+
+          {identityPending ? (
+            <>
+              <Text style={[styles.rowMeta, { color: theme.muted }]}>
+                Estado: {identity.status}. Unit está revisando tu solicitud.
+              </Text>
+              <PrimaryButton
+                icon="arrow.clockwise"
+                onPress={setupBusy ? undefined : () => void refreshIdentity()}
+              >
+                Actualizar estado
+              </PrimaryButton>
+            </>
+          ) : null}
+
+          {needsBank ? (
+            <>
+              <Text style={[styles.fieldLabel, { color: theme.muted }]}>
+                2. Vincular cuenta bancaria (sandbox)
+              </Text>
+              <TextInput
+                value={bankName}
+                onChangeText={setBankName}
+                placeholder="Nombre en la cuenta"
+                placeholderTextColor={theme.muted}
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: theme.border,
+                    backgroundColor: theme.surfaceSecondary,
+                  },
+                ]}
+              />
+              <TextInput
+                value={routingNumber}
+                onChangeText={setRoutingNumber}
+                placeholder="Routing number"
+                placeholderTextColor={theme.muted}
+                keyboardType="number-pad"
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: theme.border,
+                    backgroundColor: theme.surfaceSecondary,
+                  },
+                ]}
+              />
+              <TextInput
+                value={accountNumber}
+                onChangeText={setAccountNumber}
+                placeholder="Account number"
+                placeholderTextColor={theme.muted}
+                keyboardType="number-pad"
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: theme.border,
+                    backgroundColor: theme.surfaceSecondary,
+                  },
+                ]}
+              />
+              <PrimaryButton
+                icon="link"
+                onPress={setupBusy ? undefined : () => void linkBank()}
+              >
+                {setupBusy ? "Vinculando…" : "Vincular cuenta"}
+              </PrimaryButton>
+            </>
+          ) : null}
+
+          {needsWallet ? (
+            <PrimaryButton
+              icon="wallet.pass.fill"
+              onPress={setupBusy ? undefined : () => void openWallet()}
+            >
+              {setupBusy ? "Abriendo…" : "3. Abrir billetera del espacio"}
+            </PrimaryButton>
+          ) : null}
+
+          {activeBank ? (
+            <Text style={[styles.rowMeta, { color: theme.muted }]}>
+              Cuenta: {activeBank.name}
+              {activeBank.accountNumberMask
+                ? ` · •••• ${activeBank.accountNumberMask}`
+                : ""}
+            </Text>
+          ) : null}
+        </Card>
+      ) : null}
+
       {recaudo.isOrganizer &&
       recaudo.status !== "closed" &&
-      recaudo.collectedMinor > 0 ? (
+      withdrawableMinor > 0 ? (
         <Card style={styles.actionCard}>
           <View style={styles.actionRow}>
             <ScalePressable
@@ -425,8 +820,9 @@ export default function RecaudoDetailScreen() {
           {showWithdraw ? (
             <View style={styles.withdrawForm}>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                Disponible:{" "}
-                {formatMinor(recaudo.collectedMinor, recaudo.currency)}
+                Disponible para retirar:{" "}
+                {formatMinor(withdrawableMinor, recaudo.currency)}
+                {fundingReady ? " (ACH a tu cuenta)" : " (registro manual)"}
               </Text>
               <View
                 style={[
@@ -452,9 +848,7 @@ export default function RecaudoDetailScreen() {
               <View style={styles.withdrawQuick}>
                 <Pressable
                   onPress={() =>
-                    setWithdrawAmount(
-                      String(recaudo.collectedMinor / 100),
-                    )
+                    setWithdrawAmount(String(withdrawableMinor / 100))
                   }
                   style={[
                     styles.quickChip,
@@ -625,10 +1019,18 @@ export default function RecaudoDetailScreen() {
       <SectionTitle>Mi aporte</SectionTitle>
       <Card style={styles.formCard}>
         <Text style={[styles.cardTitle, { color: theme.text }]}>
-          Registrar aporte manual
+          {fundingReady
+            ? "Aportar desde mi cuenta"
+            : demo
+              ? "Registrar aporte"
+              : "Aportar (completa la activación arriba)"}
         </Text>
         <Text style={[styles.rowMeta, { color: theme.muted }]}>
-          Se sumará de inmediato al pozo compartido.
+          {fundingReady
+            ? "Débito ACH a la billetera del recaudo. No suma a disponible hasta que Unit confirme."
+            : demo
+              ? "En demo el aporte se registra al instante en el pozo."
+              : "Activa pagos Unit y vincula tu cuenta para aportar dinero real."}
         </Text>
         <View
           style={[
@@ -665,12 +1067,50 @@ export default function RecaudoDetailScreen() {
             },
           ]}
         />
-        <PrimaryButton
-          icon="plus"
-          onPress={contributing ? undefined : () => void contribute()}
-        >
-          {contributing ? "Registrando…" : "Registrar aporte"}
-        </PrimaryButton>
+        {fundingReady ? (
+          <PrimaryButton
+            icon="building.columns.fill"
+            onPress={
+              fundingContribution ? undefined : () => void contributeFunded()
+            }
+          >
+            {fundingContribution ? "Enviando ACH…" : "Aportar con cuenta"}
+          </PrimaryButton>
+        ) : demo ? (
+          <PrimaryButton
+            icon="plus"
+            onPress={contributing ? undefined : () => void contribute()}
+          >
+            {contributing ? "Registrando…" : "Registrar aporte"}
+          </PrimaryButton>
+        ) : (
+          <Text style={[styles.rowMeta, { color: theme.muted }]}>
+            El botón de aporte con cuenta se habilita al terminar la activación.
+          </Text>
+        )}
+
+        {!demo ? (
+          <>
+            <Pressable
+              onPress={() => setShowManualContribute((value) => !value)}
+              style={styles.manualToggle}
+            >
+              <Text style={{ color: theme.primary, fontWeight: "700" }}>
+                {showManualContribute
+                  ? "Ocultar registro manual"
+                  : "Solo registrar (sin mover dinero)"}
+              </Text>
+            </Pressable>
+            {showManualContribute ? (
+              <PrimaryButton
+                icon="plus"
+                onPress={contributing ? undefined : () => void contribute()}
+              >
+                {contributing ? "Registrando…" : "Registrar aporte manual"}
+              </PrimaryButton>
+            ) : null}
+          </>
+        ) : null}
       </Card>
 
       <SectionTitle>Mi configuración</SectionTitle>
@@ -1018,6 +1458,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   heroFill: { height: 8, borderRadius: 5, backgroundColor: "#FFFFFF" },
+  balanceCard: { gap: 12 },
+  manualToggle: { paddingVertical: 4 },
   actionCard: { gap: 12 },
   actionRow: { flexDirection: "row", gap: 8 },
   actionButton: {

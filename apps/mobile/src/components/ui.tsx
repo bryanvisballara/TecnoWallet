@@ -40,6 +40,7 @@ const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
   'arrow.up.arrow.down.circle.fill': 'swap-vertical', 'line.3.horizontal.decrease': 'options',
   magnifyingglass: 'search', plus: 'add', chevron: 'chevron-forward', 'chevron.down': 'chevron-down',
   bell: 'notifications-outline', 'person.crop.circle': 'person-circle', 'wallet.pass.fill': 'wallet',
+  'person.crop.circle.badge.checkmark': 'person-circle',
   'chart.pie.fill': 'pie-chart', 'arrow.left': 'arrow-back', camera: 'camera',
   checkmark: 'checkmark', 'checkmark.circle.fill': 'checkmark-circle', circle: 'ellipse-outline',
   trash: 'trash', 'paperplane.fill': 'send', 'moon.fill': 'moon',

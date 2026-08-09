@@ -23,7 +23,7 @@ type AuthState = {
   finishOnboarding: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: (idToken: string) => Promise<void>;
   enterDemo: () => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
@@ -136,10 +136,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const profile = await persistAuthSession(auth);
     set({ authenticated: true, demo: false, profile });
   },
-  signInWithGoogle: async () => {
-    throw new Error(
-      'El acceso con Google todavía no está conectado. Usa correo o entra al modo demo.',
-    );
+  signInWithGoogle: async (idToken) => {
+    if (!idToken?.trim()) {
+      throw new Error('No recibimos el token de Google. Inténtalo de nuevo.');
+    }
+    const auth = await apiRequest<AuthResponse>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+    const profile = await persistAuthSession(auth);
+    set({ authenticated: true, demo: false, profile });
   },
   enterDemo: async () => {
     await localStorage.set('demo-session', true);
