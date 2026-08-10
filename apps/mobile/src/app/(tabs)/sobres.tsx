@@ -29,7 +29,8 @@ export default function EnvelopesScreen() {
   const spentByEnvelope = useMemo(() => {
     const map = new Map<string, number>();
     monthTransactions.forEach((tx) => {
-      const key = tx.category.trim().toLowerCase();
+      const key = (tx.envelopeId || tx.category).trim().toLowerCase();
+      if (!key) return;
       map.set(key, (map.get(key) ?? 0) + Math.abs(tx.amount));
     });
     return map;
@@ -38,7 +39,10 @@ export default function EnvelopesScreen() {
   const withMonthSpent = (items: Envelope[]) =>
     items.map((item) => ({
       ...item,
-      spent: spentByEnvelope.get(item.name.trim().toLowerCase()) ?? 0,
+      spent:
+        spentByEnvelope.get(item.id.toLowerCase()) ??
+        spentByEnvelope.get(item.name.trim().toLowerCase()) ??
+        0,
     }));
 
   const incomeEnvelopes = withMonthSpent(envelopes.filter((item) => item.kind === 'income'));

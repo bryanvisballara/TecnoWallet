@@ -4,11 +4,16 @@
     "slug": "tecnowallet",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/tecnowallet-logo.png",
+    "icon": "./assets/images/app-icon.png",
     "scheme": "tecnowallet",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/splash-solid.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#002787"
+    },
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/app-icon.png",
       "bundleIdentifier": "com.tecnowallet.mobile",
       "googleServicesFile": "./GoogleService-Info.plist",
       "supportsTablet": true,
@@ -19,21 +24,28 @@
     "android": {
       "package": "com.tecnowallet.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#F5F7FB",
-        "foregroundImage": "./assets/images/tecnowallet-logo.png"
+        "backgroundColor": "#081430",
+        "foregroundImage": "./assets/images/app-icon.png"
       },
       "predictiveBackGestureEnabled": true
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/tecnowallet-logo.png"
+      "favicon": "./assets/images/app-icon.png"
     },
     "plugins": [
+      "./plugins/with-app-delegate-no-rctbridge.js",
       "expo-router",
       [
         "expo-notifications",
         {
-          "defaultChannel": "activity"
+          "defaultChannel": "activity",
+          "sounds": [
+            "./assets/sounds/ingreso.wav",
+            "./assets/sounds/gasto.wav",
+            "./assets/sounds/calendario.wav",
+            "./assets/sounds/sobres.wav"
+          ]
         }
       ],
       [
@@ -59,9 +71,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F5F7FB",
-          "image": "./assets/images/tecnowallet-logo.png",
-          "imageWidth": 180
+          "backgroundColor": "#002787",
+          "image": "./assets/images/splash-solid.png",
+          "resizeMode": "cover"
         }
       ]
     ],

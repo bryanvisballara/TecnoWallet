@@ -55,6 +55,7 @@ export type AppCopy = {
     greetingEvening: string;
     totalLiquidity: string;
     incomeMinusExpenses: string;
+    liquidityFromAccounts: (count: number) => string;
     toggleBalances: string;
     income: string;
     expenses: string;
@@ -94,7 +95,7 @@ export type AppCopy = {
     weekMore: string;
     weekLessBody: (delta: number) => string;
     weekMoreBody: (delta: number) => string;
-    liquidityA11y: (amount: string, month: string) => string;
+    liquidityA11y: (amount: string, accountCount: number) => string;
   };
   envelopes: {
     title: string;
@@ -502,6 +503,8 @@ const es: AppCopy = {
     greetingEvening: 'Buenas noches',
     totalLiquidity: 'Liquidez total',
     incomeMinusExpenses: 'Ingresos − gastos',
+    liquidityFromAccounts: (count) =>
+      count === 1 ? '1 cuenta líquida' : `${count} cuentas líquidas`,
     toggleBalances: 'Mostrar u ocultar saldos',
     income: 'Ingresos',
     expenses: 'Gastos',
@@ -546,8 +549,8 @@ const es: AppCopy = {
     weekMore: 'Esta semana gastaste más',
     weekLessBody: (delta) => `Gastaste ${delta}% menos. Mantén el rumbo.`,
     weekMoreBody: (delta) => `Gastaste ${delta}% más que la semana anterior.`,
-    liquidityA11y: (amount, month) =>
-      `Liquidez total ${amount}. Ingresos menos gastos de ${month}`,
+    liquidityA11y: (amount, accountCount) =>
+      `Liquidez total ${amount}. ${accountCount} cuenta${accountCount === 1 ? '' : 's'} líquida${accountCount === 1 ? '' : 's'}`,
   },
   envelopes: {
     title: 'Sobres',
@@ -695,7 +698,7 @@ const es: AppCopy = {
     emailInvalidTitle: 'Correo inválido',
     emailInvalidBody: 'Revisa el correo registrado.',
     profileUpdatedTitle: 'Perfil actualizado',
-    profileUpdatedBody: 'Tus datos se guardaron en este dispositivo.',
+    profileUpdatedBody: 'Tus datos se guardaron en tu cuenta.',
     saveFailedTitle: 'No se pudo guardar',
     demoModeTitle: 'Modo demo',
     demoModeBody: 'Inicia sesión con una cuenta real para cambiar la contraseña.',
@@ -1048,6 +1051,8 @@ const en: AppCopy = {
     greetingEvening: 'Good evening',
     totalLiquidity: 'Total liquidity',
     incomeMinusExpenses: 'Income − expenses',
+    liquidityFromAccounts: (count) =>
+      count === 1 ? '1 liquid account' : `${count} liquid accounts`,
     toggleBalances: 'Show or hide balances',
     income: 'Income',
     expenses: 'Expenses',
@@ -1092,8 +1097,8 @@ const en: AppCopy = {
     weekMore: 'You spent more this week',
     weekLessBody: (delta) => `You spent ${delta}% less. Keep it up.`,
     weekMoreBody: (delta) => `You spent ${delta}% more than last week.`,
-    liquidityA11y: (amount, month) =>
-      `Total liquidity ${amount}. Income minus expenses for ${month}`,
+    liquidityA11y: (amount, accountCount) =>
+      `Total liquidity ${amount}. ${accountCount} liquid account${accountCount === 1 ? '' : 's'}`,
   },
   envelopes: {
     title: 'Envelopes',
@@ -1240,7 +1245,7 @@ const en: AppCopy = {
     emailInvalidTitle: 'Invalid email',
     emailInvalidBody: 'Check the registered email.',
     profileUpdatedTitle: 'Profile updated',
-    profileUpdatedBody: 'Your details were saved on this device.',
+    profileUpdatedBody: 'Your details were saved to your account.',
     saveFailedTitle: 'Couldn’t save',
     demoModeTitle: 'Demo mode',
     demoModeBody: 'Sign in with a real account to change your password.',

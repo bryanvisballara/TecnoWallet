@@ -9,13 +9,25 @@ import {
   syncBillingStatus,
   type BillingStatus,
 } from './plus-api';
+import {
+  BUSINESS_PRODUCT_ID,
+  FALLBACK_BUSINESS_PRICE_LABEL,
+  FALLBACK_PLUS_PRICE_LABEL,
+  PLUS_PRODUCT_ID,
+} from './billing-prices';
 import { usePlusStore } from '@/store/plus';
+
+export {
+  BUSINESS_PRODUCT_ID,
+  FALLBACK_BUSINESS_PRICE_LABEL,
+  FALLBACK_PLUS_PRICE_LABEL,
+  PLUS_PRODUCT_ID,
+} from './billing-prices';
 
 const IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY;
 let configuredUserId: string | null = null;
 let plusPackage: PurchasesPackage | null = null;
 let businessPackage: PurchasesPackage | null = null;
-
 function assertNativeIos() {
   if (Platform.OS !== 'ios') {
     throw new Error(
@@ -50,6 +62,9 @@ export async function resetPurchases() {
     configuredUserId = null;
     plusPackage = null;
     businessPackage = null;
+    const store = usePlusStore.getState();
+    store.setPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
+    store.setBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
   }
 }
 
@@ -58,6 +73,9 @@ export async function loadOfferings(): Promise<{
   business: PurchasesPackage | null;
 }> {
   if (Platform.OS !== 'ios' || !IOS_API_KEY || !configuredUserId) {
+    const store = usePlusStore.getState();
+    store.setPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
+    store.setBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
     return { plus: null, business: null };
   }
   const offerings = await Purchases.getOfferings();
@@ -65,21 +83,19 @@ export async function loadOfferings(): Promise<{
   const packages = offering?.availablePackages ?? [];
   plusPackage =
     offering?.monthly ??
-    packages.find(
-      (item) => item.product.identifier === 'tecnowallet_plus_monthly',
-    ) ??
+    packages.find((item) => item.product.identifier === PLUS_PRODUCT_ID) ??
     null;
   businessPackage =
-    packages.find(
-      (item) => item.product.identifier === 'tecnowallet_business_monthly',
-    ) ??
+    packages.find((item) => item.product.identifier === BUSINESS_PRODUCT_ID) ??
     offerings.all.business?.availablePackages.find(
-      (item) => item.product.identifier === 'tecnowallet_business_monthly',
+      (item) => item.product.identifier === BUSINESS_PRODUCT_ID,
     ) ??
     null;
   const store = usePlusStore.getState();
-  store.setPriceLabel(plusPackage?.product.priceString ?? null);
-  store.setBusinessPriceLabel(businessPackage?.product.priceString ?? null);
+  store.setPriceLabel(plusPackage?.product.priceString ?? FALLBACK_PLUS_PRICE_LABEL);
+  store.setBusinessPriceLabel(
+    businessPackage?.product.priceString ?? FALLBACK_BUSINESS_PRICE_LABEL,
+  );
   return { plus: plusPackage, business: businessPackage };
 }
 

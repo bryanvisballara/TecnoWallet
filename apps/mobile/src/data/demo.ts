@@ -9,6 +9,10 @@ export type Transaction = {
   note?: string;
   tags?: string[];
   recurring?: boolean;
+  /** Sobre al que pertenece el movimiento (si aplica). */
+  envelopeId?: string;
+  /** ISO date for reliable month filtering. */
+  occurredAt?: string;
   /** Member who registered the movement (shared ledgers). */
   createdBy?: string;
 };
@@ -167,5 +171,14 @@ export const money = (value: number, compact = false) =>
     style: 'currency',
     currency: activeMoneyCurrency,
     maximumFractionDigits: compact ? 0 : 2,
+    notation: compact ? 'compact' : 'standard',
+  }).format(value);
+
+/** Amount digits only (no currency code/symbol) — use with titles that show the currency. */
+export const moneyAmount = (value: number, compact = false) =>
+  new Intl.NumberFormat('es-ES', {
+    style: 'decimal',
+    maximumFractionDigits: compact ? 0 : 2,
+    minimumFractionDigits: compact ? 0 : 2,
     notation: compact ? 'compact' : 'standard',
   }).format(value);

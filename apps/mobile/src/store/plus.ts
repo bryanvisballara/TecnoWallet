@@ -6,6 +6,10 @@ import {
   type BillingStatus,
   type PlusAccess,
 } from '@/services/plus-api';
+import {
+  FALLBACK_BUSINESS_PRICE_LABEL,
+  FALLBACK_PLUS_PRICE_LABEL,
+} from '@/services/billing-prices';
 
 export type PlusReason =
   | 'UPGRADE'
@@ -47,8 +51,8 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   paywallOpen: false,
   paywallReason: 'UPGRADE',
   paywallPlan: 'plus',
-  priceLabel: null,
-  businessPriceLabel: null,
+  priceLabel: FALLBACK_PLUS_PRICE_LABEL,
+  businessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
   hydrate: async () => {
     set({ loading: true });
     try {
@@ -72,8 +76,8 @@ export const usePlusStore = create<PlusState>((set, get) => ({
       paywallOpen: false,
       paywallReason: 'UPGRADE',
       paywallPlan: 'plus',
-      priceLabel: null,
-      businessPriceLabel: null,
+      priceLabel: FALLBACK_PLUS_PRICE_LABEL,
+      businessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
     }),
   openPaywall: (paywallReason = 'UPGRADE', options) => {
     const access = get().access;

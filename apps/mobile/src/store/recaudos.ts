@@ -4,6 +4,7 @@ import { apiRequest, mutateOffline } from "@/services/api";
 import { tokenStorage } from "@/services/persistence";
 import { scheduleRecaudoReminder } from "@/services/push-notifications";
 import { useAuthStore } from "@/store/auth";
+import { recordActivity } from "@/store/notifications";
 
 export type RecaudoCategory =
   "travel" | "gift" | "event" | "purchase" | "other";
@@ -502,6 +503,14 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     if (demo) {
       const recaudos = [optimistic, ...get().recaudos];
       set({ recaudos });
+      void recordActivity({
+        kind: "recaudo",
+        title: "Recaudo creado",
+        body: optimistic.title,
+        icon: "person.3.fill",
+        sound: "sobres",
+        route: `/(tabs)/recaudo/${optimistic.id}`,
+      });
       return optimistic;
     }
 
@@ -514,6 +523,14 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     );
     const recaudos = [created, ...get().recaudos];
     set({ recaudos });
+    void recordActivity({
+      kind: "recaudo",
+      title: "Recaudo creado",
+      body: created.title,
+      icon: "person.3.fill",
+      sound: "sobres",
+      route: `/(tabs)/recaudo/${created.id}`,
+    });
     return created;
   },
 
@@ -553,7 +570,22 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         : item,
     );
     set({ recaudos });
-    if (demo) return;
+    if (demo) {
+      const recaudo = get().recaudos.find((item) => item.id === recaudoId);
+      void recordActivity({
+        kind: "recaudo",
+        title: "Aporte al recaudo",
+        body: `${profile.name} aportó ${(amountMinor / 100).toLocaleString("es-CO", {
+          style: "currency",
+          currency: "COP",
+          maximumFractionDigits: 0,
+        })} a ${recaudo?.title ?? "recaudo"}`,
+        icon: "person.3.fill",
+        sound: "ingreso",
+        route: `/(tabs)/recaudo/${recaudoId}`,
+      });
+      return;
+    }
     try {
       const result = await mutateOffline<RecaudoContribution>({
         endpoint: `/recaudos/${recaudoId}/contributions`,
@@ -561,6 +593,19 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         payload: { amountMinor, note },
       });
       if (!result.queued) await get().refresh();
+      const recaudo = get().recaudos.find((item) => item.id === recaudoId);
+      void recordActivity({
+        kind: "recaudo",
+        title: "Aporte al recaudo",
+        body: `${profile.name} aportó ${(amountMinor / 100).toLocaleString("es-CO", {
+          style: "currency",
+          currency: "COP",
+          maximumFractionDigits: 0,
+        })} a ${recaudo?.title ?? "recaudo"}`,
+        icon: "person.3.fill",
+        sound: "ingreso",
+        route: `/(tabs)/recaudo/${recaudoId}`,
+      });
     } catch (error) {
       await get().refresh();
       throw error;
@@ -607,7 +652,25 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         : item,
     );
     set({ recaudos });
-    if (demo) return;
+    const notifyWithdraw = () => {
+      void recordActivity({
+        kind: "recaudo",
+        title: "Retiro del recaudo",
+        body: `${profile.name} retiró ${(amountMinor / 100).toLocaleString("es-CO", {
+          style: "currency",
+          currency: "COP",
+          maximumFractionDigits: 0,
+        })} de ${current.title}`,
+        icon: "arrow.up.circle.fill",
+        tone: "orange",
+        sound: "gasto",
+        route: `/(tabs)/recaudo/${recaudoId}`,
+      });
+    };
+    if (demo) {
+      notifyWithdraw();
+      return;
+    }
     try {
       const result = await mutateOffline<{ collectedMinor?: number }>({
         endpoint: `/recaudos/${recaudoId}/withdrawals`,
@@ -615,6 +678,7 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         payload: { amountMinor, note },
       });
       if (!result.queued) await get().refresh();
+      notifyWithdraw();
     } catch (error) {
       await get().refresh();
       throw error;

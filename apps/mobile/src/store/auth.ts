@@ -434,20 +434,54 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ authenticated: false, demo: false });
   },
   updateProfile: async (patch) => {
+    const current = get().profile;
+    const nextName = (patch.name ?? current.name).trim() || current.name;
+    const nextEmail =
+      (patch.email ?? current.email).trim().toLowerCase() || current.email;
     const profile = {
-      ...get().profile,
+      ...current,
       ...patch,
-      name: (patch.name ?? get().profile.name).trim() || get().profile.name,
-      email: (patch.email ?? get().profile.email).trim().toLowerCase() || get().profile.email,
+      name: nextName,
+      email: nextEmail,
     };
+
+    // Avatar stays device-local; name/email must live in Mongo.
+    if (!get().demo && (patch.name !== undefined || patch.email !== undefined)) {
+      const me = await apiRequest<{
+        id: string;
+        email: string;
+        name: string;
+        platformRole?: 'user' | 'admin';
+      }>('/auth/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ...(patch.name !== undefined ? { name: nextName } : {}),
+          ...(patch.email !== undefined ? { email: nextEmail } : {}),
+        }),
+      });
+      profile.name = me.name;
+      profile.email = me.email.toLowerCase();
+      profile.platformRole =
+        me.platformRole === 'admin' ? 'admin' : profile.platformRole;
+    }
+
     await writeProfile(profile);
     set({ profile });
   },
   changePassword: async (current, next) => {
     if (current.length < 6) throw new Error('La contraseña actual no es válida.');
-    if (next.length < 6) throw new Error('La nueva contraseña debe tener al menos 6 caracteres.');
+    if (next.length < 8) throw new Error('La nueva contraseña debe tener al menos 8 caracteres.');
     if (current === next) throw new Error('La nueva contraseña debe ser distinta.');
-    // Demo: no server round-trip; password is never persisted locally.
-    await localStorage.set('password-updated-at', Date.now());
+    if (get().demo) {
+      await localStorage.set('password-updated-at', Date.now());
+      return;
+    }
+    await apiRequest('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        currentPassword: current,
+        newPassword: next,
+      }),
+    });
   },
 }));

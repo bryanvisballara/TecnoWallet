@@ -3,14 +3,70 @@ import { Platform } from "react-native";
 import { resolveCalendarReminderAt } from "@/data/calendar";
 import { localStorage } from "@/services/persistence";
 
-type ActivityKind = "income" | "expense" | "calendar" | "recaudo";
+type ActivityKind =
+  | "income"
+  | "expense"
+  | "calendar"
+  | "recaudo"
+  | "account"
+  | "envelope"
+  | "planning"
+  | "goal"
+  | "system";
 type RecaudoFrequency = "daily" | "weekly" | "biweekly" | "monthly";
 
+/** Bundled via expo-notifications `sounds` in app.json (base filename only). */
+const SOUND_INGRESO = "ingreso.wav";
+const SOUND_GASTO = "gasto.wav";
+const SOUND_CALENDARIO = "calendario.wav";
+const SOUND_SOBRES = "sobres.wav";
+
+export type NotificationSound =
+  | "ingreso"
+  | "gasto"
+  | "calendario"
+  | "sobres"
+  | "default";
+
 let handlerConfigured = false;
+let listenersConfigured = false;
 
 async function notificationsModule() {
   if (Platform.OS === "web") return null;
   return import("expo-notifications");
+}
+
+function resolveSoundFile(
+  kind: ActivityKind,
+  sound?: NotificationSound,
+): string {
+  if (sound === "ingreso") return SOUND_INGRESO;
+  if (sound === "gasto") return SOUND_GASTO;
+  if (sound === "calendario") return SOUND_CALENDARIO;
+  if (sound === "sobres") return SOUND_SOBRES;
+  if (sound === "default") return "default";
+  if (kind === "income") return SOUND_INGRESO;
+  if (kind === "expense") return SOUND_GASTO;
+  if (kind === "calendar") return SOUND_CALENDARIO;
+  if (
+    kind === "account" ||
+    kind === "envelope" ||
+    kind === "planning" ||
+    kind === "goal"
+  ) {
+    return SOUND_SOBRES;
+  }
+  // Recaudo create uses sound:'sobres'; aportes/retiros pass explicit sounds.
+  return "default";
+}
+
+function channelIdForSound(soundFile: string): string | undefined {
+  if (Platform.OS !== "android") return undefined;
+  if (soundFile === SOUND_INGRESO) return "activity-income";
+  if (soundFile === SOUND_GASTO) return "activity-expense";
+  if (soundFile === SOUND_CALENDARIO) return "activity-calendar";
+  if (soundFile === SOUND_SOBRES) return "activity-create";
+  return "activity";
 }
 
 async function remindersMasterEnabled() {
@@ -25,8 +81,18 @@ async function reminderKindEnabled(kind: ActivityKind) {
   if (kind === "recaudo") {
     return (await localStorage.get("prefs-reminder-payments", true)) !== false;
   }
-  // income/expense activity pings follow the payments preference.
+  // Financial activity pings follow the payments preference.
   return (await localStorage.get("prefs-reminder-payments", true)) !== false;
+}
+
+export async function syncAppBadge(count: number) {
+  try {
+    const Notifications = await notificationsModule();
+    if (!Notifications) return;
+    await Notifications.setBadgeCountAsync(Math.max(0, Math.floor(count)));
+  } catch {
+    // Badge APIs can fail if permissions were denied.
+  }
 }
 
 export async function configureActivityNotifications(): Promise<boolean> {
@@ -40,10 +106,48 @@ export async function configureActivityNotifications(): Promise<boolean> {
         shouldShowBanner: true,
         shouldShowList: true,
         shouldPlaySound: true,
-        shouldSetBadge: false,
+        shouldSetBadge: true,
       }),
     });
     handlerConfigured = true;
+  }
+
+  if (!listenersConfigured) {
+    listenersConfigured = true;
+    // Scheduled reminders also land in the in-app bell when they fire.
+    Notifications.addNotificationReceivedListener((notification) => {
+      const content = notification.request.content;
+      const data = (content.data ?? {}) as Record<string, string>;
+      if (data.notificationId) return; // Already recorded via recordActivity
+      const rawKind = data.kind as ActivityKind | undefined;
+      const kind: ActivityKind =
+        rawKind === "income" ||
+        rawKind === "expense" ||
+        rawKind === "calendar" ||
+        rawKind === "recaudo" ||
+        rawKind === "account" ||
+        rawKind === "envelope" ||
+        rawKind === "planning" ||
+        rawKind === "goal"
+          ? rawKind
+          : "system";
+      void import("@/store/notifications").then(({ recordActivity }) =>
+        recordActivity({
+          kind,
+          title: content.title ?? "Recordatorio",
+          body: content.body ?? "",
+          icon:
+            kind === "calendar"
+              ? "calendar"
+              : kind === "recaudo"
+                ? "person.3.fill"
+                : "bell.fill",
+          tone: kind === "calendar" ? "purple" : kind === "recaudo" ? "green" : "blue",
+          route: data.route,
+          push: false,
+        }),
+      );
+    });
   }
 
   if (Platform.OS === "android") {
@@ -52,6 +156,36 @@ export async function configureActivityNotifications(): Promise<boolean> {
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 150, 250],
       lightColor: "#0878F9",
+      sound: "default",
+    });
+    // Android 8+ binds sound to the channel; custom sounds need their own channels.
+    await Notifications.setNotificationChannelAsync("activity-income", {
+      name: "Ingresos y aportes",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 150, 250],
+      lightColor: "#12B76A",
+      sound: SOUND_INGRESO,
+    });
+    await Notifications.setNotificationChannelAsync("activity-expense", {
+      name: "Gastos y retiros",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 150, 250],
+      lightColor: "#F04438",
+      sound: SOUND_GASTO,
+    });
+    await Notifications.setNotificationChannelAsync("activity-calendar", {
+      name: "Calendario y recordatorios",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 150, 250],
+      lightColor: "#7F56D9",
+      sound: SOUND_CALENDARIO,
+    });
+    await Notifications.setNotificationChannelAsync("activity-create", {
+      name: "Altas (sobres, cuentas, metas…)",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 150, 250],
+      lightColor: "#0878F9",
+      sound: SOUND_SOBRES,
     });
   }
 
@@ -69,6 +203,7 @@ async function sendActivityNotification(input: {
   title: string;
   body: string;
   data?: Record<string, string>;
+  sound?: NotificationSound;
 }) {
   try {
     if (!(await reminderKindEnabled(input.kind))) return;
@@ -77,11 +212,15 @@ async function sendActivityNotification(input: {
     const Notifications = await notificationsModule();
     if (!Notifications) return;
 
+    const sound = resolveSoundFile(input.kind, input.sound);
+    const channelId = channelIdForSound(sound);
+
     await Notifications.scheduleNotificationAsync({
       content: {
         title: input.title,
         body: input.body,
-        sound: "default",
+        sound,
+        ...(channelId ? { channelId } : {}),
         data: { kind: input.kind, ...input.data },
       },
       trigger: null,
@@ -89,6 +228,16 @@ async function sendActivityNotification(input: {
   } catch {
     // A notification must never roll back a saved financial/calendar action.
   }
+}
+
+export function notifyActivity(input: {
+  kind: ActivityKind;
+  title: string;
+  body: string;
+  data?: Record<string, string>;
+  sound?: NotificationSound;
+}) {
+  return sendActivityNotification(input);
 }
 
 export function notifyTransactionAdded(input: {
@@ -99,7 +248,8 @@ export function notifyTransactionAdded(input: {
 }) {
   const amount = new Intl.NumberFormat("es-CO", {
     style: "currency",
-    currency: "USD",
+    currency: "COP",
+    maximumFractionDigits: 0,
   }).format(input.amount);
 
   return sendActivityNotification({
@@ -186,7 +336,8 @@ export async function scheduleCalendarReminder(input: {
       content: {
         title: `Recordatorio · ${input.typeLabel}`,
         body: `${input.title} · aviso a las ${timeLabel}`,
-        sound: "default",
+        sound: SOUND_CALENDARIO,
+        ...(Platform.OS === "android" ? { channelId: "activity-calendar" } : {}),
         data: {
           kind: "calendar",
           route: "/(tabs)/calendario",
@@ -228,7 +379,8 @@ export async function scheduleRecaudoReminder(input: {
     const content = {
       title: "Tu aporte al recaudo está pendiente",
       body: `Recuerda aportar a ${input.title}.`,
-      sound: "default" as const,
+      sound: SOUND_INGRESO,
+      ...(Platform.OS === "android" ? { channelId: "activity-income" } : {}),
       data: {
         kind: "recaudo",
         route: `/(tabs)/recaudo/${input.recaudoId}`,

@@ -832,6 +832,23 @@ class WorkspaceController {
     return { deleted: true, id: workspaceId };
   }
 
+  @Get(':id/share-code')
+  async shareCode(
+    @Param('id') workspaceId: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    const membership = await this.memberships.findOne({
+      workspaceId,
+      userId: user.userId,
+      role: { $in: ['owner', 'admin'] },
+    });
+    if (!membership) {
+      throw new ForbiddenException('Only owners/admins can view the book ID');
+    }
+    const shareCode = await this.collaboration.ensureShareCode(workspaceId);
+    return { shareCode };
+  }
+
   @Get(':id/members')
   async members(
     @Param('id') workspaceId: string,

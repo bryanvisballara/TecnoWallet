@@ -2,6 +2,8 @@ import { create } from 'zustand';
 
 import {
   seedCalendarItems,
+  typeLabels,
+  typeIcons,
   type CalendarItem,
   type CalendarItemType,
 } from '@/data/calendar';
@@ -21,6 +23,7 @@ import {
 } from '@/services/calendar-api';
 import { localStorage } from '@/services/persistence';
 import { useLedgerStore } from '@/store/ledger';
+import { recordActivity } from '@/store/notifications';
 
 export type CalendarMemberRole = 'owner' | 'editor' | 'viewer';
 
@@ -378,6 +381,16 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     void createCalendarItem(nextItem).catch(() => {
       set({ items: get().items.filter((current) => current.id !== nextItem.id) });
     });
+    const typeLabel = typeLabels[nextItem.type] ?? 'Elemento';
+    void recordActivity({
+      kind: 'calendar',
+      title: `${typeLabel} agregado`,
+      body: nextItem.reminder
+        ? `${nextItem.title} · ${nextItem.date} · con recordatorio`
+        : `${nextItem.title} · ${nextItem.date}`,
+      icon: typeIcons[nextItem.type] ?? 'calendar',
+      route: '/(tabs)/calendario',
+    });
     return nextItem.id;
   },
 
@@ -393,12 +406,24 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   },
 
   removeItem: (id) => {
+    const removed = get().items.find((item) => item.id === id);
     const items = get().items.filter((item) => item.id !== id);
     set({ items });
     void deleteCalendarItem(id);
     void import('@/services/push-notifications').then(({ cancelCalendarReminder }) =>
       cancelCalendarReminder(id),
     );
+    if (removed) {
+      const typeLabel = typeLabels[removed.type] ?? 'Elemento';
+      void recordActivity({
+        kind: 'calendar',
+        title: `${typeLabel} eliminado`,
+        body: `${removed.title} · ${removed.date}`,
+        icon: 'trash',
+        tone: 'red',
+        route: '/(tabs)/calendario',
+      });
+    }
   },
 }));
 

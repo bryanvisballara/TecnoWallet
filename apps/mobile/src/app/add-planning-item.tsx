@@ -1,11 +1,9 @@
 import * as Haptics from 'expo-haptics';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import type { PlanningBucket } from '@/data/ledgers';
@@ -40,6 +39,7 @@ function resolveBucket(
 
 export default function AddPlanningItemScreen() {
   const theme = useAppTheme();
+  const scrollRef = useRef<ScrollView>(null);
   const { ledger } = useActiveLedger();
   const addPlanningItem = useLedgerStore((state) => state.addPlanningItem);
   const params = useLocalSearchParams<{ cashflow?: string; bucket?: string }>();
@@ -114,10 +114,8 @@ export default function AddPlanningItemScreen() {
   };
 
   return (
-    <SheetScreen heightRatio={0.72} fallback="/(tabs)/salud-financiera">
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <SheetScreen heightRatio={0.78} fallback="/(tabs)/salud-financiera">
+      <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/salud-financiera')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
@@ -131,7 +129,7 @@ export default function AddPlanningItemScreen() {
           </ScalePressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
             Libro {ledger?.name ?? 'Hogar'} · {hint}
@@ -174,6 +172,7 @@ export default function AddPlanningItemScreen() {
               setName(value);
               clearError('name');
             }}
+            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={placeholder}
             placeholderTextColor={theme.muted}
             style={[
@@ -196,6 +195,7 @@ export default function AddPlanningItemScreen() {
               setAmount(value);
               clearError('amount');
             }}
+            onFocus={focusScrollToEnd(scrollRef, 120)}
             placeholder="0"
             placeholderTextColor={theme.muted}
             keyboardType="decimal-pad"
@@ -209,8 +209,8 @@ export default function AddPlanningItemScreen() {
               },
             ]}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
+      </View>
     </SheetScreen>
   );
 }
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   saveText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  content: { paddingHorizontal: 20, paddingBottom: 28, gap: 8 },
+  content: { paddingHorizontal: 20, paddingBottom: 40, gap: 8 },
   title: { fontSize: 24, fontWeight: '700', letterSpacing: -0.4, marginTop: 4 },
   hint: { fontSize: 13, lineHeight: 18, marginBottom: 8 },
   label: { fontSize: 12, fontWeight: '600', marginTop: 10 },

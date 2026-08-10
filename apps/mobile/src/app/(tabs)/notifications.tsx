@@ -8,7 +8,6 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
 import { useAuthStore } from '@/store/auth';
-import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
 import {
   buildNotificationFeed,
@@ -22,9 +21,9 @@ export default function NotificationsScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
   const profile = useAuthStore((state) => state.profile);
-  const calendarItems = useCalendarStore((state) => state.items);
   const ledgers = useLedgerStore((state) => state.ledgers);
   const snapshots = useLedgerStore((state) => state.snapshots);
+  const activities = useNotificationsStore((state) => state.activities);
   const readIds = useNotificationsStore((state) => state.readIds);
   const dismissedIds = useNotificationsStore((state) => state.dismissedIds);
   const markAllRead = useNotificationsStore((state) => state.markAllRead);
@@ -38,14 +37,14 @@ export default function NotificationsScreen() {
     () =>
       visibleNotifications(
         buildNotificationFeed({
-          calendarItems,
+          activities,
           ledgers,
           snapshots,
           selfName: profile.name,
         }),
         dismissedIds,
       ),
-    [calendarItems, ledgers, snapshots, profile.name, dismissedIds],
+    [activities, ledgers, snapshots, profile.name, dismissedIds],
   );
 
   const allSelected = feed.length > 0 && selected.length === feed.length;

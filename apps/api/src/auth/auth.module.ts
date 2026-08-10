@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   CanActivate,
+  ConflictException,
   Controller,
   createParamDecorator,
   Delete,
@@ -11,6 +12,7 @@ import {
   Injectable,
   Module,
   NotFoundException,
+  Patch,
   Post,
   ServiceUnavailableException,
   SetMetadata,
@@ -27,7 +29,14 @@ import {
   SchemaFactory,
 } from '@nestjs/mongoose';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsEmail, IsString, Length, Matches, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MinLength,
+} from 'class-validator';
 import { compare, hash } from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
@@ -244,6 +253,27 @@ class ConfirmDeleteAccountDto {
   @Length(6, 6)
   @Matches(/^\d{6}$/)
   code!: string;
+}
+
+class UpdateProfileDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  name?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+}
+
+class ChangePasswordDto {
+  @IsString()
+  @MinLength(6)
+  currentPassword!: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
 }
 
 const IS_PUBLIC = 'isPublic';
@@ -689,6 +719,61 @@ export class AuthService {
     };
   }
 
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.users.findById(userId);
+    if (!user?.active) throw new NotFoundException('User not found');
+
+    const nextName = dto.name?.trim();
+    const nextEmail = dto.email?.trim().toLowerCase();
+    if (!nextName && !nextEmail) {
+      throw new BadRequestException('Nothing to update');
+    }
+
+    if (nextName) {
+      if (nextName.length < 2) {
+        throw new BadRequestException('Name is too short');
+      }
+      user.name = nextName;
+    }
+
+    if (nextEmail && nextEmail !== user.email) {
+      const taken = await this.users.exists({
+        email: nextEmail,
+        _id: { $ne: user._id },
+      });
+      if (taken) {
+        throw new ConflictException('That email is already in use');
+      }
+      user.email = nextEmail;
+    }
+
+    await user.save();
+    return this.me(userId);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.users
+      .findById(userId)
+      .select('+passwordHash');
+    if (!user?.active) throw new NotFoundException('User not found');
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        'Esta cuenta inicia con Google. No tiene contraseña para cambiar.',
+      );
+    }
+    if (!(await compare(dto.currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException('La contraseña actual no es correcta.');
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException(
+        'La nueva contraseña debe ser distinta a la actual.',
+      );
+    }
+    user.passwordHash = await hash(dto.newPassword, 12);
+    await user.save();
+    return { updated: true };
+  }
+
   private async issueTokens(
     user: User,
     options: { replaceSession: boolean },
@@ -880,6 +965,24 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthPrincipal) {
     return this.auth.me(user.userId);
+  }
+
+  @ApiBearerAuth()
+  @Patch('me')
+  updateProfile(
+    @CurrentUser() user: AuthPrincipal,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.auth.updateProfile(user.userId, dto);
+  }
+
+  @ApiBearerAuth()
+  @Post('change-password')
+  changePassword(
+    @CurrentUser() user: AuthPrincipal,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.auth.changePassword(user.userId, dto);
   }
 
   @ApiBearerAuth()

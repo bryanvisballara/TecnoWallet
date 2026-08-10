@@ -3,11 +3,10 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert,
   Image,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +16,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
@@ -37,7 +37,6 @@ import {
   type CalendarItemType,
 } from '@/data/calendar';
 import {
-  notifyCalendarItemAdded,
   scheduleCalendarReminder,
 } from '@/services/push-notifications';
 import { useAuthStore } from '@/store/auth';
@@ -70,6 +69,7 @@ function pickOption(title: string, options: readonly string[], onPick: (value: s
 
 export default function AddCalendarItemScreen() {
   const theme = useAppTheme();
+  const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);
   const addItem = useCalendarStore((state) => state.addItem);
   const profile = useAuthStore((state) => state.profile);
@@ -276,10 +276,6 @@ export default function AddCalendarItemScreen() {
         })
       : true;
 
-    await notifyCalendarItemAdded({
-      title: title.trim(),
-      date: dateLabel,
-    });
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     if (reminderValue && !reminderScheduled && Platform.OS !== 'web') {
@@ -294,7 +290,7 @@ export default function AddCalendarItemScreen() {
 
   return (
     <SheetScreen fallback="/(tabs)/calendario">
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/calendario')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
@@ -305,10 +301,11 @@ export default function AddCalendarItemScreen() {
           </ScalePressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <TextInput
             value={title}
             onChangeText={setTitle}
+            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={titlePlaceholder}
             placeholderTextColor={theme.muted}
             style={[styles.titleInput, { color: theme.text }]}
@@ -376,6 +373,7 @@ export default function AddCalendarItemScreen() {
                 <TextInput
                   value={startTime}
                   onChangeText={setStartTime}
+                  onFocus={focusScrollToEnd(scrollRef, 120)}
                   placeholder="16:00"
                   placeholderTextColor={theme.muted}
                   keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
@@ -389,6 +387,7 @@ export default function AddCalendarItemScreen() {
                 <TextInput
                   value={endTime}
                   onChangeText={setEndTime}
+                  onFocus={focusScrollToEnd(scrollRef, 120)}
                   placeholder="17:00"
                   placeholderTextColor={theme.muted}
                   keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
@@ -434,6 +433,7 @@ export default function AddCalendarItemScreen() {
                 <TextInput
                   value={location}
                   onChangeText={setLocation}
+                  onFocus={focusScrollToEnd(scrollRef, 120)}
                   placeholder="Agregar ubicación"
                   placeholderTextColor={theme.muted}
                   style={[styles.inlineInput, { color: theme.text }]}
@@ -443,6 +443,7 @@ export default function AddCalendarItemScreen() {
                 <TextInput
                   value={meetingLink}
                   onChangeText={setMeetingLink}
+                  onFocus={focusScrollToEnd(scrollRef, 120)}
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="url"
@@ -527,6 +528,7 @@ export default function AddCalendarItemScreen() {
                   <TextInput
                     value={customReminderTime}
                     onChangeText={setCustomReminderTime}
+                    onFocus={focusScrollToEnd(scrollRef, 120)}
                     placeholder="13:50"
                     placeholderTextColor={theme.muted}
                     keyboardType={
@@ -569,6 +571,7 @@ export default function AddCalendarItemScreen() {
             <TextInput
               value={notes}
               onChangeText={setNotes}
+              onFocus={focusScrollToEnd(scrollRef, 120)}
               placeholder="Agregar detalles"
               placeholderTextColor={theme.muted}
               style={[styles.inlineInput, { color: theme.text }]}
@@ -619,8 +622,8 @@ export default function AddCalendarItemScreen() {
               ) : null}
             </View>
           </Row>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
+      </View>
     </SheetScreen>
   );
 }

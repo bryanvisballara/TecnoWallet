@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
-import { money, type Account } from '@/data/demo';
+import { getActiveMoneyCurrency, money, moneyAmount, type Account } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import {
   isLiquidAccount,
@@ -121,6 +121,7 @@ export default function SaludFinancieraScreen() {
   const { accounts, ledger, transactions, upcoming, planning } = useActiveLedger();
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
+  const moneyCurrency = getActiveMoneyCurrency();
 
   const liquidAccounts = useMemo(
     () => accounts.filter((item) => isLiquidAccount(item.kind)),
@@ -270,9 +271,15 @@ export default function SaludFinancieraScreen() {
       <Card style={styles.recurringSummary}>
         <View style={styles.recurringSummaryRow}>
           <View style={styles.recurringSummaryCell}>
-            <Text style={[styles.small, { color: theme.muted }]}>{copy.envelopes.income}</Text>
-            <Text style={[styles.recurringSummaryValue, { color: theme.success }]}>
-              {money(recurring.incomeTotal)}
+            <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
+              {copy.envelopes.income} ({moneyCurrency})
+            </Text>
+            <Text
+              style={[styles.recurringSummaryValue, { color: theme.success }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.55}>
+              {moneyAmount(recurring.incomeTotal)}
             </Text>
             <Text style={[styles.tiny, { color: theme.muted }]}>
               {copy.health.incomeHint(recurring.income.length)}
@@ -280,9 +287,15 @@ export default function SaludFinancieraScreen() {
           </View>
           <View style={[styles.recurringSummaryDivider, { backgroundColor: theme.border }]} />
           <View style={styles.recurringSummaryCell}>
-            <Text style={[styles.small, { color: theme.muted }]}>{copy.envelopes.expenses}</Text>
-            <Text style={[styles.recurringSummaryValue, { color: theme.danger }]}>
-              {money(recurring.expenseTotal)}
+            <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
+              {copy.envelopes.expenses} ({moneyCurrency})
+            </Text>
+            <Text
+              style={[styles.recurringSummaryValue, { color: theme.danger }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.55}>
+              {moneyAmount(recurring.expenseTotal)}
             </Text>
             <Text style={[styles.tiny, { color: theme.muted }]}>
               {copy.health.expensesHint(expenseLines.length)}
@@ -290,13 +303,18 @@ export default function SaludFinancieraScreen() {
           </View>
           <View style={[styles.recurringSummaryDivider, { backgroundColor: theme.border }]} />
           <View style={styles.recurringSummaryCell}>
-            <Text style={[styles.small, { color: theme.muted }]}>{copy.health.result}</Text>
+            <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
+              {copy.health.result} ({moneyCurrency})
+            </Text>
             <Text
               style={[
                 styles.recurringSummaryValue,
                 { color: recurring.net >= 0 ? theme.success : theme.danger },
-              ]}>
-              {money(recurring.net)}
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.55}>
+              {moneyAmount(recurring.net)}
             </Text>
             <Text style={[styles.tiny, { color: theme.muted }]}>
               {copy.health.incomeMinusExpenses}
@@ -396,9 +414,14 @@ const styles = StyleSheet.create({
   },
   recurringSummary: { gap: 14 },
   recurringSummaryRow: { flexDirection: 'row', alignItems: 'stretch' },
-  recurringSummaryCell: { flex: 1, gap: 4 },
+  recurringSummaryCell: { flex: 1, minWidth: 0, gap: 4 },
   recurringSummaryDivider: { width: StyleSheet.hairlineWidth, marginHorizontal: 10 },
-  recurringSummaryValue: { fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  recurringSummaryValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    width: '100%',
+  },
   tiny: { fontSize: 10, lineHeight: 14 },
   bucketPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   recurringGroup: { gap: 10 },

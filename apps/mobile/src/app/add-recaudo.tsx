@@ -1,11 +1,10 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
@@ -70,6 +70,7 @@ function ErrorText({ children, color }: { children: string; color: string }) {
 function AmountInput({
   value,
   onChangeText,
+  onFocus,
   placeholder,
   currency,
   muted,
@@ -79,6 +80,7 @@ function AmountInput({
 }: {
   value: string;
   onChangeText: (value: string) => void;
+  onFocus?: () => void;
   placeholder: string;
   currency: string;
   muted: string;
@@ -97,6 +99,7 @@ function AmountInput({
       <TextInput
         value={value}
         onChangeText={onChangeText}
+        onFocus={onFocus}
         keyboardType="decimal-pad"
         placeholder={placeholder}
         placeholderTextColor={muted}
@@ -108,6 +111,7 @@ function AmountInput({
 
 export default function AddRecaudoScreen() {
   const theme = useAppTheme();
+  const scrollRef = useRef<ScrollView>(null);
   const createRecaudo = useRecaudosStore((state) => state.createRecaudo);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<RecaudoCategory>('travel');
@@ -208,9 +212,7 @@ export default function AddRecaudoScreen() {
 
   return (
     <SheetScreen heightRatio={0.75} fallback="/(tabs)/recaudos">
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/recaudos')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
@@ -226,7 +228,7 @@ export default function AddRecaudoScreen() {
           </ScalePressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>Nuevo recaudo</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
             Crea un pozo compartido y define cuánto quieren reunir.
@@ -241,6 +243,7 @@ export default function AddRecaudoScreen() {
               setTitle(value);
               clearError('title');
             }}
+            onFocus={focusScrollToEnd(scrollRef)}
             placeholder="Ej. Viaje de fin de año"
             placeholderTextColor={theme.muted}
             style={[
@@ -324,6 +327,7 @@ export default function AddRecaudoScreen() {
               setTarget(value);
               clearError('target');
             }}
+            onFocus={focusScrollToEnd(scrollRef, 120)}
             placeholder={amountPlaceholder(currency)}
             currency={currency}
             muted={theme.muted}
@@ -344,6 +348,7 @@ export default function AddRecaudoScreen() {
               setMonthly(value);
               clearError('monthly');
             }}
+            onFocus={focusScrollToEnd(scrollRef, 120)}
             placeholder={monthlyAmountPlaceholder(currency)}
             currency={currency}
             muted={theme.muted}
@@ -387,6 +392,7 @@ export default function AddRecaudoScreen() {
                 setDeadline(value);
                 clearError('deadline');
               }}
+              onFocus={focusScrollToEnd(scrollRef, 120)}
               placeholder="AAAA-MM-DD"
               placeholderTextColor={theme.muted}
               autoCapitalize="none"
@@ -404,8 +410,8 @@ export default function AddRecaudoScreen() {
               Usa una fecha válida en formato AAAA-MM-DD
             </ErrorText>
           ) : null}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
+      </View>
 
       <Modal
         visible={currencyOpen}

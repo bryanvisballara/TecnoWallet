@@ -387,6 +387,22 @@ export const useUnitFundingStore = create<UnitFundingState>((set, get) => ({
         [input.recaudoId]: result.balances,
       },
     }));
+    const profile = useAuthStore.getState().profile;
+    void import("@/store/notifications").then(({ recordActivity }) =>
+      recordActivity({
+        kind: "recaudo",
+        title: "Retiro del recaudo",
+        body: `${profile.name} retiró ${(input.amountMinor / 100).toLocaleString("es-CO", {
+          style: "currency",
+          currency: "COP",
+          maximumFractionDigits: 0,
+        })} del pozo`,
+        icon: "arrow.up.circle.fill",
+        tone: "orange",
+        sound: "gasto",
+        route: `/(tabs)/recaudo/${input.recaudoId}`,
+      }),
+    );
     return result;
   },
 

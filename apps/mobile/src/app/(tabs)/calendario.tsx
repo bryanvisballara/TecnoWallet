@@ -28,11 +28,13 @@ import {
 } from '@/data/calendar';
 import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
 import { dateLocale } from '@/i18n/locale-format';
+import { useTabBarScrollHandler } from '@/hooks/use-tab-bar-scroll';
 import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
 import { useLanguageStore } from '@/store/language';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { usePreferencesStore, weekStartsOnJsDay } from '@/store/preferences';
-import { useTabBarStore } from '@/store/tab-bar';
+
+const AnimatedScrollView = Animated.ScrollView;
 
 export default function CalendarScreen() {
   const theme = useAppTheme();
@@ -42,7 +44,8 @@ export default function CalendarScreen() {
   const { tabsBottom, fabBottom } = useSafeLayout();
   const { items, calendar, activeCalendarId } = useActiveCalendar();
   const toggleTask = useCalendarStore((state) => state.toggleTask);
-  const onScrollOffset = useTabBarStore((state) => state.onScrollOffset);
+  const { onScroll, useAnimatedScrollView } = useTabBarScrollHandler();
+  const VerticalScroll = useAnimatedScrollView ? AnimatedScrollView : ScrollView;
   const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
   const weekStartJs = weekStartsOnJsDay(weekStartsOn);
   const weekDays = useMemo(() => weekDayLabels(weekStartJs, locale), [weekStartJs, locale]);
@@ -54,7 +57,6 @@ export default function CalendarScreen() {
   const [selectedKey, setSelectedKey] = useState(() => toDateKey(today));
   const [view, setView] = useState<'month' | 'day'>('month');
   const [fabOpen, setFabOpen] = useState(false);
-  const [lastOffset, setLastOffset] = useState(0);
 
   const months = useMemo(() => {
     const list: Date[] = [];
@@ -165,15 +167,11 @@ export default function CalendarScreen() {
         })}
       </ScrollView>
 
-      <ScrollView
+      <VerticalScroll
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingBottom: tabsBottom + 24 }]}
         scrollEventThrottle={16}
-        onScroll={(event) => {
-          const y = event.nativeEvent.contentOffset.y;
-          onScrollOffset(y, y - lastOffset);
-          setLastOffset(y);
-        }}>
+        onScroll={onScroll}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={view === 'month' ? copy.calendar.viewDay : copy.calendar.viewMonth}
@@ -294,7 +292,7 @@ export default function CalendarScreen() {
             </ScalePressable>
           ))
         )}
-      </ScrollView>
+      </VerticalScroll>
 
       <View pointerEvents="box-none" style={[styles.fabHost, { bottom: fabBottom }]}>
         {fabOpen ? (
@@ -427,15 +425,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 2,
   },
-  monthStrip: { maxHeight: 48 },
-  monthPills: { paddingHorizontal: 18, gap: 8, alignItems: 'center' },
+  monthStrip: { maxHeight: 56, flexGrow: 0 },
+  monthPills: {
+    paddingHorizontal: 18,
+    paddingVertical: 4,
+    gap: 8,
+    alignItems: 'center',
+  },
   monthPill: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    minHeight: 36,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  monthPillText: { fontSize: 13, fontWeight: '700' },
+  monthPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   content: { padding: 18, gap: 14 },
   monthCard: {
     borderRadius: 22,

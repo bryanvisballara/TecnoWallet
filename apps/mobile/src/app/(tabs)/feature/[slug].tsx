@@ -469,7 +469,9 @@ function BiometricsSettings() {
       </Card>
 
       <Modal visible={pinModal} transparent animationType="fade" onRequestClose={() => setPinModal(false)}>
-        <View style={styles.modalScrim}>
+        <KeyboardAvoidingView
+          style={styles.modalScrim}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={[styles.modalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Clave de desbloqueo</Text>
             <Text style={[styles.body, { color: theme.muted }]}>Elige 4 a 8 dígitos para abrir la app.</Text>
@@ -523,7 +525,7 @@ function BiometricsSettings() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Screen>
   );

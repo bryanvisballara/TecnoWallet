@@ -44,6 +44,11 @@ export function isSameMonth(a: MonthCursor, b: MonthCursor) {
 }
 
 export function parseTransactionDate(tx: Transaction, today = new Date()): Date {
+  if (tx.occurredAt) {
+    const isoDate = new Date(tx.occurredAt);
+    if (!Number.isNaN(isoDate.getTime())) return isoDate;
+  }
+
   const raw = tx.date.trim();
   const timeMatch = raw.match(/(\d{1,2}):(\d{2})/);
   const hours = timeMatch ? Number(timeMatch[1]) : 12;

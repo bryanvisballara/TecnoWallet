@@ -1,24 +1,43 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { filterTransactionsByMonth } from '@/lib/dates';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import { usePeriodStore } from '@/store/period';
 
 export default function EnvelopeDetailScreen() {
   const theme = useAppTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { envelopes, transactions, ledger } = useActiveLedger();
   const removeEnvelope = useLedgerStore((state) => state.removeEnvelope);
+  const year = usePeriodStore((state) => state.year);
+  const month = usePeriodStore((state) => state.month);
+  const monthLabel = usePeriodStore((state) => state.label);
   const envelope = envelopes.find((item) => item.id === id) ?? envelopes[0];
+  const monthTransactions = useMemo(
+    () => filterTransactionsByMonth(transactions, { year, month }),
+    [transactions, year, month],
+  );
+  const monthSpent = useMemo(() => {
+    return monthTransactions
+      .filter(
+        (tx) =>
+          tx.envelopeId === envelope.id ||
+          tx.category.trim().toLowerCase() === envelope.name.trim().toLowerCase(),
+      )
+      .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+  }, [monthTransactions, envelope.id, envelope.name]);
+  const spent = monthSpent;
   const hasBudget = envelope.budget > 0;
-  const available = envelope.budget - envelope.spent;
-  const ratio = hasBudget ? envelope.spent / envelope.budget : 0;
+  const available = envelope.budget - spent;
+  const ratio = hasBudget ? spent / envelope.budget : 0;
   const percent = Math.round(ratio * 100);
-  const remainingToGoal = Math.max(0, envelope.budget - envelope.spent);
+  const remainingToGoal = Math.max(0, envelope.budget - spent);
   const isSavings = envelope.kind === 'savings';
   const isIncome = envelope.kind === 'income';
   const [deleting, setDeleting] = useState(false);
@@ -59,7 +78,7 @@ export default function EnvelopeDetailScreen() {
   return (
     <Screen
       title={envelope.name}
-      subtitle={`${ledger.name} · Agosto 2026`}
+      subtitle={`${ledger.name} · ${monthLabel}`}
       right={
         <View style={styles.headerActions}>
           <Pressable
@@ -109,7 +128,7 @@ export default function EnvelopeDetailScreen() {
                   : 'Gastos registrados'}
           </Text>
           <Text style={styles.heroValue}>
-            {money(isIncome || isSavings || !hasBudget ? envelope.spent : available)}
+            {money(isIncome || isSavings || !hasBudget ? spent : available)}
           </Text>
           {hasBudget ? (
             <View style={styles.heroProgress}>
@@ -118,7 +137,7 @@ export default function EnvelopeDetailScreen() {
           ) : null}
           <View style={uiStyles.between}>
             <Text style={styles.heroSmall}>
-              {money(envelope.spent)}{' '}
+              {money(spent)}{' '}
               {isIncome ? 'recibidos' : isSavings ? 'ahorrados' : 'gastados'}
             </Text>
             <Text style={styles.heroSmall}>

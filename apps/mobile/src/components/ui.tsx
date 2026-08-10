@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
 import { SymbolView } from 'expo-symbols';
-import { useRef, type PropsWithChildren, type ReactNode } from 'react';
+import { type PropsWithChildren, type ReactNode } from 'react';
 import {
   Platform,
   Pressable,
@@ -11,8 +11,6 @@ import {
   Text,
   View,
   type ColorValue,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   type PressableProps,
   type ViewStyle,
 } from 'react-native';
@@ -22,14 +20,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
+import { useTabBarScrollHandler } from '@/hooks/use-tab-bar-scroll';
 import { safeGoBack } from '@/lib/navigation';
 import { usePreferencesStore } from '@/store/preferences';
-import { useTabBarStore } from '@/store/tab-bar';
 import type { Href } from 'expo-router';
 
 export type AppIconName = string;
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const AnimatedScrollView = Animated.ScrollView;
 
 const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
   'house.fill': 'home', 'creditcard.fill': 'card', 'building.columns.fill': 'business',
@@ -40,6 +39,7 @@ const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
   repeat: 'repeat', target: 'flag', calendar: 'calendar', 'chart.bar.fill': 'bar-chart',
   sparkles: 'sparkles', 'star.fill': 'star', 'person.2.fill': 'people', 'person.badge.plus': 'person-add', 'trophy.fill': 'trophy',
   'gearshape.fill': 'settings', 'lock.shield.fill': 'shield-checkmark',
+  'checkmark.shield.fill': 'shield-checkmark',
   'arrow.up.arrow.down.circle.fill': 'swap-vertical', 'line.3.horizontal.decrease': 'options',
   magnifyingglass: 'search', plus: 'add', chevron: 'chevron-forward', 'chevron.down': 'chevron-down',
   bell: 'notifications-outline', 'person.crop.circle': 'person-circle', 'wallet.pass.fill': 'wallet',
@@ -100,26 +100,23 @@ export function Screen({ children, title, subtitle, right, refreshing, onRefresh
 }>) {
   const theme = useAppTheme();
   const { tabsBottom, stackBottom } = useSafeLayout();
-  const onScrollOffset = useTabBarStore((state) => state.onScrollOffset);
-  const lastOffset = useRef(0);
-
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    onScrollOffset(offsetY, offsetY - lastOffset.current);
-    lastOffset.current = offsetY;
-  };
+  const { onScroll, useAnimatedScrollView } = useTabBarScrollHandler();
+  const ScrollComponent = useAnimatedScrollView ? AnimatedScrollView : ScrollView;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
-      <ScrollView
+      <ScrollComponent
         contentContainerStyle={[
           styles.screen,
           { paddingBottom: withTabBar ? tabsBottom : stackBottom },
         ]}
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         scrollEventThrottle={16}
-        onScroll={handleScroll}
+        onScroll={onScroll}
         refreshControl={
           onRefresh ? (
             <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} />
@@ -147,7 +144,7 @@ export function Screen({ children, title, subtitle, right, refreshing, onRefresh
           </View>
         )}
         {children}
-      </ScrollView>
+      </ScrollComponent>
       {floating}
     </SafeAreaView>
   );

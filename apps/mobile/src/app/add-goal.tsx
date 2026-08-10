@@ -1,10 +1,9 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -14,6 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { formatDayLabel, parseDateKey, toDateKey } from '@/data/calendar';
@@ -35,6 +35,7 @@ type FieldErrors = Partial<Record<FieldKey, boolean>>;
 
 export default function AddGoalScreen() {
   const theme = useAppTheme();
+  const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);
   const { ledger } = useActiveLedger();
   const addGoal = useGoalsStore((state) => state.addGoal);
@@ -145,9 +146,7 @@ export default function AddGoalScreen() {
 
   return (
     <SheetScreen fallback="/(tabs)/metas">
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/metas')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
@@ -161,7 +160,7 @@ export default function AddGoalScreen() {
           </ScalePressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>Nueva meta</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>Libro {ledger.name}</Text>
 
@@ -174,6 +173,7 @@ export default function AddGoalScreen() {
               setTitle(value);
               clearError('title');
             }}
+            onFocus={focusScrollToEnd(scrollRef)}
             placeholder="Ej. Viaje a Cartagena"
             placeholderTextColor={theme.muted}
             style={[
@@ -253,6 +253,7 @@ export default function AddGoalScreen() {
                     setTargetDate(value);
                     clearError('date');
                   }}
+                  onFocus={focusScrollToEnd(scrollRef, 120)}
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={theme.muted}
                   autoCapitalize="none"
@@ -310,6 +311,7 @@ export default function AddGoalScreen() {
               setAmount(value);
               clearError('amount');
             }}
+            onFocus={focusScrollToEnd(scrollRef, 120)}
             keyboardType="decimal-pad"
             placeholder={withSavingsEnvelope ? 'Ej. 1500' : 'Sin monto'}
             placeholderTextColor={theme.muted}
@@ -342,8 +344,8 @@ export default function AddGoalScreen() {
               />
             ))}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
+      </View>
     </SheetScreen>
   );
 }

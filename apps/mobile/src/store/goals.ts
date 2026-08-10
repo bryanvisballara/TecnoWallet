@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { apiRequest } from '@/services/api';
 import { objectId, toMinor, fromMinor } from '@/services/ledgers-api';
 import { useLedgerStore } from '@/store/ledger';
+import { recordActivity } from '@/store/notifications';
 import { localStorage } from '@/services/persistence';
 
 export type GoalPeriod = 'week' | 'month' | 'year' | 'date';
@@ -168,6 +169,14 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
     });
     const goal = mapGoal(created);
     set({ goals: [goal, ...get().goals] });
+    void recordActivity({
+      kind: 'goal',
+      title: 'Meta creada',
+      body: goal.title,
+      icon: 'flag.fill',
+      sound: 'sobres',
+      route: `/(tabs)/goal/${goal.id}`,
+    });
     return goal;
   },
 

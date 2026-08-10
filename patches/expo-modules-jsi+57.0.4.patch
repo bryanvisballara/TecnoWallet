@@ -1,0 +1,12 @@
+--- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift
++++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift
+@@ -50,7 +50,8 @@
+ /// faithful to `new Date(number)`; the `Date`/string branches pass an already-clipped `getTime()` through.
+ @usableFromInline
+ func dateFromMilliseconds(_ milliseconds: Double) throws -> Date {
+-  guard milliseconds.isFinite, abs(milliseconds) <= maxJavaScriptDateMilliseconds else {
++  // `.magnitude` avoids Swift 6.2 `abs(_:)` overload ambiguity (Xcode 26.3 / Swift 6.2).
++  guard milliseconds.isFinite, milliseconds.magnitude <= maxJavaScriptDateMilliseconds else {
+     throw InvalidDateException()
+   }
+   return Date(timeIntervalSince1970: milliseconds.rounded(.towardZero) / 1000.0)

@@ -20,6 +20,7 @@ import { Colors, Radius } from '@/constants/theme';
 import { useAppCopy } from '@/i18n/app-copy';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
+import { tabBarCollapseProgress } from '@/store/tab-bar-progress';
 import { useTabBarStore } from '@/store/tab-bar';
 
 type TabRoute = { key: string; name: string };
@@ -94,7 +95,6 @@ export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBa
   const { tabBarPadding } = useSafeLayout();
   const collapsed = useTabBarStore((s) => s.collapsed);
   const expand = useTabBarStore((s) => s.expand);
-  const progress = useSharedValue(0);
   const activeIndex = useSharedValue(0);
   const indicatorX = useSharedValue(0);
   const indicatorW = useSharedValue(40);
@@ -130,44 +130,52 @@ export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBa
     : undefined;
 
   useEffect(() => {
-    progress.value = withSpring(collapsed ? 1 : 0, springSoft);
-  }, [collapsed, progress]);
-
-  useEffect(() => {
+    // Expand when switching tabs — do NOT depend on layouts (that thrash during collapse).
     expand();
     activeIndex.value = withSpring(highlightedVisibleIndex, springSnap);
+  }, [highlightedVisibleIndex, expand, activeIndex]);
+
+  useEffect(() => {
     const layout = layouts[highlightedVisibleIndex];
-    if (layout) {
-      indicatorX.value = withSpring(layout.x, springSnap);
-      indicatorW.value = withSpring(layout.width, springSnap);
-    }
-  }, [highlightedVisibleIndex, expand, layouts, activeIndex, indicatorX, indicatorW]);
+    if (!layout) return;
+    indicatorX.value = withSpring(layout.x, springSnap);
+    indicatorW.value = withSpring(layout.width, springSnap);
+  }, [highlightedVisibleIndex, layouts, indicatorX, indicatorW]);
 
   useEffect(() => {
     if (collapsed) setFinanceMenuOpen(false);
   }, [collapsed]);
 
-  const shellStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: interpolate(progress.value, [0, 1], [0, 14]) },
-      { scale: interpolate(progress.value, [0, 1], [1, 0.9]) },
-    ],
-    paddingVertical: interpolate(progress.value, [0, 1], [10, 8]),
-    paddingHorizontal: interpolate(progress.value, [0, 1], [4, 12]),
-    borderRadius: interpolate(progress.value, [0, 1], [28, 999]),
-  }));
+  // Transform-only minimize: no padding/maxHeight reflow (that made the bar jump).
+  const collapseTuck = Platform.OS === 'web' ? 18 : 28;
+  const collapseScale = Platform.OS === 'web' ? 0.92 : 0.9;
 
-  const labelStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0, 1], [1, 0]),
-    maxHeight: interpolate(progress.value, [0, 1], [16, 0]),
-    marginTop: interpolate(progress.value, [0, 1], [3, 0]),
-    transform: [{ scale: interpolate(progress.value, [0, 1], [1, 0.85]) }],
-  }));
+  const shellStyle = useAnimatedStyle(() => {
+    const progress = tabBarCollapseProgress.value;
+    return {
+      transform: [
+        { translateY: interpolate(progress, [0, 1], [0, collapseTuck]) },
+        { scale: interpolate(progress, [0, 1], [1, collapseScale]) },
+      ],
+      opacity: interpolate(progress, [0, 1], [1, 0.94]),
+    };
+  });
+
+  const labelStyle = useAnimatedStyle(() => {
+    const progress = tabBarCollapseProgress.value;
+    return {
+      opacity: interpolate(progress, [0, 0.55, 1], [1, 0, 0]),
+      transform: [
+        { translateY: interpolate(progress, [0, 1], [0, 4]) },
+        { scale: interpolate(progress, [0, 1], [1, 0.92]) },
+      ],
+    };
+  });
 
   const indicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: indicatorX.value }],
     width: indicatorW.value,
-    opacity: interpolate(progress.value, [0, 1], [1, 0.85]),
+    opacity: interpolate(tabBarCollapseProgress.value, [0, 1], [1, 0.7]),
   }));
 
   const onItemLayout = (index: number, event: LayoutChangeEvent) => {
@@ -462,6 +470,9 @@ const styles = StyleSheet.create({
     width: '100%',
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 28,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     shadowOpacity: 0.14,
     shadowRadius: 22,
     shadowOffset: { width: 0, height: 10 },
@@ -512,5 +523,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     letterSpacing: -0.2,
+    marginTop: 3,
+    height: 14,
   },
 });

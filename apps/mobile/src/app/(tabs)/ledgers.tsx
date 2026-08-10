@@ -23,6 +23,7 @@ import {
   type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
+import { fetchWorkspaceShareCode } from '@/services/ledgers-api';
 import { useLedgerStore } from '@/store/ledger';
 import {
   isPlusRequiredError,
@@ -75,6 +76,8 @@ export default function LedgersScreen() {
   const [newLedgerName, setNewLedgerName] = useState('');
   const [invites, setInvites] = useState<CollaborationResourceInvite[]>([]);
   const [accessRequests, setAccessRequests] = useState<CollaborationAccessRequest[]>([]);
+  const [shareCode, setShareCode] = useState('');
+  const [shareCodeLoading, setShareCodeLoading] = useState(false);
 
   const selected = useMemo(
     () => ledgers.find((item) => item.id === selectedId) ?? ledgers[0],
@@ -124,6 +127,34 @@ export default function LedgersScreen() {
     void loadInvites(selected?.id);
     void loadAccessRequests(selected?.id);
   }, [selected?.id, loadInvites, loadAccessRequests]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ledgerId = selected?.id;
+    if (!ledgerId) {
+      setShareCode('');
+      return;
+    }
+    const cached = selected.shareCode?.trim().toUpperCase() || '';
+    if (cached) {
+      setShareCode(cached);
+      return;
+    }
+    setShareCodeLoading(true);
+    void fetchWorkspaceShareCode(ledgerId)
+      .then((code) => {
+        if (!cancelled) setShareCode(code);
+      })
+      .catch(() => {
+        if (!cancelled) setShareCode('');
+      })
+      .finally(() => {
+        if (!cancelled) setShareCodeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, selected?.shareCode]);
 
   const onInvite = async () => {
     if (!hasPaidPlan(plusAccess)) {
@@ -327,25 +358,6 @@ export default function LedgersScreen() {
 
       {selected ? (
         <>
-          {selected.shareCode ? (
-            <Card style={styles.block}>
-              <Text style={[styles.section, { color: theme.text }]}>ID del libro</Text>
-              <Text style={[styles.hint, { color: theme.muted }]}>
-                Comparte este código para que otra persona solicite unirse desde la app.
-              </Text>
-              <View style={[styles.codeBox, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
-                <Text style={[styles.codeText, { color: theme.text }]}>{selected.shareCode}</Text>
-              </View>
-              <PrimaryButton
-                onPress={async () => {
-                  const ok = await copyText(selected.shareCode!);
-                  if (ok) Alert.alert('Listo', 'ID del libro listo para compartir.');
-                }}>
-                Copiar / compartir ID
-              </PrimaryButton>
-            </Card>
-          ) : null}
-
           <Card style={styles.block}>
             <Text style={[styles.section, { color: theme.text }]}>Personas con acceso</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
@@ -395,6 +407,27 @@ export default function LedgersScreen() {
               emptyLabel="Cuando invites a alguien, verás aquí si está pendiente o aceptó."
               onCancelPending={(invite) => void onCancelInvite(invite)}
             />
+
+            <Text style={[styles.label, { color: theme.muted, marginTop: 4 }]}>ID del libro</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Comparte este código para que pidan unirse desde “Unirse con ID”.
+            </Text>
+            <View style={[styles.codeBox, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
+              <Text style={[styles.codeText, { color: theme.text }]}>
+                {shareCodeLoading ? 'Cargando…' : shareCode || '—'}
+              </Text>
+            </View>
+            <PrimaryButton
+              onPress={async () => {
+                if (!shareCode) {
+                  Alert.alert('ID no disponible', 'Espera un momento e inténtalo de nuevo.');
+                  return;
+                }
+                const ok = await copyText(shareCode);
+                if (ok) Alert.alert('Listo', `ID del libro: ${shareCode}`);
+              }}>
+              Copiar / compartir ID
+            </PrimaryButton>
           </Card>
 
           <Card style={styles.block}>

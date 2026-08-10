@@ -308,6 +308,12 @@ export async function listMembers(workspaceId: string) {
   return apiRequest<ApiMember[]>(`/workspaces/${workspaceId}/members`);
 }
 
+export async function fetchWorkspaceShareCode(workspaceId: string) {
+  return apiRequest<{ shareCode: string }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/share-code`,
+  ).then((result) => result.shareCode?.trim().toUpperCase() || '');
+}
+
 export async function addWorkspaceMember(
   workspaceId: string,
   email: string,
