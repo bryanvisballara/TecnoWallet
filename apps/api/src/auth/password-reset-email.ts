@@ -17,18 +17,29 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;');
 }
 
-export function passwordResetEmailSubject() {
-  return 'Restablece tu contraseña de TecnoWallet';
+export function passwordResetEmailSubject(createPassword = false) {
+  return createPassword
+    ? 'Crea una contraseña para TecnoWallet'
+    : 'Restablece tu contraseña de TecnoWallet';
 }
 
 export function passwordResetEmailHtml(input: {
   resetLink: string;
   name?: string;
+  createPassword?: boolean;
 }) {
   const link = escapeHtml(input.resetLink);
   const greeting = input.name?.trim()
     ? `Hola ${escapeHtml(input.name.trim())},`
     : 'Hola,';
+  const createPassword = Boolean(input.createPassword);
+  const title = createPassword
+    ? 'Crea una contraseña'
+    : 'Restablece tu contraseña';
+  const body = createPassword
+    ? `${greeting} tu cuenta entra con Google, pero puedes crear una contraseña para iniciar sesión con correo. El enlace caduca en 15 minutos:`
+    : `${greeting} recibimos una solicitud para cambiar la contraseña de tu cuenta. Pulsa el botón (válido 15 minutos):`;
+  const cta = createPassword ? 'Crear contraseña' : 'Cambiar contraseña';
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -40,7 +51,7 @@ export function passwordResetEmailHtml(input: {
 </head>
 <body style="margin:0;padding:0;background:${BRAND.page};">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
-    Restablece tu contraseña. El enlace caduca en 15 minutos.
+    ${escapeHtml(title)}. El enlace caduca en 15 minutos.
   </div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.page};padding:28px 12px;">
     <tr>
@@ -68,16 +79,16 @@ export function passwordResetEmailHtml(input: {
                 Contraseña
               </p>
               <h1 style="margin:0 0 12px 0;font-size:24px;line-height:1.25;color:${BRAND.ink};font-weight:800;">
-                Restablece tu contraseña
+                ${escapeHtml(title)}
               </h1>
               <p style="margin:0 0 18px 0;font-size:15px;line-height:1.55;color:${BRAND.muted};">
-                ${greeting} recibimos una solicitud para cambiar la contraseña de tu cuenta. Pulsa el botón (válido 15 minutos):
+                ${body}
               </p>
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;">
                 <tr>
                   <td align="center" bgcolor="${BRAND.primary}" style="border-radius:14px;">
                     <a href="${link}" style="display:inline-block;padding:14px 22px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;">
-                      Cambiar contraseña
+                      ${escapeHtml(cta)}
                     </a>
                   </td>
                 </tr>
@@ -89,7 +100,7 @@ export function passwordResetEmailHtml(input: {
                 ${link}
               </p>
               <p style="margin:0;font-size:12px;line-height:1.5;color:${BRAND.muted};">
-                Caduca en 15 minutos. Si no pediste este cambio, ignora este correo y tu contraseña no se modificará.
+                Caduca en 15 minutos. Si no pediste este cambio, ignora este correo.
               </p>
             </td>
           </tr>
@@ -97,28 +108,6 @@ export function passwordResetEmailHtml(input: {
       </td>
     </tr>
   </table>
-</body>
-</html>`;
-}
-
-export function googleOnlyPasswordEmailHtml(input: { name?: string }) {
-  const greeting = input.name?.trim()
-    ? `Hola ${escapeHtml(input.name.trim())},`
-    : 'Hola,';
-  return `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TecnoWallet</title>
-</head>
-<body style="margin:0;padding:24px;background:${BRAND.page};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:${BRAND.ink};">
-  <div style="max-width:560px;margin:0 auto;background:${BRAND.surface};border:1px solid ${BRAND.border};border-radius:20px;padding:28px 24px;">
-    <h1 style="margin:0 0 12px 0;font-size:22px;">Inicio con Google</h1>
-    <p style="margin:0;font-size:15px;line-height:1.55;color:${BRAND.muted};">
-      ${greeting} tu cuenta TecnoWallet inicia sesión con Google y no tiene contraseña para restablecer. Entra con el botón “Google” en la app.
-    </p>
-  </div>
 </body>
 </html>`;
 }

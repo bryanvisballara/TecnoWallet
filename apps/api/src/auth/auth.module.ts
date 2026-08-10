@@ -44,7 +44,6 @@ import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
 import { otpEmailHtml, otpEmailSubject } from './otp-email';
 import {
-  googleOnlyPasswordEmailHtml,
   passwordResetEmailHtml,
   passwordResetEmailSubject,
 } from './password-reset-email';
@@ -803,7 +802,7 @@ export class AuthService {
 
   /**
    * Always returns accepted to avoid email enumeration.
-   * Sends a 15-minute reset link when the account has a password.
+   * Sends a 15-minute reset/create-password link (including Google-only accounts).
    */
   async requestPasswordReset(dto: ForgotPasswordDto) {
     const email = dto.email.trim().toLowerCase();
@@ -811,15 +810,6 @@ export class AuthService {
       .findOne({ email, active: true })
       .select('+passwordHash');
     if (!user) {
-      return { accepted: true as const };
-    }
-
-    if (!user.passwordHash) {
-      await this.sendPasswordResetMail({
-        to: user.email,
-        subject: 'Tu cuenta TecnoWallet usa Google',
-        html: googleOnlyPasswordEmailHtml({ name: user.name }),
-      });
       return { accepted: true as const };
     }
 
@@ -842,11 +832,16 @@ export class AuthService {
       'https://tecnowallet.app'
     ).replace(/\/+$/, '');
     const resetLink = `${base}/restablecer/?token=${encodeURIComponent(rawToken)}`;
+    const createPassword = !user.passwordHash;
 
     await this.sendPasswordResetMail({
       to: user.email,
-      subject: passwordResetEmailSubject(),
-      html: passwordResetEmailHtml({ resetLink, name: user.name }),
+      subject: passwordResetEmailSubject(createPassword),
+      html: passwordResetEmailHtml({
+        resetLink,
+        name: user.name,
+        createPassword,
+      }),
     });
 
     return {

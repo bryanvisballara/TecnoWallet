@@ -1,10 +1,8 @@
-import * as Google from 'expo-auth-session/providers/google';
-import { makeRedirectUri } from 'expo-auth-session';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -24,46 +22,20 @@ import { Card, PrimaryButton, useAppTheme } from '@/components/ui';
 import { authCopy } from '@/i18n/languages';
 import { ApiError } from '@/services/api';
 import { PENDING_COLLABORATION_INVITE_KEY } from '@/services/collaboration-api';
+import {
+  GOOGLE_WEB_CLIENT_ID,
+  NATIVE_OAUTH_RETURN,
+  WEB_ID_TOKEN_STORAGE_KEY,
+  createOauthNonce,
+  googleStartUrl,
+  parseIdTokenFromUrl,
+} from '@/services/google-auth';
 import { localStorage } from '@/services/persistence';
 import { storeManualAffiliateCode } from '@/services/branch';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 
 WebBrowser.maybeCompleteAuthSession();
-
-const GOOGLE_WEB_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
-const GOOGLE_IOS_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
-
-/**
- * Google rejects mismatched redirect URIs with Error 400: invalid_request.
- * - Web: page origin (https://tecnowallet.app or localhost).
- * - iOS + iOS OAuth client: reversed client id …:/oauthredirect.
- * - iOS + Web client only: tecnowallet://oauthredirect (enable custom URI
- *   scheme on that Web client in Google Cloud Console).
- */
-function googleRedirectUri() {
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined' && window.location?.origin) {
-      return window.location.origin;
-    }
-    return makeRedirectUri({ preferLocalhost: true });
-  }
-  if (GOOGLE_IOS_CLIENT_ID.endsWith('.apps.googleusercontent.com')) {
-    const prefix = GOOGLE_IOS_CLIENT_ID.replace(
-      /\.apps\.googleusercontent\.com$/,
-      '',
-    );
-    return `com.googleusercontent.apps.${prefix}:/oauthredirect`;
-  }
-  return makeRedirectUri({
-    scheme: 'tecnowallet',
-    path: 'oauthredirect',
-  });
-}
-
-const GOOGLE_REDIRECT_URI = googleRedirectUri();
 
 function GoogleMark() {
   return (
@@ -97,14 +69,6 @@ export default function AuthScreen() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
-  const [googleRequest, , promptGoogle] = Google.useIdTokenAuthRequest({
-    clientId: GOOGLE_WEB_CLIENT_ID || undefined,
-    webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
-    iosClientId: GOOGLE_IOS_CLIENT_ID || GOOGLE_WEB_CLIENT_ID || undefined,
-    redirectUri: GOOGLE_REDIRECT_URI,
-    // Always show the account picker so invitees can pick the invited Gmail.
-    extraParams: { prompt: 'select_account' },
-  });
 
   const goHome = async () => {
     const collaborationToken = await localStorage.get<string | null>(
@@ -217,31 +181,58 @@ export default function AuthScreen() {
     }
   };
 
-    const submitGoogle = async () => {
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    let token = '';
+    try {
+      token = window.sessionStorage.getItem(WEB_ID_TOKEN_STORAGE_KEY) || '';
+      if (token) window.sessionStorage.removeItem(WEB_ID_TOKEN_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!token) return;
+    setLoading(true);
+    void signInWithGoogle(token)
+      .then(async () => {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await goHome();
+      })
+      .catch((cause) => {
+        setError(cause instanceof Error ? cause.message : copy.genericError);
+      })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on return from Google HTTPS callback
+  }, []);
+
+  const submitGoogle = async () => {
     if (!GOOGLE_WEB_CLIENT_ID) {
       setError(
         'Google Sign-In no está configurado (falta EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID).',
       );
       return;
     }
-    if (!googleRequest) {
-      setError('Google todavía se está preparando. Inténtalo en un segundo.');
-      return;
-    }
     setLoading(true);
     setError('');
     try {
-      const result = await promptGoogle();
-      if (result.type === 'dismiss' || result.type === 'cancel') {
+      const nonce = await createOauthNonce();
+      const startUrl = googleStartUrl({ nonce });
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.location.assign(startUrl);
         return;
       }
-      if (result.type !== 'success') {
+
+      const result = await WebBrowser.openAuthSessionAsync(
+        startUrl,
+        NATIVE_OAUTH_RETURN,
+      );
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        return;
+      }
+      if (result.type !== 'success' || !('url' in result) || !result.url) {
         throw new Error('No se completó el inicio con Google.');
       }
-      const idToken =
-        result.params.id_token ??
-        (result as { authentication?: { idToken?: string } }).authentication
-          ?.idToken;
+      const idToken = parseIdTokenFromUrl(result.url);
       if (!idToken) {
         throw new Error('Google no devolvió un ID token.');
       }
@@ -252,7 +243,7 @@ export default function AuthScreen() {
       const message =
         cause instanceof ApiError
           ? cause.message === 'Invalid Google ID token'
-            ? 'Google rechazó el inicio de sesión. En iOS el Client ID / redirect debe coincidir con Google Cloud (incluye tecnowallet://oauthredirect o el reversed client id).'
+            ? 'Google rechazó el token. Revisa GOOGLE_CLIENT_ID_WEB en Render y que https://tecnowallet.app/oauth-google-callback/ esté en redirect URIs.'
             : cause.message === 'Google Sign-In is not configured'
               ? 'El servidor no tiene GOOGLE_CLIENT_ID_WEB. Configúralo en Render y redespliega.'
               : cause.message
@@ -444,7 +435,7 @@ export default function AuthScreen() {
 
               <Pressable
                 accessibilityRole="button"
-                disabled={loading || !googleRequest}
+                disabled={loading}
                 style={[styles.socialButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
                 onPress={() => void submitGoogle()}>
                 <GoogleMark />

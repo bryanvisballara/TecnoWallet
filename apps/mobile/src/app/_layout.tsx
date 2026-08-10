@@ -197,6 +197,8 @@ export default function RootLayout() {
               <Stack.Screen name="onboarding" />
               <Stack.Screen name="auth" />
               <Stack.Screen name="restablecer" />
+              <Stack.Screen name="oauth-google" />
+              <Stack.Screen name="oauth-google-callback" />
               <Stack.Screen name="(tabs)" />
               <Stack.Screen
                 name="add-transaction"

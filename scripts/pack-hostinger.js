@@ -43,6 +43,8 @@ function ensureDirIndex(routeBaseName) {
 ensureDirIndex('colaborar');
 ensureDirIndex('restablecer');
 ensureDirIndex('auth');
+ensureDirIndex('oauth-google');
+ensureDirIndex('oauth-google-callback');
 
 // Backward-compat stubs for emails already sent with invite.html?token=…
 const redirectStub = `<!DOCTYPE html>
