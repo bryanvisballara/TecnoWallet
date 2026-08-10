@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "yarn workspace api build",
-    "postinstall": "patch-package && yarn workspace api build",
+    "postinstall": "node ./node_modules/patch-package/index.js && yarn workspace api build",
     "start": "yarn workspace api start:prod",
     "dev:api": "yarn workspace api start:dev",
     "dev:mobile": "yarn workspace tecnowallet-mobile start",
@@ -24,7 +24,7 @@
     "test:e2e": "yarn workspace api test:e2e --runInBand",
     "typecheck": "yarn workspace api build && yarn workspace tecnowallet-mobile typecheck"
   },
-  "devDependencies": {
+  "dependencies": {
     "patch-package": "^8.0.1"
   }
 }
