@@ -55,28 +55,21 @@ export class EntitlementService {
   }
 
   async statusFor(userId: string): Promise<EntitlementStatus> {
-    if (!this.enforcementEnabled()) {
-      return {
-        access: 'business',
-        isPlus: true,
-        isBusiness: true,
-        seatLimit: 10,
-        enforcementEnabled: false,
-        status: 'bypassed',
-      };
-    }
-
+    const enforcementEnabled = this.enforcementEnabled();
     const subscription = await this.subscriptions
       .findOne({ userId })
       .lean()
       .exec();
+
+    // Always report the real plan to the client. New users have no subscription → Free.
+    // PLUS_ENFORCEMENT_ENABLED only controls whether assertPlus/assertBusiness block.
     if (!subscription || !this.hasCurrentEntitlement(subscription)) {
       return {
         access: 'free',
         isPlus: false,
         isBusiness: false,
         seatLimit: 0,
-        enforcementEnabled: true,
+        enforcementEnabled,
         status: subscription?.status ?? 'none',
         entitlementId: subscription?.entitlementId,
         productId: subscription?.productId,
@@ -91,7 +84,7 @@ export class EntitlementService {
       isPlus: access === 'plus' || access === 'business',
       isBusiness: access === 'business',
       seatLimit: access === 'business' ? 10 : access === 'plus' ? 5 : 0,
-      enforcementEnabled: true,
+      enforcementEnabled,
       status: subscription.status,
       entitlementId: subscription.entitlementId,
       productId: subscription.productId,
@@ -104,6 +97,7 @@ export class EntitlementService {
     userId: string,
     reason: PlusRequirementReason = {},
   ): Promise<void> {
+    if (!this.enforcementEnabled()) return;
     const status = await this.statusFor(userId);
     if (status.isPlus) return;
 
@@ -121,6 +115,7 @@ export class EntitlementService {
     userId: string,
     reason: PlusRequirementReason = {},
   ): Promise<void> {
+    if (!this.enforcementEnabled()) return;
     const status = await this.statusFor(userId);
     if (status.isBusiness) return;
 
@@ -171,7 +166,7 @@ export class EntitlementService {
   private enforcementEnabled(): boolean {
     const value = this.config.get<string | boolean>(
       'PLUS_ENFORCEMENT_ENABLED',
-      false,
+      true,
     );
     if (typeof value === 'boolean') return value;
     return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());

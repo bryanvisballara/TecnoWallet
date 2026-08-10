@@ -32,6 +32,8 @@ export type RecaudoContribution = {
   id: string;
   participantId: string;
   participantName: string;
+  /** Auth user id of who made the aporte/retiro (when known). */
+  userId?: string;
   amountMinor: number;
   note?: string;
   occurredAt: string;
@@ -253,6 +255,7 @@ function normalizeRecaudo(raw: unknown): Recaudo {
     : [];
   const contributions: RecaudoContribution[] = rawContributions.map((item) => {
     const contribution = item as Record<string, unknown>;
+    const userIdRaw = contribution.userId;
     return {
       id: objectId(contribution),
       participantId: objectId(contribution.participantId),
@@ -260,6 +263,12 @@ function normalizeRecaudo(raw: unknown): Recaudo {
         typeof contribution.participantName === "string"
           ? contribution.participantName
           : "Participante",
+      userId:
+        typeof userIdRaw === "string"
+          ? userIdRaw
+          : userIdRaw
+            ? String(userIdRaw)
+            : undefined,
       amountMinor: Number(contribution.amountMinor) || 0,
       note:
         typeof contribution.note === "string" ? contribution.note : undefined,
@@ -465,6 +474,10 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         }),
       );
       set({ recaudos, loading: false });
+      void import('@/services/collaboration-api').then(
+        ({ notifyNewTeamRecaudoActivity }) =>
+          notifyNewTeamRecaudoActivity().catch(() => undefined),
+      );
     } catch (error) {
       set({ loading: false, error: messageFrom(error) });
     }

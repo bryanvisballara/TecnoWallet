@@ -13,6 +13,7 @@ export type NotificationKind =
   | 'planning'
   | 'goal'
   | 'recaudo'
+  | 'invite'
   | 'system';
 
 export type AppNotification = {
@@ -90,7 +91,7 @@ function defaultTone(kind: NotificationKind): AppNotification['tone'] {
   if (kind === 'expense') return 'orange';
   if (kind === 'calendar') return 'purple';
   if (kind === 'system') return 'red';
-  if (kind === 'envelope' || kind === 'goal') return 'blue';
+  if (kind === 'envelope' || kind === 'goal' || kind === 'invite') return 'blue';
   return 'blue';
 }
 
@@ -110,17 +111,38 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   hydrated: false,
 
   hydrate: async () => {
-    const [readIds, dismissedIds, activities] = await Promise.all([
+    const [readIds, dismissedIds, rawActivities] = await Promise.all([
       localStorage.get<string[]>(READ_KEY, []),
       localStorage.get<string[]>(DISMISS_KEY, []),
       localStorage.get<AppNotification[]>(ACTIVITY_KEY, []),
     ]);
+    const activities = (Array.isArray(rawActivities) ? rawActivities : []).map(
+      (item) => {
+        if (
+          item.title === 'Solicitud de acceso' &&
+          item.kind !== 'invite'
+        ) {
+          return {
+            ...item,
+            kind: 'invite' as const,
+            tone: 'blue' as const,
+            route:
+              item.route ||
+              '/(tabs)/ledgers?tab=share',
+          };
+        }
+        return item;
+      },
+    );
     set({
       readIds,
       dismissedIds,
-      activities: Array.isArray(activities) ? activities : [],
+      activities,
       hydrated: true,
     });
+    if (activities.length) {
+      await localStorage.set(ACTIVITY_KEY, activities);
+    }
     await get().syncBadge();
   },
 
@@ -141,11 +163,11 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
     const activities = [item, ...get().activities].slice(0, MAX_ACTIVITIES);
     set({ activities });
     await localStorage.set(ACTIVITY_KEY, activities);
-    await get().syncBadge();
 
     if (input.push !== false) {
-      void import('@/services/push-notifications').then(({ notifyActivity }) =>
-        notifyActivity({
+      try {
+        const { notifyActivity } = await import('@/services/push-notifications');
+        await notifyActivity({
           kind: input.kind,
           title: input.title,
           body: input.body,
@@ -154,9 +176,14 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
             notificationId: item.id,
             ...(input.route ? { route: input.route } : {}),
           },
-        }),
-      );
+        });
+      } catch {
+        // Push must never block activity persistence.
+      }
     }
+
+    // After permissions/push so the home-screen icon badge can update.
+    await get().syncBadge();
     return item;
   },
 
@@ -201,13 +228,16 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
     try {
       const { useLedgerStore } = await import('@/store/ledger');
       const { useAuthStore } = await import('@/store/auth');
+      const { localStorage } = await import('@/services/persistence');
       const { ledgers, snapshots } = useLedgerStore.getState();
       const selfName = useAuthStore.getState().profile?.name ?? '';
+      const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
       const feed = buildNotificationFeed({
         activities,
         ledgers,
         snapshots,
         selfName,
+        selfUserId,
       });
       count = unreadCount(feed, readIds, dismissedIds);
     } catch {
@@ -232,25 +262,30 @@ export function buildNotificationFeed(input: {
   ledgers: LedgerMeta[];
   snapshots: Record<string, { transactions: Transaction[] }>;
   selfName: string;
+  selfUserId?: string;
 }): AppNotification[] {
   const feed: AppNotification[] = [...input.activities];
   const self = input.selfName.trim().toLowerCase();
+  const selfId = input.selfUserId?.trim() || '';
 
   input.ledgers
     .filter((ledger) => ledger.type === 'shared')
     .forEach((ledger) => {
       const txs = input.snapshots[ledger.id]?.transactions ?? [];
       txs.forEach((tx) => {
+        const authorId = tx.createdByUserId?.trim();
+        if (selfId && authorId && authorId === selfId) return;
         const author = tx.createdBy?.trim();
-        if (!author) return;
-        if (self && author.toLowerCase() === self) return;
+        if (!author && !authorId) return;
+        if (!authorId && self && author && author.toLowerCase() === self) return;
 
         const isIncome = tx.amount > 0;
+        const who = author || 'Un colaborador';
         feed.push({
           id: `tx-${ledger.id}-${tx.id}`,
           kind: isIncome ? 'income' : 'expense',
           title: isIncome ? 'Ingreso del equipo' : 'Gasto del equipo',
-          body: `${author} registró ${tx.title} · ${money(Math.abs(tx.amount))} · ${ledger.name}`,
+          body: `${who} registró ${tx.title} · ${money(Math.abs(tx.amount))} · ${ledger.name}`,
           icon: isIncome ? 'arrow.down.circle.fill' : 'arrow.up.circle.fill',
           tone: isIncome ? 'green' : 'orange',
           when: tx.date,

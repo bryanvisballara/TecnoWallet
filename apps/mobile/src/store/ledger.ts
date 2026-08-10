@@ -156,7 +156,10 @@ async function fetchLedgersFromApi(): Promise<{
     const meta = mapWorkspaceToLedger(workspace, members);
     meta.baseCurrency = (workspace.baseCurrency || 'COP').toUpperCase();
     ledgers.push(meta);
-    const loaded = await loadWorkspaceSnapshot(id, meta.baseCurrency);
+    const loaded = await loadWorkspaceSnapshot(id, meta.baseCurrency, {
+      members,
+      selfUserId: selfId,
+    });
     snapshots[id] = loaded.snapshot;
     clearingIds[id] = loaded.clearingId;
   }
@@ -225,6 +228,10 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       set({ ...next, activeLedgerId, pendingIds: [], hydrated: true });
       void import('@/store/notifications').then(({ useNotificationsStore }) =>
         useNotificationsStore.getState().syncBadge(),
+      );
+      void import('@/services/collaboration-api').then(
+        ({ notifyNewTeamTransactions }) =>
+          notifyNewTeamTransactions().catch(() => undefined),
       );
     } catch (error) {
       const status =

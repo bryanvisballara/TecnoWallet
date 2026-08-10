@@ -46,13 +46,20 @@ describe('EntitlementService', () => {
     });
   }
 
-  it('bypasses checks as Business when enforcement is disabled', async () => {
+  it('reports Free when enforcement is off and the user has no subscription', async () => {
     enforcementEnabled = 'false';
+    returnSubscription(null);
 
-    await expect(service.isPlus('user-1')).resolves.toBe(true);
-    await expect(service.isBusiness('user-1')).resolves.toBe(true);
-    await expect(service.collaboratorSeatLimit('user-1')).resolves.toBe(10);
-    expect(findOne).not.toHaveBeenCalled();
+    await expect(service.isPlus('user-1')).resolves.toBe(false);
+    await expect(service.isBusiness('user-1')).resolves.toBe(false);
+    await expect(service.collaboratorSeatLimit('user-1')).resolves.toBe(0);
+    await expect(service.statusFor('user-1')).resolves.toMatchObject({
+      access: 'free',
+      enforcementEnabled: false,
+      status: 'none',
+    });
+    await expect(service.assertPlus('user-1')).resolves.toBeUndefined();
+    await expect(service.assertBusiness('user-1')).resolves.toBeUndefined();
   });
 
   it('keeps a cancelled Plus subscription entitled until expiration', async () => {

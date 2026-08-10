@@ -211,6 +211,13 @@ export type AppCopy = {
     kindCalendar: string;
     kindIncome: string;
     kindExpense: string;
+    kindInvite: string;
+    kindRecaudo: string;
+    kindGoal: string;
+    kindAccount: string;
+    kindEnvelope: string;
+    kindPlanning: string;
+    kindSystem: string;
   };
   profile: {
     title: string;
@@ -669,6 +676,13 @@ const es: AppCopy = {
     kindCalendar: 'Calendario',
     kindIncome: 'Ingreso',
     kindExpense: 'Gasto',
+    kindInvite: 'Acceso',
+    kindRecaudo: 'Recaudo',
+    kindGoal: 'Meta',
+    kindAccount: 'Cuenta',
+    kindEnvelope: 'Sobre',
+    kindPlanning: 'Plan',
+    kindSystem: 'Aviso',
   },
   profile: {
     title: 'Tu perfil',
@@ -1216,6 +1230,13 @@ const en: AppCopy = {
     kindCalendar: 'Calendar',
     kindIncome: 'Income',
     kindExpense: 'Expense',
+    kindInvite: 'Access',
+    kindRecaudo: 'Pool',
+    kindGoal: 'Goal',
+    kindAccount: 'Account',
+    kindEnvelope: 'Envelope',
+    kindPlanning: 'Plan',
+    kindSystem: 'Notice',
   },
   profile: {
     title: 'Your profile',

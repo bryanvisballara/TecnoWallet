@@ -15,6 +15,7 @@ import {
 } from '@/i18n/app-copy';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
 import { isLiquidAccount, sumBalances } from '@/lib/accounts';
+import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
@@ -29,12 +30,17 @@ export default function DashboardScreen() {
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
   const profile = useAuthStore((state) => state.profile);
+  const [authUserId, setAuthUserId] = useState('');
   const { summary, transactions, upcoming, ledger, envelopes, accounts } = useActiveLedger();
   const ledgers = useLedgerStore((state) => state.ledgers);
   const snapshots = useLedgerStore((state) => state.snapshots);
   const readIds = useNotificationsStore((state) => state.readIds);
   const dismissedIds = useNotificationsStore((state) => state.dismissedIds);
   const activities = useNotificationsStore((state) => state.activities);
+
+  useEffect(() => {
+    void localStorage.get('auth-user-id', '').then((id) => setAuthUserId(id || ''));
+  }, [profile?.name]);
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
   const monthLabel = usePeriodStore((state) => state.label);
@@ -75,9 +81,10 @@ export default function DashboardScreen() {
       ledgers,
       snapshots,
       selfName: profile.name,
+      selfUserId: authUserId,
     });
     return unreadCount(feed, readIds, dismissedIds);
-  }, [activities, ledgers, snapshots, profile?.name, readIds, dismissedIds]);
+  }, [activities, ledgers, snapshots, profile?.name, authUserId, readIds, dismissedIds]);
 
   const budget = useMemo(() => {
     const expenseEnvelopes = envelopes.filter((item) => item.kind === 'expense');

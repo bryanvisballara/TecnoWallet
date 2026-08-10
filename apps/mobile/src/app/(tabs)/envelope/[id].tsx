@@ -259,7 +259,14 @@ export default function EnvelopeDetailScreen() {
           </View>
         ))}
       </Card>
-      <PrimaryButton icon="plus" onPress={() => router.push('/add-transaction')}>
+      <PrimaryButton
+        icon="plus"
+        onPress={() =>
+          router.push({
+            pathname: '/add-transaction',
+            params: { type: isIncome ? 'income' : 'expense' },
+          })
+        }>
         {isIncome ? 'Registrar ingreso' : isSavings ? 'Registrar aporte' : 'Registrar gasto'}
       </PrimaryButton>
 

@@ -15,6 +15,8 @@ export type Transaction = {
   occurredAt?: string;
   /** Member who registered the movement (shared ledgers). */
   createdBy?: string;
+  /** Auth user id of who registered the movement (from API ownerId). */
+  createdByUserId?: string;
 };
 
 export type Account = {

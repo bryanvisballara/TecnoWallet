@@ -30,6 +30,10 @@ export type CalendarItem = {
   attachments?: CalendarAttachment[];
   /** Libro/calendario al que pertenece (p. ej. personal o el de un jefe). */
   calendarId?: string;
+  /** Auth user id of who created the item (shared calendars). */
+  createdByUserId?: string;
+  /** Display name of who created the item. */
+  createdBy?: string;
 };
 
 export const calendarColors = {

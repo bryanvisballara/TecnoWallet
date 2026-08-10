@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -7,6 +7,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
+import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useLedgerStore } from '@/store/ledger';
 import {
@@ -15,12 +16,72 @@ import {
   useNotificationsStore,
   visibleNotifications,
   type AppNotification,
+  type NotificationKind,
 } from '@/store/notifications';
+
+function notificationKindLabel(
+  kind: NotificationKind,
+  copy: ReturnType<typeof useAppCopy>['notifications'],
+) {
+  switch (kind) {
+    case 'calendar':
+      return copy.kindCalendar;
+    case 'income':
+      return copy.kindIncome;
+    case 'expense':
+      return copy.kindExpense;
+    case 'invite':
+      return copy.kindInvite;
+    case 'recaudo':
+      return copy.kindRecaudo;
+    case 'goal':
+      return copy.kindGoal;
+    case 'account':
+      return copy.kindAccount;
+    case 'envelope':
+      return copy.kindEnvelope;
+    case 'planning':
+      return copy.kindPlanning;
+    case 'system':
+      return copy.kindSystem;
+    default:
+      return copy.kindSystem;
+  }
+}
+
+function defaultRouteForKind(kind: NotificationKind): Href {
+  switch (kind) {
+    case 'calendar':
+      return '/(tabs)/calendario';
+    case 'invite':
+      return '/(tabs)/ledgers?tab=share';
+    case 'recaudo':
+      return '/(tabs)/recaudos';
+    case 'goal':
+      return '/(tabs)/metas';
+    case 'account':
+      return '/(tabs)/cuentas';
+    case 'envelope':
+      return '/(tabs)/sobres';
+    case 'income':
+    case 'expense':
+      return '/(tabs)/movimientos';
+    default:
+      return '/(tabs)/inicio';
+  }
+}
+
+function openNotification(item: AppNotification) {
+  const target = (item.route?.trim() || defaultRouteForKind(item.kind)) as Href;
+  // Replace so tab destinations don't stack and leave the user without a way back.
+  router.replace(target);
+}
 
 export default function NotificationsScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
   const profile = useAuthStore((state) => state.profile);
+  const [authUserId, setAuthUserId] = useState('');
   const ledgers = useLedgerStore((state) => state.ledgers);
   const snapshots = useLedgerStore((state) => state.snapshots);
   const activities = useNotificationsStore((state) => state.activities);
@@ -33,6 +94,10 @@ export default function NotificationsScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const swipeRefs = useRef<Record<string, Swipeable | null>>({});
 
+  useEffect(() => {
+    void localStorage.get('auth-user-id', '').then((id) => setAuthUserId(id || ''));
+  }, [profile.name]);
+
   const feed = useMemo(
     () =>
       visibleNotifications(
@@ -41,10 +106,11 @@ export default function NotificationsScreen() {
           ledgers,
           snapshots,
           selfName: profile.name,
+          selfUserId: authUserId,
         }),
         dismissedIds,
       ),
-    [activities, ledgers, snapshots, profile.name, dismissedIds],
+    [activities, ledgers, snapshots, profile.name, authUserId, dismissedIds],
   );
 
   const allSelected = feed.length > 0 && selected.length === feed.length;
@@ -165,8 +231,7 @@ export default function NotificationsScreen() {
                 onToggle={() => toggleOne(item.id)}
                 onOpen={() => {
                   void markRead(item.id);
-                  if (item.kind === 'calendar') router.push('/(tabs)/calendario');
-                  else router.push('/(tabs)/movimientos');
+                  openNotification(item);
                 }}
                 onDelete={() => void deleteOne(item.id)}
                 swipeRef={(ref) => {
@@ -203,12 +268,13 @@ function NotificationRow({
   const theme = useAppTheme();
   const copy = useAppCopy();
   const colors = notificationToneColors(item.tone, theme);
-  const kindLabel =
-    item.kind === 'calendar'
-      ? copy.notifications.kindCalendar
-      : item.kind === 'income'
-        ? copy.notifications.kindIncome
-        : copy.notifications.kindExpense;
+  const kindLabel = notificationKindLabel(item.kind, copy.notifications);
+  const pillTone =
+    item.kind === 'income' || item.kind === 'recaudo'
+      ? 'green'
+      : item.kind === 'expense'
+        ? 'orange'
+        : 'blue';
 
   return (
     <Swipeable
@@ -256,7 +322,7 @@ function NotificationRow({
             </View>
             <Text style={[styles.body, { color: theme.muted }]}>{item.body}</Text>
             <View style={styles.meta}>
-              <Pill tone={item.kind === 'income' ? 'green' : item.kind === 'expense' ? 'orange' : 'blue'}>
+              <Pill tone={pillTone}>
                 {kindLabel}
               </Pill>
               <Text style={[styles.when, { color: theme.muted }]}>{item.when}</Text>

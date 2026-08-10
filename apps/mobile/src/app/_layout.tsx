@@ -144,7 +144,9 @@ export default function RootLayout() {
         if (userId) void setBranchIdentity(userId).catch(() => undefined);
       });
       void claimPendingAffiliate().catch(() => undefined);
-      void configureActivityNotifications();
+      void configureActivityNotifications().then(() =>
+        useNotificationsStore.getState().syncBadge(),
+      );
       void refreshRecaudos();
     }
   }, [hydrated, authenticated, refreshRecaudos]);
@@ -163,7 +165,22 @@ export default function RootLayout() {
             .catch(() => undefined),
       );
     };
+    const pollSharedCollaborators = () => {
+      if (!authenticated) return;
+      void Promise.all([
+        hydrateLedger(),
+        hydrateCalendar(),
+        refreshRecaudos(),
+      ])
+        .then(() =>
+          import('@/services/collaboration-api').then(
+            ({ notifyAllSharedCollaborators }) => notifyAllSharedCollaborators(),
+          ),
+        )
+        .catch(() => undefined);
+    };
     pollAccessRequests();
+    pollSharedCollaborators();
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void ensureAuthSession().then(() =>
@@ -172,10 +189,15 @@ export default function RootLayout() {
           }),
         );
         pollAccessRequests();
+        pollSharedCollaborators();
+      }
+      if (state === 'background' || state === 'inactive') {
+        // Refresh home-screen badge before the user leaves the app.
+        void useNotificationsStore.getState().syncBadge();
       }
     });
     return () => subscription.remove();
-  }, [hydrated, authenticated, refreshRecaudos]);
+  }, [hydrated, authenticated, refreshRecaudos, hydrateLedger, hydrateCalendar]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

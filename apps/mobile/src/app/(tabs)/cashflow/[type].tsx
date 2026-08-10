@@ -134,7 +134,14 @@ export default function CashflowDetailScreen() {
         )}
       </Card>
 
-      <PrimaryButton icon="plus" onPress={() => router.push('/add-transaction')}>
+      <PrimaryButton
+        icon="plus"
+        onPress={() =>
+          router.push({
+            pathname: '/add-transaction',
+            params: { type: isIncome ? 'income' : 'expense' },
+          })
+        }>
         {meta.add}
       </PrimaryButton>
 

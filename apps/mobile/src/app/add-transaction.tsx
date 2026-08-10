@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
@@ -28,9 +28,23 @@ function defaultTransactionDateKey(
   return toDateKey(new Date(year, month, day));
 }
 
+function initialTransactionType(raw: string | string[] | undefined): 'expense' | 'income' {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const normalized = (value || '').trim().toLowerCase();
+  if (
+    normalized === 'income' ||
+    normalized === 'ingreso' ||
+    normalized === 'ingresos'
+  ) {
+    return 'income';
+  }
+  return 'expense';
+}
+
 export default function AddTransactionScreen() {
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
+  const params = useLocalSearchParams<{ type?: string }>();
   const locale = useLanguageStore((state) => state.locale);
   const profile = useAuthStore((state) => state.profile);
   const { accounts, envelopes, ledger } = useActiveLedger();
@@ -42,7 +56,9 @@ export default function AddTransactionScreen() {
     () => accounts.filter((item) => isLiquidAccount(item.kind)),
     [accounts],
   );
-  const [type, setType] = useState<'expense' | 'income'>('expense');
+  const [type, setType] = useState<'expense' | 'income'>(() =>
+    initialTransactionType(params.type),
+  );
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
   const [envelopeId, setEnvelopeId] = useState('');

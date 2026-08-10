@@ -102,8 +102,9 @@ export function mapApiMember(member: ApiMember, selfUserId?: string | null): Led
   const role = (['owner', 'admin', 'member', 'viewer'].includes(member.role)
     ? member.role
     : 'member') as LedgerMember['role'];
+  const userId = String(member.userId ?? '');
   return {
-    id: selfUserId && member.userId === selfUserId ? 'me' : member.userId,
+    id: selfUserId && userId === String(selfUserId) ? 'me' : userId,
     name: member.name?.trim() || member.email?.split('@')[0] || 'Miembro',
     email: (member.email || '').toLowerCase(),
     role,
@@ -194,6 +195,7 @@ export function mapTransaction(
   tx: ApiTransaction,
   accountsById: Map<string, Account>,
   envelopesById?: Map<string, Envelope>,
+  authorByUserId?: Map<string, string>,
 ): Transaction {
   const userFacing = tx.entries.find((entry) => {
     const account = accountsById.get(String(entry.accountId));
@@ -217,6 +219,10 @@ export function mapTransaction(
         hour: '2-digit',
         minute: '2-digit',
       });
+  const createdByUserId = tx.ownerId ? String(tx.ownerId) : undefined;
+  const createdBy = createdByUserId
+    ? authorByUserId?.get(createdByUserId)?.trim() || undefined
+    : undefined;
   return {
     id: objectId(tx),
     title: tx.description,
@@ -228,6 +234,8 @@ export function mapTransaction(
     icon: amountMinor >= 0 ? 'arrow.down.circle.fill' : 'banknote.fill',
     envelopeId,
     occurredAt: Number.isNaN(occurred.getTime()) ? undefined : occurred.toISOString(),
+    createdBy,
+    createdByUserId,
   };
 }
 
@@ -492,9 +500,31 @@ export async function ensureWorkspaceDefaults(workspaceId: string, currency: str
   return { clearingId: objectId(clearing) };
 }
 
+/** Resolve display names for transaction authors (API ownerId → name). */
+export function authorNameByUserId(
+  members: LedgerMember[],
+  selfUserId?: string | null,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const member of members) {
+    const name = member.name?.trim();
+    if (!name) continue;
+    if (member.id === 'me') {
+      if (selfUserId) map.set(String(selfUserId), name);
+      continue;
+    }
+    map.set(String(member.id), name);
+  }
+  return map;
+}
+
 export async function loadWorkspaceSnapshot(
   workspaceId: string,
   currency: string,
+  options?: {
+    members?: LedgerMember[];
+    selfUserId?: string | null;
+  },
 ): Promise<{ snapshot: LedgerSnapshot; clearingId: string }> {
   const { clearingId } = await ensureWorkspaceDefaults(workspaceId, currency);
   const [accountResources, envelopeResources, billResources, subscriptionResources, transactions] =
@@ -516,9 +546,13 @@ export async function loadWorkspaceSnapshot(
     ...billResources.map((item) => mapPlanningResource(item, 'bill')),
     ...subscriptionResources.map((item) => mapPlanningResource(item, 'subscription')),
   ];
+  const authors = authorNameByUserId(
+    options?.members ?? [],
+    options?.selfUserId,
+  );
   const mappedTx = transactions
     .filter((tx) => !tx.entries.every((entry) => String(entry.accountId) === clearingId))
-    .map((tx) => mapTransaction(tx, accountsById, envelopesById));
+    .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors));
 
   // Derive envelope spent from ledger entries so UI stays correct even if
   // spentMinor on the resource was never incremented.

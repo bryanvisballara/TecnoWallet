@@ -255,7 +255,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           return calendarBook(
             calendar,
             members.map((member) => ({
-              id: member.userId,
+              id: String(member.userId),
               name: member.name ?? member.email?.split('@')[0] ?? 'Miembro',
               email: member.email ?? '',
               role: member.role,
@@ -263,6 +263,20 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           );
         }),
       );
+      const nameByUserId = new Map<string, string>();
+      for (const calendar of calendars) {
+        for (const member of calendar.members) {
+          if (member.id && member.name) nameByUserId.set(String(member.id), member.name);
+        }
+      }
+      items = items.map((item) => {
+        const authorId = item.createdByUserId?.trim();
+        if (!authorId) return item;
+        return {
+          ...item,
+          createdBy: nameByUserId.get(authorId) ?? item.createdBy,
+        };
+      });
       const savedActive = await localStorage.get(
         `calendar-active-${ws}`,
         '',
@@ -278,6 +292,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           ? (migratedActive as string)
           : calendars[0]?.id ?? '';
       set({ calendars, activeCalendarId, items, hydrated: true });
+      void import('@/services/collaboration-api').then(
+        ({ notifyNewTeamCalendarItems }) =>
+          notifyNewTeamCalendarItems().catch(() => undefined),
+      );
     } catch {
       set({ hydrated: true });
     }

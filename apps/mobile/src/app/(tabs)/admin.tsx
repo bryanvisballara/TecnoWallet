@@ -179,7 +179,8 @@ export default function AdminPortalScreen() {
         <Card style={styles.block}>
           <Text style={[styles.section, { color: theme.text }]}>Usuarios</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
-            Conteos por plan real (sin bypass de enforcement).
+            Conteos por suscripción real en Mongo. Sin compra = Free. Solo el
+            owner (`mercancias.visbal@gmail.com`) arranca como Business.
           </Text>
           {statsLoading || !stats ? (
             <ActivityIndicator color={theme.primary} />

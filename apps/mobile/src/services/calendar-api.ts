@@ -23,8 +23,19 @@ export type ApiCalendarMember = {
 type ApiCalendarItem = {
   _id: string;
   calendarId: string;
-  data: Omit<CalendarItem, 'id' | 'calendarId'>;
+  ownerId?: string;
+  data: Omit<CalendarItem, 'id' | 'calendarId' | 'createdBy' | 'createdByUserId'>;
 };
+
+function mapApiCalendarItem(record: ApiCalendarItem): CalendarItem {
+  const createdByUserId = record.ownerId ? String(record.ownerId) : undefined;
+  return {
+    ...record.data,
+    id: record._id,
+    calendarId: String(record.calendarId),
+    createdByUserId,
+  };
+}
 
 export async function listCalendars(workspaceId: string) {
   try {
@@ -99,38 +110,38 @@ export async function listCalendarItems(calendarId: string) {
   const records = await apiRequest<ApiCalendarItem[]>(
     `/calendars/${calendarId}/items`,
   );
-  return records.map((record) => ({
-    ...record.data,
-    id: record._id,
-    calendarId: record.calendarId,
-  })) as CalendarItem[];
+  return records.map(mapApiCalendarItem);
 }
 
 export async function createCalendarItem(item: CalendarItem) {
   if (!item.calendarId) throw new Error('El evento necesita un calendario.');
-  const { id, calendarId, ...data } = item;
+  const {
+    id,
+    calendarId,
+    createdBy: _createdBy,
+    createdByUserId: _createdByUserId,
+    ...data
+  } = item;
   const record = await apiRequest<ApiCalendarItem>(
     `/calendars/${calendarId}/items`,
     { method: 'POST', body: JSON.stringify({ id, data }) },
   );
-  return {
-    ...record.data,
-    id: record._id,
-    calendarId: record.calendarId,
-  } as CalendarItem;
+  return mapApiCalendarItem(record);
 }
 
 export async function updateCalendarItem(item: CalendarItem) {
-  const { id, calendarId: _calendarId, ...data } = item;
+  const {
+    id,
+    calendarId: _calendarId,
+    createdBy: _createdBy,
+    createdByUserId: _createdByUserId,
+    ...data
+  } = item;
   const record = await apiRequest<ApiCalendarItem>(
     `/calendars/items/${encodeURIComponent(id)}`,
     { method: 'PATCH', body: JSON.stringify({ data }) },
   );
-  return {
-    ...record.data,
-    id: record._id,
-    calendarId: record.calendarId,
-  } as CalendarItem;
+  return mapApiCalendarItem(record);
 }
 
 export function deleteCalendarItem(id: string) {

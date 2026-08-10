@@ -49,7 +49,7 @@ const schema = Joi.object({
   PLUS_ENFORCEMENT_ENABLED: Joi.boolean()
     .truthy('true')
     .falsy('false')
-    .default(false),
+    .default(true),
   RUN_FREEMIUM_MIGRATIONS: Joi.boolean()
     .truthy('true')
     .falsy('false')

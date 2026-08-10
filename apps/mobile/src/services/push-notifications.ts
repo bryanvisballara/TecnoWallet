@@ -12,6 +12,7 @@ type ActivityKind =
   | "envelope"
   | "planning"
   | "goal"
+  | "invite"
   | "system";
 type RecaudoFrequency = "daily" | "weekly" | "biweekly" | "monthly";
 
@@ -52,7 +53,8 @@ function resolveSoundFile(
     kind === "account" ||
     kind === "envelope" ||
     kind === "planning" ||
-    kind === "goal"
+    kind === "goal" ||
+    kind === "invite"
   ) {
     return SOUND_SOBRES;
   }
@@ -89,7 +91,22 @@ export async function syncAppBadge(count: number) {
   try {
     const Notifications = await notificationsModule();
     if (!Notifications) return;
-    await Notifications.setBadgeCountAsync(Math.max(0, Math.floor(count)));
+
+    // Badge requires notification permission (esp. iOS allowBadge).
+    const current = await Notifications.getPermissionsAsync();
+    if (current.status !== "granted") {
+      const result = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+        },
+      });
+      if (result.status !== "granted") return;
+    }
+
+    const next = Math.max(0, Math.floor(count));
+    await Notifications.setBadgeCountAsync(next);
   } catch {
     // Badge APIs can fail if permissions were denied.
   }
@@ -151,39 +168,39 @@ export async function configureActivityNotifications(): Promise<boolean> {
   }
 
   if (Platform.OS === "android") {
+    const channelBase = {
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 150, 250] as number[],
+      showBadge: true,
+    };
     await Notifications.setNotificationChannelAsync("activity", {
       name: "Actividad financiera",
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 150, 250],
+      ...channelBase,
       lightColor: "#0878F9",
       sound: "default",
     });
     // Android 8+ binds sound to the channel; custom sounds need their own channels.
     await Notifications.setNotificationChannelAsync("activity-income", {
       name: "Ingresos y aportes",
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 150, 250],
+      ...channelBase,
       lightColor: "#12B76A",
       sound: SOUND_INGRESO,
     });
     await Notifications.setNotificationChannelAsync("activity-expense", {
       name: "Gastos y retiros",
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 150, 250],
+      ...channelBase,
       lightColor: "#F04438",
       sound: SOUND_GASTO,
     });
     await Notifications.setNotificationChannelAsync("activity-calendar", {
       name: "Calendario y recordatorios",
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 150, 250],
+      ...channelBase,
       lightColor: "#7F56D9",
       sound: SOUND_CALENDARIO,
     });
     await Notifications.setNotificationChannelAsync("activity-create", {
       name: "Altas (sobres, cuentas, metas…)",
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 150, 250],
+      ...channelBase,
       lightColor: "#0878F9",
       sound: SOUND_SOBRES,
     });
@@ -193,7 +210,13 @@ export async function configureActivityNotifications(): Promise<boolean> {
   const result =
     current.status === "granted"
       ? current
-      : await Notifications.requestPermissionsAsync();
+      : await Notifications.requestPermissionsAsync({
+          ios: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+          },
+        });
 
   return result.status === "granted";
 }
@@ -215,11 +238,26 @@ async function sendActivityNotification(input: {
     const sound = resolveSoundFile(input.kind, input.sound);
     const channelId = channelIdForSound(sound);
 
+    // Absolute unread count so the home-screen icon badge updates with the push.
+    let badge = 0;
+    try {
+      const { useNotificationsStore } = await import("@/store/notifications");
+      await useNotificationsStore.getState().syncBadge();
+      badge = Math.max(0, await Notifications.getBadgeCountAsync());
+    } catch {
+      try {
+        badge = Math.max(0, (await Notifications.getBadgeCountAsync()) + 1);
+      } catch {
+        badge = 1;
+      }
+    }
+
     await Notifications.scheduleNotificationAsync({
       content: {
         title: input.title,
         body: input.body,
         sound,
+        badge,
         ...(channelId ? { channelId } : {}),
         data: { kind: input.kind, ...input.data },
       },

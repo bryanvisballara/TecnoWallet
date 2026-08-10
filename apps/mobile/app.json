@@ -23,6 +23,10 @@
     },
     "android": {
       "package": "com.tecnowallet.mobile",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#081430",
         "foregroundImage": "./assets/images/app-icon.png"

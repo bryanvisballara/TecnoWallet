@@ -8,6 +8,7 @@ import { money } from '@/data/demo';
 import { displayLedgerName, useAppCopy, type MovementFilterKey } from '@/i18n/app-copy';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
+import { safeGoBack } from '@/lib/navigation';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
@@ -62,6 +63,15 @@ export default function TransactionsScreen() {
       withTabBar
       title={copy.movements.title}
       subtitle={`${monthTransactions.length} en ${monthLabel} · ${ledgerLabel}`}
+      right={
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={copy.common.back}
+          onPress={() => safeGoBack('/(tabs)/inicio')}
+          style={[styles.headerBtn, { backgroundColor: theme.surfaceSecondary }]}>
+          <AppIcon name="arrow.left" color={theme.text} />
+        </Pressable>
+      }
       floating={
         <ScalePressable
           accessibilityRole="button"
@@ -179,6 +189,7 @@ function CalendarStrip({ label, hasActivity }: { label: string; hasActivity: boo
 }
 
 const styles = StyleSheet.create({
+  headerBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   searchRow: { flexDirection: 'row', gap: 10 }, search: { flex: 1, height: 48, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 9 },
   searchInput: { flex: 1, fontSize: 15 }, square: { width: 48, height: 48, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   filters: { flexDirection: 'row', gap: 8 }, filter: { borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999 },
