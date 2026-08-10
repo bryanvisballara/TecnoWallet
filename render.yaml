@@ -4,6 +4,8 @@ services:
     runtime: node
     plan: starter
     # Install + compile API. postinstall also builds as a safety net.
+    # Keep YARN_PRODUCTION=false so workspace tooling installs cleanly;
+    # patch-package lives in dependencies so plain `yarn` still works.
     buildCommand: YARN_PRODUCTION=false yarn install --frozen-lockfile
     startCommand: yarn start
     healthCheckPath: /api/v1/health
