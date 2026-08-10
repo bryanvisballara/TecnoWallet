@@ -75,7 +75,7 @@ const resourceKinds = [
 type ResourceKind = (typeof resourceKinds)[number];
 
 @Schema({ timestamps: true, optimisticConcurrency: true })
-class FinanceResource {
+export class FinanceResource {
   _id!: Types.ObjectId;
 
   @Prop({ required: true, index: true })
@@ -110,7 +110,8 @@ class FinanceResource {
   createdAt!: Date;
   updatedAt!: Date;
 }
-const FinanceResourceSchema = SchemaFactory.createForClass(FinanceResource);
+export const FinanceResourceSchema =
+  SchemaFactory.createForClass(FinanceResource);
 FinanceResourceSchema.index({
   workspaceId: 1,
   kind: 1,

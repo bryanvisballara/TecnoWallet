@@ -39,6 +39,9 @@ const schema = Joi.object({
   BELVO_SECRET_ID: Joi.string().optional().allow(''),
   BELVO_SECRET_PASSWORD: Joi.string().optional().allow(''),
   BELVO_API_URL: Joi.string().uri().default('https://sandbox.belvo.com'),
+  OPENAI_API_KEY: Joi.string().optional().allow(''),
+  OPENAI_MODEL_FAST: Joi.string().default('gpt-4o-mini'),
+  OPENAI_MODEL_COMPLEX: Joi.string().default('gpt-4o'),
 });
 
 export function validateEnvironment(config: Record<string, unknown>) {
