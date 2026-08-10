@@ -5,6 +5,7 @@ import {
   Headers,
   Ip,
   Param,
+  Patch,
   Post,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -17,6 +18,7 @@ import {
   ClaimAffiliateDto,
   EnrollAffiliateDto,
   RecordAffiliateClickDto,
+  UpdateAffiliatePayoutDto,
 } from './affiliate.dto';
 import { AffiliateService } from './affiliate.service';
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -72,6 +74,15 @@ export class AffiliateController {
   @Get('partner/dashboard')
   partnerDashboard(@CurrentUser() user: AuthPrincipal) {
     return this.affiliate.getPartnerDashboard(user.userId);
+  }
+
+  @ApiBearerAuth()
+  @Patch('partner/payout')
+  updatePayout(
+    @Body() body: UpdateAffiliatePayoutDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.affiliate.updatePartnerPayout(user.userId, body);
   }
 }
 

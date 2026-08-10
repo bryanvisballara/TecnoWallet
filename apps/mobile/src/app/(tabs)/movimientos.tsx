@@ -5,16 +5,20 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { displayLedgerName, useAppCopy, type MovementFilterKey } from '@/i18n/app-copy';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
 
-const filters = ['Todos', 'Gastos', 'Ingresos', 'Recurrentes'];
+const movementFilterKeys: MovementFilterKey[] = ['all', 'expenses', 'income', 'recurring'];
 
 export default function TransactionsScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { fabBottom } = useSafeLayout();
   const { ledger } = useActiveLedger();
   const transactions = useFinanceStore((state) => state.transactions);
@@ -23,13 +27,14 @@ export default function TransactionsScreen() {
   const month = usePeriodStore((state) => state.month);
   const monthLabel = usePeriodStore((state) => state.label);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('Todos');
+  const [filter, setFilter] = useState<MovementFilterKey>('all');
   const [calendar, setCalendar] = useState(false);
   const period = useMemo(() => ({ year, month }), [year, month]);
   const monthTransactions = useMemo(
     () => filterTransactionsByMonth(transactions, period),
     [transactions, period],
   );
+  const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   const totals = useMemo(() => {
     const fromTx = monthTotals(monthTransactions);
@@ -38,22 +43,25 @@ export default function TransactionsScreen() {
 
   const visible = useMemo(() => monthTransactions.filter((item) => {
     const textMatch = `${item.title} ${item.category} ${item.account}`.toLowerCase().includes(query.toLowerCase());
-    const filterMatch = filter === 'Todos' || (filter === 'Gastos' && item.amount < 0) || (filter === 'Ingresos' && item.amount > 0) || (filter === 'Recurrentes' && item.recurring);
-    return textMatch && filterMatch;
+    if (!textMatch) return false;
+    if (filter === 'expenses') return item.amount < 0;
+    if (filter === 'income') return item.amount > 0;
+    if (filter === 'recurring') return Boolean(item.recurring);
+    return true;
   }), [monthTransactions, query, filter]);
 
   const isEmptyBook = monthTransactions.length === 0;
   const noFilterResults = !isEmptyBook && visible.length === 0;
 
   if (!ledger) {
-    return <Screen withTabBar title="Movimientos" subtitle="Cargando…" />;
+    return <Screen withTabBar title={copy.movements.title} subtitle={copy.common.loading} />;
   }
 
   return (
     <Screen
       withTabBar
-      title="Movimientos"
-      subtitle={`${monthTransactions.length} en ${monthLabel} · ${ledger.name}`}
+      title={copy.movements.title}
+      subtitle={`${monthTransactions.length} en ${monthLabel} · ${ledgerLabel}`}
       floating={
         <ScalePressable
           accessibilityRole="button"
@@ -70,7 +78,7 @@ export default function TransactionsScreen() {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Buscar comercio, categoría…"
+            placeholder={copy.movements.searchPlaceholder}
             placeholderTextColor={theme.muted}
             style={[styles.searchInput, { color: theme.text }]}
             accessibilityLabel="Buscar movimientos"
@@ -81,23 +89,27 @@ export default function TransactionsScreen() {
         </ScalePressable>
       </View>
       <View style={styles.filters}>
-        {filters.map((item) => (
-          <Pressable
-            key={item}
-            accessibilityRole="button"
-            accessibilityState={{ selected: filter === item }}
-            onPress={() => setFilter(item)}
-            style={[styles.filter, { backgroundColor: filter === item ? theme.primary : theme.surface, borderColor: filter === item ? theme.primary : theme.border }]}>
-            <Text style={[styles.filterText, { color: filter === item ? '#FFFFFF' : theme.muted }]}>{item}</Text>
-          </Pressable>
-        ))}
+        {movementFilterKeys.map((key) => {
+          const selected = filter === key;
+          const label = copy.home.filters[key];
+          return (
+            <Pressable
+              key={key}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              onPress={() => setFilter(key)}
+              style={[styles.filter, { backgroundColor: selected ? theme.primary : theme.surface, borderColor: selected ? theme.primary : theme.border }]}>
+              <Text style={[styles.filterText, { color: selected ? '#FFFFFF' : theme.muted }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       {calendar && <CalendarStrip label={monthLabel} hasActivity={!isEmptyBook} />}
 
       <Card style={[styles.summary, { backgroundColor: theme.primarySoft }]}>
         <View>
-          <Text style={[styles.small, { color: theme.muted }]}>Balance · {monthLabel}</Text>
+          <Text style={[styles.small, { color: theme.muted }]}>{copy.movements.balanceMonth(monthLabel)}</Text>
           <Text style={[styles.summaryValue, { color: theme.text }]}>{money(totals.balance)}</Text>
         </View>
         <View style={styles.summarySides}>
@@ -107,9 +119,9 @@ export default function TransactionsScreen() {
       </Card>
 
       <View style={uiStyles.between}>
-        <Text style={[styles.section, { color: theme.text }]}>{query || filter !== 'Todos' ? 'Resultados' : monthLabel}</Text>
+        <Text style={[styles.section, { color: theme.text }]}>{query || filter !== 'all' ? copy.movements.results : monthLabel}</Text>
         <ScalePressable style={[styles.filterButton, { backgroundColor: theme.surfaceSecondary }]}>
-          <AppIcon name="line.3.horizontal.decrease" color={theme.primary} size={16} /><Text style={[styles.small, { color: theme.primary }]}>Filtrar</Text>
+          <AppIcon name="line.3.horizontal.decrease" color={theme.primary} size={16} /><Text style={[styles.small, { color: theme.primary }]}>{copy.movements.filter}</Text>
         </ScalePressable>
       </View>
 
@@ -121,7 +133,7 @@ export default function TransactionsScreen() {
                 <AppIcon name={item.icon} color={item.amount > 0 ? theme.success : theme.primary} />
               </View>
               <View style={styles.rowCopy}>
-                <View style={uiStyles.row}><Text numberOfLines={1} style={[styles.rowTitle, { color: theme.text }]}>{item.title}</Text>{pending.includes(item.id) && <Pill tone="orange">Pendiente</Pill>}</View>
+                <View style={uiStyles.row}><Text numberOfLines={1} style={[styles.rowTitle, { color: theme.text }]}>{item.title}</Text>{pending.includes(item.id) && <Pill tone="orange">{copy.movements.pending}</Pill>}</View>
                 <Text style={[styles.small, { color: theme.muted }]}>{item.category} · {item.account}</Text>
               </View>
               <View style={styles.amountCopy}><Text style={[styles.amount, { color: item.amount > 0 ? theme.success : theme.text }]}>{item.amount > 0 ? '+' : ''}{money(item.amount)}</Text><Text style={[styles.date, { color: theme.muted }]}>{item.date}</Text></View>
@@ -131,7 +143,7 @@ export default function TransactionsScreen() {
         {isEmptyBook ? (
           <View style={styles.empty}>
             <AppIcon name="doc.text.fill" color={theme.muted} size={32} />
-            <Text style={[styles.rowTitle, { color: theme.text }]}>Sin movimientos</Text>
+            <Text style={[styles.rowTitle, { color: theme.text }]}>{copy.movements.empty}</Text>
             <Text style={[styles.small, { color: theme.muted, textAlign: 'center' }]}>
               No hay operaciones en {monthLabel}. Cambia de mes o agrega una con +.
             </Text>
@@ -140,7 +152,7 @@ export default function TransactionsScreen() {
         {noFilterResults ? (
           <View style={styles.empty}>
             <AppIcon name="magnifyingglass" color={theme.muted} size={32} />
-            <Text style={[styles.rowTitle, { color: theme.text }]}>Sin resultados</Text>
+            <Text style={[styles.rowTitle, { color: theme.text }]}>{copy.movements.noResults}</Text>
             <Text style={[styles.small, { color: theme.muted }]}>Prueba otra búsqueda o filtro.</Text>
           </View>
         ) : null}

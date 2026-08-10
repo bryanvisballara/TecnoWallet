@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -10,14 +12,17 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import { User } from '../auth/auth.module';
 import { Subscription } from '../billing/billing.schemas';
+import { EntitlementService } from '../billing/entitlement.service';
 import {
   Affiliate,
   AffiliateClick,
   AffiliateInstall,
   CommissionEvent,
+  type AffiliateUsdtNetwork,
   type CommissionEventStatus,
   UserAttribution,
 } from './affiliate.schemas';
+import type { UpdateAffiliatePayoutDto } from './affiliate.dto';
 
 export interface RecordCommissionFromRevenueEventInput {
   providerEventId: string;
@@ -30,6 +35,7 @@ export interface RecordCommissionFromRevenueEventInput {
   currency: string;
   occurredAt: Date | string;
   status?: CommissionEventStatus;
+  subscriptionId?: string;
 }
 
 export type AffiliateTierId = 'partner' | 'creator' | 'ambassador';
@@ -66,6 +72,8 @@ export class AffiliateService {
     @InjectModel(Subscription.name)
     private readonly subscriptions: Model<Subscription>,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => EntitlementService))
+    private readonly entitlements: EntitlementService,
   ) {}
 
   async recordClick(code: string, metadata: ClickMetadata) {
@@ -208,6 +216,11 @@ export class AffiliateService {
 
   async enrollPartner(userId: string, requestedCode?: string) {
     this.assertUserId(userId);
+    await this.entitlements.assertBusiness(userId, {
+      feature: 'affiliate',
+      action: 'enroll',
+      upgradeTo: 'business',
+    });
     const existing = await this.affiliates
       .findOne({ ownerUserId: userId })
       .lean();
@@ -215,7 +228,7 @@ export class AffiliateService {
       return {
         enrolled: true as const,
         created: false as const,
-        affiliate: this.displayAffiliate(existing),
+        affiliate: this.displayAffiliate(existing, { includePayout: true }),
         shareUrl: this.shareUrlFor(existing.code),
       };
     }
@@ -241,7 +254,7 @@ export class AffiliateService {
       return {
         enrolled: true as const,
         created: true as const,
-        affiliate: this.displayAffiliate(created),
+        affiliate: this.displayAffiliate(created, { includePayout: true }),
         shareUrl: this.shareUrlFor(created.code),
       };
     } catch (error) {
@@ -256,6 +269,11 @@ export class AffiliateService {
 
   async getPartnerDashboard(userId: string) {
     this.assertUserId(userId);
+    await this.entitlements.assertBusiness(userId, {
+      feature: 'affiliate',
+      action: 'dashboard',
+      upgradeTo: 'business',
+    });
     const affiliate = await this.affiliates
       .findOne({ ownerUserId: userId, active: true })
       .lean();
@@ -360,7 +378,7 @@ export class AffiliateService {
 
     return {
       enrolled: true as const,
-      affiliate: this.displayAffiliate(affiliate),
+      affiliate: this.displayAffiliate(affiliate, { includePayout: true }),
       shareUrl: this.shareUrlFor(affiliate.code),
       tier,
       stats: {
@@ -376,6 +394,38 @@ export class AffiliateService {
         currency: commissionRows[0]?.currency ?? 'USD',
       },
       referred,
+    };
+  }
+
+  async updatePartnerPayout(userId: string, dto: UpdateAffiliatePayoutDto) {
+    this.assertUserId(userId);
+    await this.entitlements.assertBusiness(userId, {
+      feature: 'affiliate',
+      action: 'payout',
+      upgradeTo: 'business',
+    });
+    const affiliate = await this.affiliates
+      .findOne({ ownerUserId: userId, active: true })
+      .exec();
+    if (!affiliate) {
+      throw new NotFoundException('Aún no estás inscrito en el programa.');
+    }
+
+    const address = this.normalizeUsdtAddress(dto.network, dto.address);
+    this.assertUsdtAddress(dto.network, address);
+
+    affiliate.payoutMethod = {
+      type: dto.type,
+      asset: 'USDT',
+      network: dto.network,
+      address,
+      updatedAt: new Date(),
+    };
+    await affiliate.save();
+
+    return {
+      payoutMethod: this.displayPayoutMethod(affiliate),
+      affiliate: this.displayAffiliate(affiliate, { includePayout: true }),
     };
   }
 
@@ -427,6 +477,16 @@ export class AffiliateService {
     const commissionAmountMinor = Math.round(
       (input.netAmountMinor * tier.commissionPercent) / 100,
     );
+    let subscriptionId: Types.ObjectId | undefined;
+    if (input.subscriptionId && isValidObjectId(input.subscriptionId)) {
+      subscriptionId = new Types.ObjectId(input.subscriptionId);
+    } else {
+      const sub = await this.subscriptions
+        .findOne({ userId: input.userId })
+        .select('_id')
+        .lean();
+      if (sub?._id) subscriptionId = sub._id;
+    }
     const payload = {
       providerEventId,
       userId: input.userId,
@@ -437,6 +497,7 @@ export class AffiliateService {
       netAmountMinor: input.netAmountMinor,
       storeFeeAmountMinor: input.storeFeeAmountMinor,
       commissionAmountMinor,
+      commissionRate: tier.commissionPercent,
       currency: input.currency.trim().toUpperCase(),
       status: input.status ?? 'pending',
       occurredAt,
@@ -444,6 +505,8 @@ export class AffiliateService {
         attribution.attributedAt,
         occurredAt,
       ),
+      ...(subscriptionId ? { subscriptionId } : {}),
+      ...(input.status === 'paid' ? { paidAt: occurredAt } : {}),
     };
 
     try {
@@ -646,7 +709,10 @@ export class AffiliateService {
     }
   }
 
-  private displayAffiliate(affiliate: Affiliate) {
+  private displayAffiliate(
+    affiliate: Affiliate,
+    options?: { includePayout?: boolean },
+  ) {
     return {
       affiliateId: affiliate.affiliateId,
       code: affiliate.code,
@@ -654,7 +720,48 @@ export class AffiliateService {
       commissionPercent: affiliate.commissionPercent,
       revenueShareMonths: affiliate.revenueShareMonths,
       branchUrl: affiliate.branchUrl,
+      ...(options?.includePayout
+        ? { payoutMethod: this.displayPayoutMethod(affiliate) }
+        : {}),
     };
+  }
+
+  private displayPayoutMethod(affiliate: Affiliate) {
+    const method = affiliate.payoutMethod;
+    if (!method?.address || !method.network) return null;
+    return {
+      type: method.type ?? 'usdt_wallet',
+      asset: method.asset ?? 'USDT',
+      network: method.network,
+      address: method.address,
+      updatedAt: method.updatedAt ?? null,
+    };
+  }
+
+  private normalizeUsdtAddress(network: AffiliateUsdtNetwork, address: string) {
+    const trimmed = address.trim();
+    if (network === 'bep20' || network === 'erc20') {
+      return trimmed.toLowerCase();
+    }
+    return trimmed;
+  }
+
+  private assertUsdtAddress(network: AffiliateUsdtNetwork, address: string) {
+    const ok =
+      network === 'trc20'
+        ? /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)
+        : network === 'sol'
+          ? /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)
+          : /^0x[a-fA-F0-9]{40}$/.test(address);
+    if (!ok) {
+      throw new BadRequestException(
+        network === 'trc20'
+          ? 'La dirección TRC20 debe empezar por T.'
+          : network === 'sol'
+            ? 'La dirección Solana no es válida.'
+            : 'La dirección BEP20/ERC20 debe ser 0x… (40 hex).',
+      );
+    }
   }
 
   private displayAttribution(attribution: UserAttribution) {

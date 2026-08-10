@@ -11,7 +11,10 @@ import {
   Screen,
   useAppTheme,
 } from '@/components/ui';
+import { useAppCopy, type AppCopy } from '@/i18n/app-copy';
+import { intlLocale } from '@/i18n/locale-format';
 import { isZeroDecimalCurrency } from '@/lib/currencies';
+import { useLanguageStore } from '@/store/language';
 import {
   useRecaudosStore,
   type Recaudo,
@@ -19,16 +22,24 @@ import {
   type RecaudoParticipant,
 } from '@/store/recaudos';
 
-const categoryInfo: Record<RecaudoCategory, { label: string; icon: string; color: string }> = {
-  travel: { label: 'Viaje', icon: 'airplane', color: '#0878F9' },
-  gift: { label: 'Regalo', icon: 'gift.fill', color: '#EE46BC' },
-  event: { label: 'Evento', icon: 'ticket.fill', color: '#7F56D9' },
-  purchase: { label: 'Compra', icon: 'cart.fill', color: '#F79009' },
-  other: { label: 'Otro', icon: 'sparkles', color: '#0E9F6E' },
+const categoryIcons: Record<RecaudoCategory, { icon: string; color: string }> = {
+  travel: { icon: 'airplane', color: '#0878F9' },
+  gift: { icon: 'gift.fill', color: '#EE46BC' },
+  event: { icon: 'ticket.fill', color: '#7F56D9' },
+  purchase: { icon: 'cart.fill', color: '#F79009' },
+  other: { icon: 'sparkles', color: '#0E9F6E' },
 };
 
-function formatMinor(value: number, currency: string) {
-  return new Intl.NumberFormat('es-CO', {
+const categoryTypeKey: Record<RecaudoCategory, keyof AppCopy['collections']['types']> = {
+  travel: 'trip',
+  gift: 'gift',
+  event: 'event',
+  purchase: 'purchase',
+  other: 'other',
+};
+
+function formatMinor(value: number, currency: string, locale: string) {
+  return new Intl.NumberFormat(intlLocale(locale), {
     style: 'currency',
     currency,
     maximumFractionDigits: isZeroDecimalCurrency(currency) ? 0 : 2,
@@ -42,25 +53,29 @@ function frequencyDays(frequency: RecaudoParticipant['frequency']) {
   return 30;
 }
 
-function nextContributionLabel(recaudo: Recaudo) {
+function nextContributionLabel(recaudo: Recaudo, copy: AppCopy, locale: string) {
   const enabled = recaudo.participants.filter(
     (participant) => participant.remindersEnabled && participant.monthlyCommitmentMinor > 0,
   );
-  if (!enabled.length) return 'Sin próximo aporte';
+  if (!enabled.length) return copy.collections.noNext;
   const participant = enabled.reduce((nearest, item) =>
     frequencyDays(item.frequency) < frequencyDays(nearest.frequency) ? item : nearest,
   );
   const next = new Date();
   next.setDate(next.getDate() + frequencyDays(participant.frequency));
-  return `Próximo aporte · ${new Intl.DateTimeFormat('es-CO', {
+  const label = new Intl.DateTimeFormat(intlLocale(locale), {
     day: 'numeric',
     month: 'short',
-  }).format(next)}`;
+  }).format(next);
+  return copy.collections.nextContribution(label);
 }
 
 function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
   const theme = useAppTheme();
-  const category = categoryInfo[recaudo.category];
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
+  const categoryMeta = categoryIcons[recaudo.category];
+  const categoryLabel = copy.collections.types[categoryTypeKey[recaudo.category]];
   const ratio = recaudo.targetMinor > 0 ? recaudo.collectedMinor / recaudo.targetMinor : 0;
   const percent = Math.min(100, Math.round(ratio * 100));
 
@@ -73,49 +88,52 @@ function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
       }>
       <Card style={styles.card}>
         <View style={styles.cardTop}>
-          <View style={[styles.categoryIcon, { backgroundColor: `${category.color}1F` }]}>
-            <AppIcon name={category.icon} color={category.color} size={21} />
+          <View style={[styles.categoryIcon, { backgroundColor: `${categoryMeta.color}1F` }]}>
+            <AppIcon name={categoryMeta.icon} color={categoryMeta.color} size={21} />
           </View>
           <View style={styles.cardCopy}>
             <Text numberOfLines={1} style={[styles.cardTitle, { color: theme.text }]}>
               {recaudo.title}
             </Text>
-            <Text style={[styles.cardMeta, { color: theme.muted }]}>{category.label}</Text>
+            <Text style={[styles.cardMeta, { color: theme.muted }]}>{categoryLabel}</Text>
           </View>
           <Pill tone={recaudo.status === 'completed' ? 'green' : 'blue'}>
-            {recaudo.status === 'completed' ? 'Completado' : `${percent}%`}
+            {recaudo.status === 'completed' ? copy.collections.completed : `${percent}%`}
           </Pill>
         </View>
 
         <View style={styles.amounts}>
           <View>
-            <Text style={[styles.amountLabel, { color: theme.muted }]}>Recaudado</Text>
+            <Text style={[styles.amountLabel, { color: theme.muted }]}>
+              {copy.collections.collected}
+            </Text>
             <Text style={[styles.amount, { color: theme.text }]}>
-              {formatMinor(recaudo.collectedMinor, recaudo.currency)}
+              {formatMinor(recaudo.collectedMinor, recaudo.currency, locale)}
             </Text>
           </View>
           <View style={styles.target}>
-            <Text style={[styles.amountLabel, { color: theme.muted }]}>Objetivo</Text>
+            <Text style={[styles.amountLabel, { color: theme.muted }]}>
+              {copy.collections.goal}
+            </Text>
             <Text style={[styles.targetAmount, { color: theme.muted }]}>
-              {formatMinor(recaudo.targetMinor, recaudo.currency)}
+              {formatMinor(recaudo.targetMinor, recaudo.currency, locale)}
             </Text>
           </View>
         </View>
         <ProgressBar
           value={ratio}
-          color={category.color}
+          color={categoryMeta.color}
           label={`Progreso de ${recaudo.title}: ${percent}%`}
         />
         <View style={styles.footer}>
           <View style={styles.footerItem}>
             <AppIcon name="person.2.fill" color={theme.muted} size={15} />
             <Text style={[styles.footerText, { color: theme.muted }]}>
-              {recaudo.participants.length}{' '}
-              {recaudo.participants.length === 1 ? 'participante' : 'participantes'}
+              {copy.collections.participants(recaudo.participants.length)}
             </Text>
           </View>
           <Text style={[styles.footerText, { color: theme.muted }]}>
-            {nextContributionLabel(recaudo)}
+            {nextContributionLabel(recaudo, copy, locale)}
           </Text>
         </View>
       </Card>
@@ -125,6 +143,7 @@ function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
 
 export default function RecaudosScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const recaudos = useRecaudosStore((state) => state.recaudos);
   const hydrated = useRecaudosStore((state) => state.hydrated);
   const loading = useRecaudosStore((state) => state.loading);
@@ -142,11 +161,11 @@ export default function RecaudosScreen() {
   return (
     <Screen
       withTabBar
-      title="Mis recaudos"
+      title={copy.collections.title}
       subtitle={
         active.length
-          ? `${active.length} ${active.length === 1 ? 'recaudo activo' : 'recaudos activos'}`
-          : 'Organiza aportes con otras personas'
+          ? copy.collections.activeCount(active.length)
+          : copy.collections.subtitle
       }
       refreshing={loading}
       onRefresh={() => void refresh()}
@@ -161,24 +180,22 @@ export default function RecaudosScreen() {
       }>
       {active.length > 0 ? (
         <Card style={[styles.hero, { backgroundColor: theme.primary }]}>
-          <Text style={styles.heroLabel}>Pozos compartidos</Text>
-          <Text style={styles.heroValue}>
-            {active.length} {active.length === 1 ? 'recaudo' : 'recaudos'}
-          </Text>
-          <Text style={styles.heroHint}>Sigue el progreso y los próximos aportes</Text>
+          <Text style={styles.heroLabel}>{copy.collections.sharedPools}</Text>
+          <Text style={styles.heroValue}>{copy.collections.activeCount(active.length)}</Text>
+          <Text style={styles.heroHint}>{copy.collections.sharedHint}</Text>
         </Card>
       ) : null}
 
       {!hydrated ? (
-        <Text style={[styles.empty, { color: theme.muted }]}>Cargando recaudos…</Text>
+        <Text style={[styles.empty, { color: theme.muted }]}>{copy.common.loading}</Text>
       ) : active.length === 0 ? (
         <Card style={styles.emptyCard}>
           <View style={[styles.emptyIcon, { backgroundColor: theme.primarySoft }]}>
             <AppIcon name="person.2.fill" color={theme.primary} size={28} />
           </View>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Crea tu primer recaudo</Text>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>{copy.collections.createFirst}</Text>
           <Text style={[styles.empty, { color: theme.muted }]}>
-            Define un objetivo, invita participantes y lleven juntos el progreso.
+            {copy.collections.createFirstHint}
           </Text>
         </Card>
       ) : (

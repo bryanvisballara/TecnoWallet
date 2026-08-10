@@ -31,15 +31,26 @@ type PreferencesState = {
   setAutoLockDelay: (value: AutoLockDelay) => Promise<void>;
 };
 
-const appearanceLabels: Record<AppearanceMode, string> = {
+const appearanceLabelsEs: Record<AppearanceMode, string> = {
   system: 'Automático · sistema',
   light: 'Claro',
   dark: 'Oscuro',
 };
 
-const weekLabels: Record<WeekStartsOn, string> = {
+const appearanceLabelsEn: Record<AppearanceMode, string> = {
+  system: 'Automatic · system',
+  light: 'Light',
+  dark: 'Dark',
+};
+
+const weekLabelsEs: Record<WeekStartsOn, string> = {
   monday: 'Lunes',
   sunday: 'Domingo',
+};
+
+const weekLabelsEn: Record<WeekStartsOn, string> = {
+  monday: 'Monday',
+  sunday: 'Sunday',
 };
 
 const autoLockLabels: Record<AutoLockDelay, string> = {
@@ -48,12 +59,15 @@ const autoLockLabels: Record<AutoLockDelay, string> = {
   '5m': '5 minutos',
 };
 
-export function appearanceLabel(mode: AppearanceMode) {
-  return appearanceLabels[mode];
+export function appearanceLabel(
+  mode: AppearanceMode,
+  locale: string = 'es',
+) {
+  return (locale === 'es' ? appearanceLabelsEs : appearanceLabelsEn)[mode];
 }
 
-export function weekStartsOnLabel(value: WeekStartsOn) {
-  return weekLabels[value];
+export function weekStartsOnLabel(value: WeekStartsOn, locale: string = 'es') {
+  return (locale === 'es' ? weekLabelsEs : weekLabelsEn)[value];
 }
 
 export function autoLockDelayLabel(value: AutoLockDelay) {

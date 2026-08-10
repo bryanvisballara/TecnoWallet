@@ -6,6 +6,7 @@ import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 import { Swipeable } from 'react-native-gesture-handler';
 
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
+import { useAppCopy } from '@/i18n/app-copy';
 import { useAuthStore } from '@/store/auth';
 import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
@@ -19,6 +20,7 @@ import {
 
 export default function NotificationsScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const profile = useAuthStore((state) => state.profile);
   const calendarItems = useCalendarStore((state) => state.items);
   const ledgers = useLedgerStore((state) => state.ledgers);
@@ -84,26 +86,22 @@ export default function NotificationsScreen() {
       void run();
       return;
     }
-    Alert.alert(
-      'Eliminar notificaciones',
-      `¿Eliminar ${selected.length} notificación${selected.length === 1 ? '' : 'es'}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Eliminar', style: 'destructive', onPress: () => void run() },
-      ],
-    );
+    Alert.alert(copy.notifications.deleteTitle, copy.notifications.deleteConfirm(selected.length), [
+      { text: copy.common.cancel, style: 'cancel' },
+      { text: copy.common.delete, style: 'destructive', onPress: () => void run() },
+    ]);
   };
 
   return (
     <Screen
-      title="Notificaciones"
-      subtitle="Calendario y actividad del equipo"
+      title={copy.notifications.title}
+      subtitle={copy.notifications.subtitle}
       right={
         <View style={uiStyles.row}>
           {selected.length > 0 ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Eliminar ${selected.length} seleccionadas`}
+              accessibilityLabel={copy.notifications.deleteSelectedA11y(selected.length)}
               onPress={deleteSelected}
               style={[styles.headerBtn, { backgroundColor: theme.danger }]}>
               <AppIcon name="trash" color="#FFFFFF" size={18} />
@@ -111,7 +109,7 @@ export default function NotificationsScreen() {
           ) : null}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Volver"
+            accessibilityLabel={copy.common.back}
             onPress={() => safeGoBack('/(tabs)/inicio')}
             style={[styles.headerBtn, { backgroundColor: theme.surfaceSecondary, marginLeft: 8 }]}>
             <AppIcon name="arrow.left" color={theme.text} />
@@ -122,10 +120,8 @@ export default function NotificationsScreen() {
         <Card>
           <View style={styles.empty}>
             <AppIcon name="bell" color={theme.muted} size={28} />
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>Sin novedades</Text>
-            <Text style={[styles.emptyBody, { color: theme.muted }]}>
-              Aquí verás eventos del calendario e ingresos o gastos que registre tu equipo en libros compartidos.
-            </Text>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>{copy.notifications.emptyTitle}</Text>
+            <Text style={[styles.emptyBody, { color: theme.muted }]}>{copy.notifications.emptyBody}</Text>
           </View>
         </Card>
       ) : (
@@ -134,7 +130,9 @@ export default function NotificationsScreen() {
             <Pressable
               accessibilityRole="checkbox"
               accessibilityState={{ checked: allSelected }}
-              accessibilityLabel={allSelected ? 'Deseleccionar todas' : 'Seleccionar todas'}
+              accessibilityLabel={
+                allSelected ? copy.notifications.deselectAllA11y : copy.notifications.selectAllA11y
+              }
               onPress={toggleSelectAll}
               style={styles.selectAll}>
               <AppIcon
@@ -143,17 +141,17 @@ export default function NotificationsScreen() {
                 size={24}
               />
               <Text style={[styles.selectAllText, { color: theme.text }]}>
-                {allSelected ? 'Todas seleccionadas' : 'Seleccionar todas'}
+                {allSelected ? copy.notifications.allSelected : copy.notifications.selectAll}
               </Text>
             </Pressable>
             {selected.length > 0 ? (
               <Pressable onPress={deleteSelected} accessibilityRole="button">
                 <Text style={[styles.deleteLink, { color: theme.danger }]}>
-                  Eliminar ({selected.length})
+                  {copy.notifications.deleteCount(selected.length)}
                 </Text>
               </Pressable>
             ) : (
-              <Text style={[styles.hint, { color: theme.muted }]}>Desliza para borrar</Text>
+              <Text style={[styles.hint, { color: theme.muted }]}>{copy.notifications.swipeHint}</Text>
             )}
           </View>
 
@@ -204,7 +202,14 @@ function NotificationRow({
   swipeRef: (ref: Swipeable | null) => void;
 }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const colors = notificationToneColors(item.tone, theme);
+  const kindLabel =
+    item.kind === 'calendar'
+      ? copy.notifications.kindCalendar
+      : item.kind === 'income'
+        ? copy.notifications.kindIncome
+        : copy.notifications.kindExpense;
 
   return (
     <Swipeable
@@ -215,11 +220,11 @@ function NotificationRow({
       renderRightActions={() => (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Eliminar ${item.title}`}
+          accessibilityLabel={copy.notifications.deleteItemA11y(item.title)}
           onPress={onDelete}
           style={[styles.swipeDelete, { backgroundColor: theme.danger }]}>
           <AppIcon name="trash" color="#FFFFFF" size={22} />
-          <Text style={styles.swipeDeleteText}>Eliminar</Text>
+          <Text style={styles.swipeDeleteText}>{copy.notifications.delete}</Text>
         </Pressable>
       )}>
       <View
@@ -231,7 +236,7 @@ function NotificationRow({
         <Pressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: selected }}
-          accessibilityLabel={`Seleccionar ${item.title}`}
+          accessibilityLabel={copy.notifications.selectItemA11y(item.title)}
           onPress={onToggle}
           hitSlop={8}
           style={styles.checkHit}>
@@ -253,7 +258,7 @@ function NotificationRow({
             <Text style={[styles.body, { color: theme.muted }]}>{item.body}</Text>
             <View style={styles.meta}>
               <Pill tone={item.kind === 'income' ? 'green' : item.kind === 'expense' ? 'orange' : 'blue'}>
-                {item.kind === 'calendar' ? 'Calendario' : item.kind === 'income' ? 'Ingreso' : 'Gasto'}
+                {kindLabel}
               </Pill>
               <Text style={[styles.when, { color: theme.muted }]}>{item.when}</Text>
             </View>

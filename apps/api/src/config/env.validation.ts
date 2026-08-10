@@ -57,6 +57,8 @@ const schema = Joi.object({
   BRANCH_SECRET: Joi.string().optional().allow(''),
   BRANCH_DEFAULT_DOMAIN: Joi.string().default('tecnowallet.app.link'),
   PUBLIC_WEB_ORIGIN: Joi.string().uri().default('https://tecnowallet.app'),
+  ADMIN_BOOTSTRAP_EMAIL: Joi.string().email().optional().allow(''),
+  ADMIN_BOOTSTRAP_PASSWORD: Joi.string().optional().allow(''),
 });
 
 export function validateEnvironment(config: Record<string, unknown>) {

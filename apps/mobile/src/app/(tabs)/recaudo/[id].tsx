@@ -24,12 +24,15 @@ import {
   SectionTitle,
   useAppTheme,
 } from "@/components/ui";
+import { useAppCopy, type AppCopy } from "@/i18n/app-copy";
+import { intlLocale } from "@/i18n/locale-format";
 import {
   amountToMinorUnits,
   contributionAmountPlaceholder,
   isZeroDecimalCurrency,
 } from "@/lib/currencies";
 import { useAuthStore } from "@/store/auth";
+import { useLanguageStore } from "@/store/language";
 import {
   useRecaudosStore,
   type ContributionFrequency,
@@ -38,37 +41,73 @@ import {
 } from "@/store/recaudos";
 import { useUnitFundingStore } from "@/store/unit-funding";
 
-const categoryInfo: Record<
+const categoryIcons: Record<
   RecaudoCategory,
-  { label: string; icon: string; color: string }
+  { icon: string; color: string }
 > = {
-  travel: { label: "Viaje", icon: "airplane", color: "#0878F9" },
-  gift: { label: "Regalo", icon: "gift.fill", color: "#EE46BC" },
-  event: { label: "Evento", icon: "ticket.fill", color: "#7F56D9" },
-  purchase: { label: "Compra", icon: "cart.fill", color: "#F79009" },
-  other: { label: "Otro", icon: "sparkles", color: "#0E9F6E" },
+  travel: { icon: "airplane", color: "#0878F9" },
+  gift: { icon: "gift.fill", color: "#EE46BC" },
+  event: { icon: "ticket.fill", color: "#7F56D9" },
+  purchase: { icon: "cart.fill", color: "#F79009" },
+  other: { icon: "sparkles", color: "#0E9F6E" },
 };
 
-const frequencies: { value: ContributionFrequency; label: string }[] = [
-  { value: "daily", label: "Diario" },
-  { value: "weekly", label: "Semanal" },
-  { value: "biweekly", label: "Quincenal" },
-  { value: "monthly", label: "Mensual" },
-];
+const categoryTypeKey: Record<
+  RecaudoCategory,
+  keyof AppCopy["collections"]["types"]
+> = {
+  travel: "trip",
+  gift: "gift",
+  event: "event",
+  purchase: "purchase",
+  other: "other",
+};
 
-const modes: { value: ContributionMode; label: string; icon: string }[] = [
-  { value: "manual", label: "Manual", icon: "hand.raised.fill" },
-  {
-    value: "bank_auto",
-    label: "Débito automático",
-    icon: "building.columns.fill",
-  },
-  {
-    value: "card_simulated",
-    label: "Tarjeta simulada",
-    icon: "creditcard.fill",
-  },
-];
+function frequencyOptions(locale: string): { value: ContributionFrequency; label: string }[] {
+  return locale === "es"
+    ? [
+        { value: "daily", label: "Diario" },
+        { value: "weekly", label: "Semanal" },
+        { value: "biweekly", label: "Quincenal" },
+        { value: "monthly", label: "Mensual" },
+      ]
+    : [
+        { value: "daily", label: "Daily" },
+        { value: "weekly", label: "Weekly" },
+        { value: "biweekly", label: "Biweekly" },
+        { value: "monthly", label: "Monthly" },
+      ];
+}
+
+function modeOptions(locale: string): { value: ContributionMode; label: string; icon: string }[] {
+  return locale === "es"
+    ? [
+        { value: "manual", label: "Manual", icon: "hand.raised.fill" },
+        {
+          value: "bank_auto",
+          label: "Débito automático",
+          icon: "building.columns.fill",
+        },
+        {
+          value: "card_simulated",
+          label: "Tarjeta simulada",
+          icon: "creditcard.fill",
+        },
+      ]
+    : [
+        { value: "manual", label: "Manual", icon: "hand.raised.fill" },
+        {
+          value: "bank_auto",
+          label: "Auto debit",
+          icon: "building.columns.fill",
+        },
+        {
+          value: "card_simulated",
+          label: "Simulated card",
+          icon: "creditcard.fill",
+        },
+      ];
+}
 
 const reminderTimes = ["08:00", "12:00", "18:00", "20:00"] as const;
 
@@ -76,18 +115,18 @@ function leaveRecaudo() {
   safeGoBack('/(tabs)/recaudos');
 }
 
-function formatMinor(value: number, currency: string) {
-  return new Intl.NumberFormat("es-CO", {
+function formatMinor(value: number, currency: string, locale: string) {
+  return new Intl.NumberFormat(intlLocale(locale), {
     style: "currency",
     currency,
     maximumFractionDigits: isZeroDecimalCurrency(currency) ? 0 : 2,
   }).format(value / 100);
 }
 
-function formatDate(value: string, withTime = false) {
+function formatDate(value: string, locale: string, withTime = false) {
   const date = new Date(value.includes("T") ? value : `${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("es-CO", {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -105,6 +144,11 @@ function initials(name: string) {
 
 export default function RecaudoDetailScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
+  const t = (es: string, en: string) => (locale === "es" ? es : en);
+  const frequencies = frequencyOptions(locale);
+  const modes = modeOptions(locale);
   const { id } = useLocalSearchParams<{ id: string }>();
   const recaudos = useRecaudosStore((state) => state.recaudos);
   const hydrated = useRecaudosStore((state) => state.hydrated);
@@ -247,10 +291,10 @@ export default function RecaudoDetailScreen() {
     return (
       <Screen
         withTabBar
-        title={hydrated ? "Recaudo no encontrado" : "Cargando recaudo…"}
+        title={hydrated ? copy.collectionDetail.notFound : copy.collectionDetail.loading}
         right={
           <Pressable
-            accessibilityLabel="Volver"
+            accessibilityLabel={copy.collectionDetail.back}
             onPress={leaveRecaudo}
             style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}
           >
@@ -261,7 +305,9 @@ export default function RecaudoDetailScreen() {
         {hydrated ? (
           <Card>
             <Text style={[styles.centerText, { color: theme.muted }]}>
-              Este recaudo ya no está disponible.
+              {locale === "es"
+                ? "Este recaudo ya no está disponible."
+                : "This collection is no longer available."}
             </Text>
           </Card>
         ) : null}
@@ -269,7 +315,8 @@ export default function RecaudoDetailScreen() {
     );
   }
 
-  const category = categoryInfo[recaudo.category];
+  const category = categoryIcons[recaudo.category];
+  const categoryLabel = copy.collections.types[categoryTypeKey[recaudo.category]];
   const fundingReady = useUnitFundingStore
     .getState()
     .isFundingReady(recaudo.id, recaudo.isOrganizer);
@@ -311,6 +358,10 @@ export default function RecaudoDetailScreen() {
     identity.status === "approved" &&
     !activeBank &&
     (!recaudo.isOrganizer || walletReady);
+
+  const fmt = (value: number) => formatMinor(value, recaudo.currency, locale);
+  const fmtDate = (value: string, withTime = false) =>
+    formatDate(value, locale, withTime);
 
   const sendInvite = async () => {
     if (!inviteEmail.trim()) {
@@ -473,7 +524,7 @@ export default function RecaudoDetailScreen() {
     if (amountMinor > withdrawableMinor) {
       Alert.alert(
         "Monto demasiado alto",
-        `Solo hay ${formatMinor(withdrawableMinor, recaudo.currency)} disponible para retirar.`,
+        `Solo hay ${fmt(withdrawableMinor)} disponible para retirar.`,
       );
       return;
     }
@@ -494,8 +545,8 @@ export default function RecaudoDetailScreen() {
         setShowWithdraw(false);
         setSuccessMessage(
           result.intent.status === "settled"
-            ? `Retiro acreditado por ${formatMinor(amountMinor, recaudo.currency)}.`
-            : `Retiro ACH en tránsito por ${formatMinor(amountMinor, recaudo.currency)}.`,
+            ? `Retiro acreditado por ${fmt(amountMinor)}.`
+            : `Retiro ACH en tránsito por ${fmt(amountMinor)}.`,
         );
       } else {
         await withdraw(recaudo.id, amountMinor, withdrawNote);
@@ -508,7 +559,7 @@ export default function RecaudoDetailScreen() {
         setSuccessMessage(
           amountMinor >= withdrawableMinor
             ? "Retiraste el pozo completo. El recaudo quedó cerrado."
-            : `Retiraste ${formatMinor(amountMinor, recaudo.currency)} del pozo.`,
+            : `Retiraste ${fmt(amountMinor)} del pozo.`,
         );
       }
     } catch (error) {
@@ -567,7 +618,7 @@ export default function RecaudoDetailScreen() {
       if (mode === "bank_auto" && !demo) {
         const schedule = await syncSchedule(recaudo.id);
         const next = schedule?.nextRunAt
-          ? new Date(schedule.nextRunAt).toLocaleString("es-CO", {
+          ? new Date(schedule.nextRunAt).toLocaleString(intlLocale(locale), {
               dateStyle: "medium",
               timeStyle: "short",
             })
@@ -604,13 +655,15 @@ export default function RecaudoDetailScreen() {
     <Screen
       withTabBar
       title={recaudo.title}
-      subtitle={`${category.label}${
-        recaudo.deadline ? ` · Meta ${formatDate(recaudo.deadline)}` : ""
+      subtitle={`${categoryLabel}${
+        recaudo.deadline
+          ? ` · ${copy.collectionDetail.goalPrefix} ${fmtDate(recaudo.deadline)}`
+          : ""
       }`}
       right={
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Volver"
+          accessibilityLabel={copy.collectionDetail.back}
           onPress={leaveRecaudo}
           style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}
         >
@@ -624,23 +677,21 @@ export default function RecaudoDetailScreen() {
             <AppIcon name={category.icon} color="#FFFFFF" size={27} />
           </View>
           <Pill tone={recaudo.status === "completed" ? "green" : "neutral"}>
-            {percent}% completado
+            {copy.collectionDetail.pctComplete(percent)}
           </Pill>
         </View>
         <Text style={styles.heroLabel}>
-          {fundingReady ? "Pozo disponible" : "Pozo recaudado"}
+          {fundingReady
+            ? copy.collectionDetail.poolAvailable
+            : copy.collectionDetail.poolCollected}
         </Text>
         <Text style={styles.heroValue}>
-          {formatMinor(
-            fundingReady ? availableMinor : recaudo.collectedMinor,
-            recaudo.currency,
-          )}
+          {fmt(fundingReady ? availableMinor : recaudo.collectedMinor)}
         </Text>
         <Text style={styles.heroHint}>
-          de {formatMinor(recaudo.targetMinor, recaudo.currency)} · faltan{" "}
-          {formatMinor(remaining, recaudo.currency)}
+          {copy.collectionDetail.ofTarget(fmt(recaudo.targetMinor), fmt(remaining))}
           {fundingReady && inTransitMinor > 0
-            ? ` · ${formatMinor(inTransitMinor, recaudo.currency)} en tránsito`
+            ? copy.collectionDetail.inTransit(fmt(inTransitMinor))
             : ""}
         </Text>
         <View style={styles.heroTrack}>
@@ -656,43 +707,42 @@ export default function RecaudoDetailScreen() {
       {!demo ? (
         <Card style={styles.balanceCard}>
           <Text style={[styles.cardTitle, { color: theme.text }]}>
-            Dinero del recaudo
+            {copy.collectionDetail.moneyTitle}
           </Text>
           <View style={styles.stats}>
             <View
               style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
             >
               <Text style={[styles.statLabel, { color: theme.muted }]}>
-                Disponible
+                {copy.collectionDetail.available}
               </Text>
               <Text style={[styles.statValue, { color: theme.text }]}>
-                {formatMinor(availableMinor, recaudo.currency)}
+                {fmt(availableMinor)}
               </Text>
             </View>
             <View
               style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
             >
               <Text style={[styles.statLabel, { color: theme.muted }]}>
-                En tránsito
+                {copy.collectionDetail.transit}
               </Text>
               <Text style={[styles.statValue, { color: theme.text }]}>
-                {formatMinor(inTransitMinor, recaudo.currency)}
+                {fmt(inTransitMinor)}
               </Text>
             </View>
             <View
               style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
             >
               <Text style={[styles.statLabel, { color: theme.muted }]}>
-                Registrado
+                {copy.collectionDetail.registered}
               </Text>
               <Text style={[styles.statValue, { color: theme.text }]}>
-                {formatMinor(recaudo.collectedMinor, recaudo.currency)}
+                {fmt(recaudo.collectedMinor)}
               </Text>
             </View>
           </View>
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            Solo lo disponible (confirmado por Unit) se puede retirar a tu
-            cuenta. Los registros manuales no mueven dinero bancario.
+            {copy.collectionDetail.moneyHint}
           </Text>
         </Card>
       ) : null}
@@ -708,11 +758,16 @@ export default function RecaudoDetailScreen() {
             </View>
             <View style={styles.copy}>
               <Text style={[styles.cardTitle, { color: theme.text }]}>
-                Cuenta de banco digital del recaudo
+                {t(
+                  "Cuenta de banco digital del recaudo",
+                  "Collection digital bank account",
+                )}
               </Text>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                Primero se crea la cuenta digital del recaudo y después vinculas
-                el banco de origen para aportar con débito ACH.
+                {t(
+                  "Primero se crea la cuenta digital del recaudo y después vinculas el banco de origen para aportar con débito ACH.",
+                  "First the collection’s digital account is created, then you link your source bank to contribute via ACH debit.",
+                )}
               </Text>
             </View>
           </View>
@@ -723,8 +778,11 @@ export default function RecaudoDetailScreen() {
               onPress={setupBusy ? undefined : () => void activateUnit()}
             >
               {setupBusy
-                ? "Abriendo cuenta…"
-                : "1. Abrir cuenta de banco digital"}
+                ? t("Abriendo cuenta…", "Opening account…")
+                : t(
+                    "1. Abrir cuenta de banco digital",
+                    "1. Open digital bank account",
+                  )}
             </PrimaryButton>
           ) : null}
 
@@ -831,7 +889,7 @@ export default function RecaudoDetailScreen() {
           <View style={styles.actionRow}>
             <ScalePressable
               accessibilityRole="button"
-              accessibilityLabel="Retirar dinero del pozo"
+              accessibilityLabel={t("Retirar dinero del pozo", "Withdraw from the pool")}
               onPress={() => setShowWithdraw((value) => !value)}
               style={[
                 styles.actionButton,
@@ -853,16 +911,18 @@ export default function RecaudoDetailScreen() {
                   { color: showWithdraw ? "#FFFFFF" : theme.text },
                 ]}
               >
-                Retirar dinero
+                {t("Retirar dinero", "Withdraw money")}
               </Text>
             </ScalePressable>
           </View>
           {showWithdraw ? (
             <View style={styles.withdrawForm}>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                Disponible para retirar:{" "}
-                {formatMinor(withdrawableMinor, recaudo.currency)}
-                {fundingReady ? " (ACH a tu cuenta)" : " (registro manual)"}
+                {t("Disponible para retirar:", "Available to withdraw:")}{" "}
+                {fmt(withdrawableMinor)}
+                {fundingReady
+                  ? t(" (ACH a tu cuenta)", " (ACH to your account)")
+                  : t(" (registro manual)", " (manual record)")}
               </Text>
               <View
                 style={[
@@ -896,7 +956,7 @@ export default function RecaudoDetailScreen() {
                   ]}
                 >
                   <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                    Retirar todo
+                    {t("Retirar todo", "Withdraw all")}
                   </Text>
                 </Pressable>
               </View>
@@ -928,7 +988,7 @@ export default function RecaudoDetailScreen() {
       <Card style={styles.summaryCard}>
         <View style={styles.summaryTop}>
           <Text style={[styles.cardTitle, { color: theme.text }]}>
-            Progreso del recaudo
+            {copy.collectionDetail.progressTitle}
           </Text>
           <Text style={[styles.percent, { color: category.color }]}>
             {percent}%
@@ -944,17 +1004,17 @@ export default function RecaudoDetailScreen() {
             style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
           >
             <Text style={[styles.statLabel, { color: theme.muted }]}>
-              Meta mensual
+              {copy.collectionDetail.monthlyGoal}
             </Text>
             <Text style={[styles.statValue, { color: theme.text }]}>
-              {formatMinor(recaudo.monthlyTargetMinor, recaudo.currency)}
+              {fmt(recaudo.monthlyTargetMinor)}
             </Text>
           </View>
           <View
             style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
           >
             <Text style={[styles.statLabel, { color: theme.muted }]}>
-              Participantes
+              {copy.collectionDetail.participants}
             </Text>
             <Text style={[styles.statValue, { color: theme.text }]}>
               {recaudo.participants.length}
@@ -963,7 +1023,7 @@ export default function RecaudoDetailScreen() {
         </View>
       </Card>
 
-      <SectionTitle>Participantes</SectionTitle>
+      <SectionTitle>{copy.collectionDetail.participants}</SectionTitle>
       <Card style={styles.listCard}>
         {recaudo.participants.map((participant, index) => (
           <View
@@ -992,12 +1052,12 @@ export default function RecaudoDetailScreen() {
                   {participant.name}
                 </Text>
                 {participant.role === "organizer" ? (
-                  <Pill tone="blue">Organiza</Pill>
+                  <Pill tone="blue">{copy.collectionDetail.organizes}</Pill>
                 ) : null}
               </View>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                {formatMinor(participant.contributedMinor, recaudo.currency)}{" "}
-                aportados ·{" "}
+                {fmt(participant.contributedMinor)}{" "}
+                {locale === "es" ? "aportados" : "contributed"} ·{" "}
                 {
                   frequencies.find(
                     (item) => item.value === participant.frequency,
@@ -1023,7 +1083,7 @@ export default function RecaudoDetailScreen() {
             </View>
             <View style={styles.copy}>
               <Text style={[styles.cardTitle, { color: theme.text }]}>
-                Invitar por correo
+                {t("Invitar por correo", "Invite by email")}
               </Text>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
                 La invitación se envía mediante TecnoWallet.
@@ -1051,26 +1111,40 @@ export default function RecaudoDetailScreen() {
             icon="paperplane.fill"
             onPress={inviting ? undefined : () => void sendInvite()}
           >
-            {inviting ? "Enviando…" : "Enviar invitación"}
+            {inviting
+              ? t("Enviando…", "Sending…")
+              : t("Enviar invitación", "Send invitation")}
           </PrimaryButton>
         </Card>
       ) : null}
 
-      <SectionTitle>Mi aporte</SectionTitle>
+      <SectionTitle>{t("Mi aporte", "My contribution")}</SectionTitle>
       <Card style={styles.formCard}>
         <Text style={[styles.cardTitle, { color: theme.text }]}>
           {fundingReady
-            ? "Aportar desde mi cuenta"
+            ? t("Aportar desde mi cuenta", "Contribute from my account")
             : demo
-              ? "Registrar aporte"
-              : "Aportar (completa la activación arriba)"}
+              ? t("Registrar aporte", "Record contribution")
+              : t(
+                  "Aportar (completa la activación arriba)",
+                  "Contribute (finish activation above)",
+                )}
         </Text>
         <Text style={[styles.rowMeta, { color: theme.muted }]}>
           {fundingReady
-            ? "Débito ACH a la cuenta digital del recaudo. No suma a disponible hasta que el banco lo confirme."
+            ? t(
+                "Débito ACH a la cuenta digital del recaudo. No suma a disponible hasta que el banco lo confirme.",
+                "ACH debit to the collection’s digital account. It won’t count as available until the bank confirms.",
+              )
             : demo
-              ? "En demo el aporte se registra al instante en el pozo."
-              : "Abre tu cuenta de banco digital y vincula tu banco para aportar dinero real."}
+              ? t(
+                  "En demo el aporte se registra al instante en el pozo.",
+                  "In demo, contributions are recorded in the pool instantly.",
+                )
+              : t(
+                  "Abre tu cuenta de banco digital y vincula tu banco para aportar dinero real.",
+                  "Open your digital bank account and link your bank to contribute real money.",
+                )}
         </Text>
         <View
           style={[
@@ -1096,7 +1170,7 @@ export default function RecaudoDetailScreen() {
         <TextInput
           value={contributionNote}
           onChangeText={setContributionNote}
-          placeholder="Nota (opcional)"
+          placeholder={t("Nota (opcional)", "Note (optional)")}
           placeholderTextColor={theme.muted}
           style={[
             styles.input,
@@ -1114,14 +1188,18 @@ export default function RecaudoDetailScreen() {
               fundingContribution ? undefined : () => void contributeFunded()
             }
           >
-            {fundingContribution ? "Enviando ACH…" : "Aportar con cuenta"}
+            {fundingContribution
+              ? t("Enviando ACH…", "Sending ACH…")
+              : t("Aportar con cuenta", "Contribute with account")}
           </PrimaryButton>
         ) : demo ? (
           <PrimaryButton
             icon="plus"
             onPress={contributing ? undefined : () => void contribute()}
           >
-            {contributing ? "Registrando…" : "Registrar aporte"}
+            {contributing
+              ? t("Registrando…", "Recording…")
+              : t("Registrar aporte", "Record contribution")}
           </PrimaryButton>
         ) : (
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
@@ -1153,7 +1231,7 @@ export default function RecaudoDetailScreen() {
         ) : null}
       </Card>
 
-      <SectionTitle>Mi configuración</SectionTitle>
+      <SectionTitle>{t("Mi configuración", "My settings")}</SectionTitle>
       <Card style={styles.formCard}>
         <View>
           <Text style={[styles.fieldLabel, { color: theme.muted }]}>
@@ -1359,15 +1437,20 @@ export default function RecaudoDetailScreen() {
           icon="checkmark"
           onPress={savingPlan ? undefined : () => void savePlan()}
         >
-          {savingPlan ? "Guardando…" : "Guardar configuración"}
+          {savingPlan
+            ? t("Guardando…", "Saving…")
+            : t("Guardar configuración", "Save settings")}
         </PrimaryButton>
       </Card>
 
-      <SectionTitle>Historial</SectionTitle>
+      <SectionTitle>{t("Historial", "History")}</SectionTitle>
       <Card style={styles.listCard}>
         {contributions.length === 0 ? (
           <Text style={[styles.centerText, { color: theme.muted }]}>
-            Aún no hay aportes en este recaudo.
+            {t(
+              "Aún no hay aportes en este recaudo.",
+              "No contributions in this collection yet.",
+            )}
           </Text>
         ) : (
           contributions.map((contribution, index) => {
@@ -1408,12 +1491,14 @@ export default function RecaudoDetailScreen() {
                   {isWithdrawal ? "Retiro del pozo" : contribution.participantName}
                 </Text>
                 <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                  {formatDate(contribution.occurredAt, true)} ·{" "}
+                  {fmtDate(contribution.occurredAt, true)} ·{" "}
                   {isWithdrawal
                     ? contribution.participantName
                     : contribution.method === "manual"
                       ? "Manual"
-                      : "Tarjeta simulada"}
+                      : locale === "es"
+                        ? "Tarjeta simulada"
+                        : "Simulated card"}
                   {contribution.pending ? " · Pendiente de sincronizar" : ""}
                 </Text>
                 {contribution.note ? (
@@ -1429,7 +1514,7 @@ export default function RecaudoDetailScreen() {
                 ]}
               >
                 {isWithdrawal ? "−" : "+"}
-                {formatMinor(contribution.amountMinor, recaudo.currency)}
+                {fmt(contribution.amountMinor)}
               </Text>
             </View>
             );

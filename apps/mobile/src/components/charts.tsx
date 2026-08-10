@@ -4,6 +4,7 @@ import Svg, { Circle, G } from 'react-native-svg';
 
 import { money, type Transaction } from '@/data/demo';
 import { parseTransactionDate } from '@/lib/dates';
+import { useLanguageStore } from '@/store/language';
 import { AppIcon, Pill, useAppTheme } from './ui';
 
 export function DonutChart({ value = 0, size = 132, label = 'Disponible', amount = 0 }: {
@@ -58,15 +59,38 @@ export type DaySpend = {
   expenseItems: DayActivityItem[];
 };
 
-const DAY_META = [
-  { key: 'L', label: 'L', fullLabel: 'Lunes', jsDay: 1 },
-  { key: 'M', label: 'M', fullLabel: 'Martes', jsDay: 2 },
-  { key: 'X', label: 'X', fullLabel: 'Miércoles', jsDay: 3 },
-  { key: 'J', label: 'J', fullLabel: 'Jueves', jsDay: 4 },
-  { key: 'V', label: 'V', fullLabel: 'Viernes', jsDay: 5 },
-  { key: 'S', label: 'S', fullLabel: 'Sábado', jsDay: 6 },
-  { key: 'D', label: 'D', fullLabel: 'Domingo', jsDay: 0 },
+const DAY_KEYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'] as const;
+const DAY_JS = [1, 2, 3, 4, 5, 6, 0] as const;
+
+const WEEKDAY_LABELS_ES = [
+  { label: 'L', fullLabel: 'Lunes' },
+  { label: 'M', fullLabel: 'Martes' },
+  { label: 'X', fullLabel: 'Miércoles' },
+  { label: 'J', fullLabel: 'Jueves' },
+  { label: 'V', fullLabel: 'Viernes' },
+  { label: 'S', fullLabel: 'Sábado' },
+  { label: 'D', fullLabel: 'Domingo' },
 ] as const;
+
+const WEEKDAY_LABELS_EN = [
+  { label: 'M', fullLabel: 'Monday' },
+  { label: 'T', fullLabel: 'Tuesday' },
+  { label: 'W', fullLabel: 'Wednesday' },
+  { label: 'T', fullLabel: 'Thursday' },
+  { label: 'F', fullLabel: 'Friday' },
+  { label: 'S', fullLabel: 'Saturday' },
+  { label: 'S', fullLabel: 'Sunday' },
+] as const;
+
+function dayMetaForLocale(locale: string = 'es') {
+  const labels = locale === 'es' ? WEEKDAY_LABELS_ES : WEEKDAY_LABELS_EN;
+  return DAY_JS.map((jsDay, index) => ({
+    key: DAY_KEYS[index],
+    jsDay,
+    label: labels[index].label,
+    fullLabel: labels[index].fullLabel,
+  }));
+}
 
 function startOfWeekMonday(today: Date) {
   const day = new Date(today);
@@ -77,12 +101,17 @@ function startOfWeekMonday(today: Date) {
   return day;
 }
 
-export function buildWeeklySpend(transactions: Transaction[], today = new Date()): DaySpend[] {
+export function buildWeeklySpend(
+  transactions: Transaction[],
+  today = new Date(),
+  locale: string = 'es',
+): DaySpend[] {
   const weekStart = startOfWeekMonday(today);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 7);
+  const dayMeta = dayMetaForLocale(locale);
 
-  const buckets = DAY_META.map((meta) => ({
+  const buckets = dayMeta.map((meta) => ({
     ...meta,
     income: 0,
     expenseTotal: 0,
@@ -136,9 +165,14 @@ export function WeeklyBars({
   today?: Date;
 }) {
   const theme = useAppTheme();
+  const locale = useLanguageStore((state) => state.locale);
   const [mode, setMode] = useState<WeeklyMode>('expenses');
-  const weekDays = useMemo(() => buildWeeklySpend(transactions, today), [transactions, today]);
-  const todayKey = (DAY_META.find((item) => item.jsDay === today.getDay())?.key ?? 'L') as DaySpend['key'];
+  const weekDays = useMemo(
+    () => buildWeeklySpend(transactions, today, locale),
+    [transactions, today, locale],
+  );
+  const todayKey = (dayMetaForLocale(locale).find((item) => item.jsDay === today.getDay())?.key ??
+    'L') as DaySpend['key'];
   const [selectedKey, setSelectedKey] = useState<DaySpend['key']>(todayKey);
 
   useEffect(() => {

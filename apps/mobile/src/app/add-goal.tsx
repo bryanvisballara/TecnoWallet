@@ -24,6 +24,7 @@ import {
   type GoalPeriod,
 } from '@/store/goals';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 
 const periods: GoalPeriod[] = ['week', 'month', 'year', 'date'];
 const palette = ['#0878F9', '#12B76A', '#F79009', '#7F56D9', '#06AED4', '#EE46BC'];
@@ -34,6 +35,7 @@ type FieldErrors = Partial<Record<FieldKey, boolean>>;
 
 export default function AddGoalScreen() {
   const theme = useAppTheme();
+  const locale = useLanguageStore((state) => state.locale);
   const { ledger } = useActiveLedger();
   const addGoal = useGoalsStore((state) => state.addGoal);
   const linkEnvelope = useGoalsStore((state) => state.linkEnvelope);
@@ -49,8 +51,8 @@ export default function AddGoalScreen() {
 
   const dateLabel = useMemo(() => {
     if (!isValidGoalDateKey(targetDate)) return null;
-    return formatDayLabel(parseDateKey(targetDate));
-  }, [targetDate]);
+    return formatDayLabel(parseDateKey(targetDate), locale);
+  }, [targetDate, locale]);
 
   const clearError = (key: FieldKey) => {
     setErrors((prev) => {

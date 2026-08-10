@@ -9,6 +9,7 @@ import {
 } from '@/data/calendar';
 import type { LedgerMeta } from '@/data/ledgers';
 import { localStorage } from '@/services/persistence';
+import { useLanguageStore } from '@/store/language';
 
 export type NotificationKind = 'calendar' | 'income' | 'expense';
 
@@ -88,7 +89,7 @@ export function buildNotificationFeed(input: {
   const feed: AppNotification[] = [];
 
   input.calendarItems.forEach((item) => {
-    const day = formatDayLabel(parseDateKey(item.date));
+    const day = formatDayLabel(parseDateKey(item.date), useLanguageStore.getState().locale);
     feed.push({
       id: `cal-${item.id}`,
       kind: 'calendar',

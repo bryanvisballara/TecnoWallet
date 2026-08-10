@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 import {
   Subscription,
   SubscriptionSchema,
@@ -26,6 +27,7 @@ import { AffiliateService } from './affiliate.service';
 @Module({
   imports: [
     AuthModule,
+    forwardRef(() => BillingModule),
     MongooseModule.forFeature([
       { name: Affiliate.name, schema: AffiliateSchema },
       { name: AffiliateClick.name, schema: AffiliateClickSchema },

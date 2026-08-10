@@ -5,13 +5,17 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Envelope } from '@/data/demo';
+import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { filterTransactionsByMonth } from '@/lib/dates';
 import { localStorage } from '@/services/persistence';
 import { useActiveLedger } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
 
 export default function EnvelopesScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { envelopes, ledger, transactions } = useActiveLedger();
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
@@ -48,6 +52,7 @@ export default function EnvelopesScreen() {
   const available = Math.max(expenseBudget - expenseSpent, 0);
   const usedRatio = expenseBudget > 0 ? expenseSpent / expenseBudget : 0;
   const showNoBudgetBanner = expenseBudget <= 0 && !hideNoBudgetBanner;
+  const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   useEffect(() => {
     if (!ledger?.id) return;
@@ -69,17 +74,19 @@ export default function EnvelopesScreen() {
   };
 
   if (!ledger) {
-    return <Screen withTabBar title="Sobres" />;
+    return <Screen withTabBar title={copy.envelopes.title} />;
   }
 
   return (
-    <Screen withTabBar title="Sobres" subtitle={`Presupuesto · ${ledger.name}`}>
+    <Screen withTabBar title={copy.envelopes.title} subtitle={copy.envelopes.budgetMonth(ledgerLabel)}>
       <MonthSwitcher />
       <Card style={[styles.hero, { backgroundColor: theme.primary }]}>
         <View style={uiStyles.between}>
           <View style={styles.heroCopy}>
             <Text style={styles.heroLabel}>
-              {expenseBudget > 0 ? `Disponible · ${monthLabel}` : `Gastos · ${monthLabel}`}
+              {expenseBudget > 0
+                ? copy.envelopes.availableMonth(monthLabel)
+                : copy.envelopes.expensesMonth(monthLabel)}
             </Text>
             <Text style={styles.heroValue}>
               {money(expenseBudget > 0 ? available : expenseSpent)}
@@ -102,7 +109,7 @@ export default function EnvelopesScreen() {
         ) : showNoBudgetBanner ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Sin presupuesto mensual. Ocultar este aviso"
+            accessibilityLabel={`${copy.envelopes.noMonthlyBudget}. ${copy.common.hide}`}
             onPress={dismissNoBudgetBanner}
             style={({ pressed }) => [
               styles.noBudgetButton,
@@ -110,9 +117,9 @@ export default function EnvelopesScreen() {
             ]}>
             <View style={styles.noBudgetCopy}>
               <AppIcon name="circle" color="#FFFFFF" size={12} />
-              <Text style={styles.noBudgetLabel}>Sin presupuesto mensual</Text>
+              <Text style={styles.noBudgetLabel}>{copy.envelopes.noMonthlyBudget}</Text>
             </View>
-            <Text style={styles.noBudgetAction}>Ocultar</Text>
+            <Text style={styles.noBudgetAction}>{copy.common.hide}</Text>
           </Pressable>
         ) : null}
       </Card>
@@ -122,20 +129,20 @@ export default function EnvelopesScreen() {
           <View style={[styles.summaryIcon, { backgroundColor: '#FFFFFF' }]}>
             <AppIcon name="arrow.down.circle.fill" color={theme.success} />
           </View>
-          <Text style={[styles.summaryLabel, { color: theme.muted }]}>Ingresos</Text>
+          <Text style={[styles.summaryLabel, { color: theme.muted }]}>{copy.envelopes.income}</Text>
           <Text style={[styles.summaryValue, { color: theme.text }]}>{money(incomeReceived, true)}</Text>
           <Text style={[styles.summaryHint, { color: theme.muted }]}>
-            {incomeExpected > 0 ? `de ${money(incomeExpected, true)} esperados` : 'Sin meta de ingresos'}
+            {incomeExpected > 0 ? `de ${money(incomeExpected, true)} esperados` : copy.envelopes.noIncomeGoal}
           </Text>
         </Card>
         <Card style={[styles.summaryCard, { backgroundColor: '#FDECEC', borderWidth: 0 }]}>
           <View style={[styles.summaryIcon, { backgroundColor: '#FFFFFF' }]}>
             <AppIcon name="arrow.up.circle.fill" color={theme.danger} />
           </View>
-          <Text style={[styles.summaryLabel, { color: theme.muted }]}>Gastos</Text>
+          <Text style={[styles.summaryLabel, { color: theme.muted }]}>{copy.envelopes.expenses}</Text>
           <Text style={[styles.summaryValue, { color: theme.text }]}>{money(expenseSpent, true)}</Text>
           <Text style={[styles.summaryHint, { color: theme.muted }]}>
-            {expenseBudget > 0 ? `de ${money(expenseBudget, true)} asignados` : 'Sin presupuesto'}
+            {expenseBudget > 0 ? `de ${money(expenseBudget, true)} asignados` : copy.envelopes.noBudget}
           </Text>
         </Card>
       </View>
@@ -146,7 +153,7 @@ export default function EnvelopesScreen() {
             <AppIcon name="sparkles" color={theme.success} size={18} />
           </View>
           <View style={styles.copy}>
-            <Text style={[styles.tipTitle, { color: theme.text }]}>Resumen del mes</Text>
+            <Text style={[styles.tipTitle, { color: theme.text }]}>{copy.envelopes.monthSummary}</Text>
             <Text style={[styles.small, { color: theme.muted }]}>
               Llevas {money(expenseSpent)} gastados de {money(expenseBudget)} asignados.
             </Text>
@@ -159,41 +166,41 @@ export default function EnvelopesScreen() {
             <AppIcon name="wallet.pass.fill" color={theme.primary} size={18} />
           </View>
           <View style={styles.copy}>
-            <Text style={[styles.tipTitle, { color: theme.text }]}>Control sin límite mensual</Text>
+            <Text style={[styles.tipTitle, { color: theme.text }]}>{copy.envelopes.controlNoLimit}</Text>
             <Text style={[styles.small, { color: theme.muted }]}>
               Llevas {money(expenseSpent)} en gastos registrados sin un presupuesto asignado.
             </Text>
           </View>
-          <Pill tone="neutral">Sin límite</Pill>
+          <Pill tone="neutral">{copy.envelopes.noLimit}</Pill>
         </Card>
       ) : null}
 
       <EnvelopeSection
-        title="Sobres de ingresos"
+        title={copy.envelopes.incomeEnvelopes}
         subtitle={`${incomeEnvelopes.length} activos`}
-        badge="Entradas"
+        badge={copy.envelopes.badgeIn}
         badgeTone="green"
         items={incomeEnvelopes}
         mode="income"
       />
 
       <EnvelopeSection
-        title="Sobres de gastos"
+        title={copy.envelopes.expenseEnvelopes}
         subtitle={`${expenseEnvelopes.length} activos`}
-        badge="Salidas"
+        badge={copy.envelopes.badgeOut}
         badgeTone="orange"
         items={expenseEnvelopes}
         mode="expense"
       />
 
       <EnvelopeSection
-        title="Sobres de ahorros"
+        title={copy.envelopes.savingsEnvelopes}
         subtitle={
           savingsEnvelopes.length
             ? `${savingsEnvelopes.length} vinculados a metas`
-            : 'Créalos desde Metas/Ahorros'
+            : copy.envelopes.createFromGoals
         }
-        badge="Ahorro"
+        badge={copy.envelopes.badgeSave}
         badgeTone="blue"
         items={savingsEnvelopes}
         mode="savings"
@@ -221,6 +228,7 @@ function EnvelopeSection({
   allowCreate?: boolean;
 }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   return (
     <View style={styles.sectionBlock}>
       <View style={styles.sectionHeader}>
@@ -246,7 +254,7 @@ function EnvelopeSection({
         {items.length === 0 && mode === 'savings' ? (
           <Card>
             <Text style={[styles.small, { color: theme.muted, textAlign: 'center', lineHeight: 18 }]}>
-              Los sobres de ahorros solo se crean al armar una meta en Finanzas → Metas/Ahorros.
+              {copy.envelopes.emptySavings}
             </Text>
           </Card>
         ) : null}
@@ -259,12 +267,12 @@ function EnvelopeSection({
           const barColor = warning ? theme.warning : envelope.color;
           const amountLabel =
             mode === 'income'
-              ? 'recibido'
+              ? copy.envelopes.received
               : mode === 'savings'
-                ? 'ahorrado'
+                ? copy.envelopes.saved
                 : hasBudget
-                  ? 'disponible'
-                  : 'gastado';
+                  ? copy.envelopes.available
+                  : copy.envelopes.spent;
           const amountValue =
             mode === 'income' || mode === 'savings' || !hasBudget ? envelope.spent : remaining;
           const progressLabel =
@@ -322,14 +330,14 @@ function EnvelopeSection({
                   <Text style={[styles.used, { color: warning ? theme.warning : theme.muted }]}>
                     {hasBudget
                       ? mode === 'income'
-                        ? `${percent}% recibido`
+                        ? `${percent}% ${copy.envelopes.received}`
                         : mode === 'savings'
-                          ? `${percent}% ahorrado`
+                          ? `${percent}% ${copy.envelopes.saved}`
                           : `${percent}% usado`
-                      : 'Sin límite mensual'}
+                      : copy.envelopes.noMonthlyLimit}
                   </Text>
                   {warning ? (
-                    <Pill tone="orange">Casi agotado</Pill>
+                    <Pill tone="orange">{copy.envelopes.almostEmpty}</Pill>
                   ) : (
                     <Text style={[styles.rule, { color: theme.muted }]} numberOfLines={1}>
                       {envelope.rule}

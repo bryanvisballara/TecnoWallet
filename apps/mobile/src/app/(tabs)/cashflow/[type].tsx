@@ -5,44 +5,31 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 
 type CashflowType = 'ingresos' | 'gastos';
 
-const copy: Record<CashflowType, {
-  title: string;
-  subtitle: string;
-  heroLabel: string;
-  empty: string;
-  add: string;
-  tone: 'green' | 'orange';
-}> = {
-  ingresos: {
-    title: 'Ingresos',
-    subtitle: 'Entradas de este mes',
-    heroLabel: 'Total ingresado',
-    empty: 'Aún no hay ingresos registrados.',
-    add: 'Registrar ingreso',
-    tone: 'green',
-  },
-  gastos: {
-    title: 'Gastos',
-    subtitle: 'Salidas de este mes',
-    heroLabel: 'Total gastado',
-    empty: 'Aún no hay gastos registrados.',
-    add: 'Registrar gasto',
-    tone: 'orange',
-  },
-};
-
 export default function CashflowDetailScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { type: raw = 'gastos' } = useLocalSearchParams<{ type: string }>();
   const type: CashflowType = raw === 'ingresos' ? 'ingresos' : 'gastos';
-  const meta = copy[type];
+  const isIncome = type === 'ingresos';
+  const meta = {
+    title: isIncome ? copy.cashflow.income : copy.cashflow.expenses,
+    subtitle: isIncome ? copy.cashflow.incomeSubtitle : copy.cashflow.expensesSubtitle,
+    heroLabel: isIncome ? copy.cashflow.totalIn : copy.cashflow.totalOut,
+    empty: isIncome ? copy.cashflow.emptyIncome : copy.cashflow.emptyExpenses,
+    add: isIncome ? copy.cashflow.registerIncome : copy.cashflow.registerExpense,
+    tone: (isIncome ? 'green' : 'orange') as 'green' | 'orange',
+  };
   const { summary, ledger } = useActiveLedger();
   const transactions = useFinanceStore((state) => state.transactions);
+  const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   const items = useMemo(
     () => transactions.filter((item) => (type === 'ingresos' ? item.amount > 0 : item.amount < 0)),
@@ -71,7 +58,7 @@ export default function CashflowDetailScreen() {
   return (
     <Screen
       title={meta.title}
-      subtitle={`${meta.subtitle} · ${ledger.name}`}
+      subtitle={`${meta.subtitle} · ${ledgerLabel}`}
       right={
         <Pressable
           accessibilityRole="button"
@@ -85,13 +72,13 @@ export default function CashflowDetailScreen() {
         <Text style={styles.heroLabel}>{meta.heroLabel}</Text>
         <Text style={styles.heroValue}>{money(heroTotal || total)}</Text>
         <View style={styles.heroMeta}>
-          <Pill tone={meta.tone}>{items.length} movimientos</Pill>
+          <Pill tone={meta.tone}>{copy.cashflow.nMovements(items.length)}</Pill>
           <Text style={styles.heroHint}>Agosto 2026</Text>
         </View>
       </Card>
 
       <Card>
-        <Text style={[styles.section, { color: theme.text }]}>Por categoría</Text>
+        <Text style={[styles.section, { color: theme.text }]}>{copy.cashflow.byCategory}</Text>
         {categories.length === 0 ? (
           <Text style={[styles.empty, { color: theme.muted }]}>{meta.empty}</Text>
         ) : (
@@ -108,7 +95,9 @@ export default function CashflowDetailScreen() {
                     <Text style={[styles.categoryAmount, { color: theme.text }]}>{money(category.amount)}</Text>
                   </View>
                   <ProgressBar value={ratio} color={accent} label={`${category.name} ${Math.round(ratio * 100)}%`} />
-                  <Text style={[styles.categoryShare, { color: theme.muted }]}>{Math.round(ratio * 100)}% del total</Text>
+                  <Text style={[styles.categoryShare, { color: theme.muted }]}>
+                    {Math.round(ratio * 100)}{copy.cashflow.pctOfTotal}
+                  </Text>
                 </View>
               </View>
             );
@@ -116,7 +105,7 @@ export default function CashflowDetailScreen() {
         )}
       </Card>
 
-      <Text style={[styles.section, { color: theme.text }]}>Movimientos</Text>
+      <Text style={[styles.section, { color: theme.text }]}>{copy.cashflow.movements}</Text>
       <Card style={styles.listCard}>
         {items.length === 0 ? (
           <Text style={[styles.empty, { color: theme.muted }]}>{meta.empty}</Text>
@@ -150,7 +139,7 @@ export default function CashflowDetailScreen() {
       </PrimaryButton>
 
       <ScalePressable onPress={() => router.push('/(tabs)/movimientos')}>
-        <Text style={[styles.link, { color: theme.primary }]}>Ver todos los movimientos</Text>
+        <Text style={[styles.link, { color: theme.primary }]}>{copy.cashflow.viewAll}</Text>
       </ScalePressable>
     </Screen>
   );

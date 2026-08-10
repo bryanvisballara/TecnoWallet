@@ -1,7 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
@@ -19,10 +18,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppIcon, Pill, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
+import { useAppCopy } from '@/i18n/app-copy';
 import { useAuthStore } from '@/store/auth';
 
 export default function ProfileScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const demo = useAuthStore((state) => state.demo);
   const profile = useAuthStore((state) => state.profile);
   const updateProfile = useAuthStore((state) => state.updateProfile);
@@ -48,7 +49,7 @@ export default function ProfileScreen() {
   const pickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permiso necesario', 'Activa el acceso a fotos para cambiar tu imagen de perfil.');
+      Alert.alert(copy.profile.permissionTitle, copy.profile.permissionBody);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -68,20 +69,23 @@ export default function ProfileScreen() {
 
   const saveProfile = async () => {
     if (!name.trim()) {
-      Alert.alert('Nombre requerido', 'Escribe cómo quieres que te llamemos.');
+      Alert.alert(copy.profile.nameRequiredTitle, copy.profile.nameRequiredBody);
       return;
     }
     if (!email.trim() || !email.includes('@')) {
-      Alert.alert('Correo inválido', 'Revisa el correo registrado.');
+      Alert.alert(copy.profile.emailInvalidTitle, copy.profile.emailInvalidBody);
       return;
     }
     setSaving(true);
     try {
       await updateProfile({ name: name.trim(), email: email.trim() });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Perfil actualizado', 'Tus datos se guardaron en este dispositivo.');
+      Alert.alert(copy.profile.profileUpdatedTitle, copy.profile.profileUpdatedBody);
     } catch (error) {
-      Alert.alert('No se pudo guardar', error instanceof Error ? error.message : 'Inténtalo de nuevo.');
+      Alert.alert(
+        copy.profile.saveFailedTitle,
+        error instanceof Error ? error.message : copy.common.tryAgain,
+      );
     } finally {
       setSaving(false);
     }
@@ -89,11 +93,11 @@ export default function ProfileScreen() {
 
   const savePassword = async () => {
     if (demo) {
-      Alert.alert('Modo demo', 'Inicia sesión con una cuenta real para cambiar la contraseña.');
+      Alert.alert(copy.profile.demoModeTitle, copy.profile.demoModeBody);
       return;
     }
     if (nextPassword !== confirmPassword) {
-      Alert.alert('No coinciden', 'La confirmación de la nueva contraseña no coincide.');
+      Alert.alert(copy.profile.passwordMismatchTitle, copy.profile.passwordMismatchBody);
       return;
     }
     setSavingPassword(true);
@@ -103,9 +107,12 @@ export default function ProfileScreen() {
       setNextPassword('');
       setConfirmPassword('');
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Contraseña actualizada', 'Usa la nueva contraseña en tu próximo acceso.');
+      Alert.alert(copy.profile.passwordUpdatedTitle, copy.profile.passwordUpdatedBody);
     } catch (error) {
-      Alert.alert('No se pudo cambiar', error instanceof Error ? error.message : 'Inténtalo de nuevo.');
+      Alert.alert(
+        copy.profile.passwordChangeFailedTitle,
+        error instanceof Error ? error.message : copy.common.tryAgain,
+      );
     } finally {
       setSavingPassword(false);
     }
@@ -116,14 +123,14 @@ export default function ProfileScreen() {
       <View style={styles.header}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Volver"
+          accessibilityLabel={copy.common.back}
           onPress={() => safeGoBack('/(tabs)/mas')}
           style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}>
           <AppIcon name="arrow.left" color={theme.text} />
         </Pressable>
         <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: theme.text }]}>Tu perfil</Text>
-          <Text style={[styles.subtitle, { color: theme.muted }]}>Datos de la cuenta</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{copy.profile.title}</Text>
+          <Text style={[styles.subtitle, { color: theme.muted }]}>{copy.profile.subtitle}</Text>
         </View>
         {demo ? <Pill tone="blue">Demo</Pill> : <View style={styles.back} />}
       </View>
@@ -136,7 +143,7 @@ export default function ProfileScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <View style={[styles.avatarCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <ScalePressable accessibilityLabel="Cambiar foto de perfil" onPress={() => void pickAvatar()}>
+            <ScalePressable accessibilityLabel={copy.profile.changePhotoA11y} onPress={() => void pickAvatar()}>
               <Image
                 source={avatarSource}
                 style={[styles.avatar as ImageStyle, { backgroundColor: theme.primarySoft }]}
@@ -146,44 +153,46 @@ export default function ProfileScreen() {
                 <AppIcon name="camera" color="#FFFFFF" size={14} />
               </View>
             </ScalePressable>
-            <Text style={[styles.avatarHint, { color: theme.muted }]}>Toca para cambiar la foto</Text>
+            <Text style={[styles.avatarHint, { color: theme.muted }]}>{copy.profile.tapToChangePhoto}</Text>
             {profile.avatarUri ? (
               <Pressable onPress={() => void removeAvatar()}>
-                <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>Quitar foto</Text>
+                <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>
+                  {copy.profile.removePhoto}
+                </Text>
               </Pressable>
             ) : null}
           </View>
 
-          <Text style={[styles.section, { color: theme.text }]}>Información</Text>
+          <Text style={[styles.section, { color: theme.text }]}>{copy.profile.sectionInfo}</Text>
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Field label="Nombre">
+            <Field label={copy.profile.name}>
               <TextInput
                 value={name}
                 onChangeText={setName}
-                placeholder="Tu nombre"
+                placeholder={copy.profile.namePlaceholder}
                 placeholderTextColor={theme.muted}
                 style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
               />
             </Field>
-            <Field label="Correo registrado">
+            <Field label={copy.profile.email}>
               <TextInput
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
-                placeholder="correo@ejemplo.com"
+                placeholder={copy.profile.emailPlaceholder}
                 placeholderTextColor={theme.muted}
                 style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
               />
             </Field>
             <PrimaryButton onPress={() => void saveProfile()}>
-              {saving ? 'Guardando…' : 'Guardar cambios'}
+              {saving ? copy.profile.saving : copy.profile.saveChanges}
             </PrimaryButton>
           </View>
 
-          <Text style={[styles.section, { color: theme.text }]}>Seguridad</Text>
+          <Text style={[styles.section, { color: theme.text }]}>{copy.profile.sectionSecurity}</Text>
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Field label="Contraseña actual">
+            <Field label={copy.profile.currentPassword}>
               <TextInput
                 value={currentPassword}
                 onChangeText={setCurrentPassword}
@@ -193,28 +202,28 @@ export default function ProfileScreen() {
                 style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
               />
             </Field>
-            <Field label="Nueva contraseña">
+            <Field label={copy.profile.newPassword}>
               <TextInput
                 value={nextPassword}
                 onChangeText={setNextPassword}
                 secureTextEntry
-                placeholder="Mínimo 6 caracteres"
+                placeholder={copy.profile.newPasswordPlaceholder}
                 placeholderTextColor={theme.muted}
                 style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
               />
             </Field>
-            <Field label="Confirmar nueva contraseña">
+            <Field label={copy.profile.confirmPassword}>
               <TextInput
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry
-                placeholder="Repite la nueva contraseña"
+                placeholder={copy.profile.confirmPasswordPlaceholder}
                 placeholderTextColor={theme.muted}
                 style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
               />
             </Field>
             <PrimaryButton onPress={() => void savePassword()}>
-              {savingPassword ? 'Actualizando…' : 'Cambiar contraseña'}
+              {savingPassword ? copy.profile.updating : copy.profile.changePassword}
             </PrimaryButton>
           </View>
         </ScrollView>

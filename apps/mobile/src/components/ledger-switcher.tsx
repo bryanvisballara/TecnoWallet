@@ -4,6 +4,8 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
+import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
+import { useLanguageStore } from '@/store/language';
 import { useLedgerStore } from '@/store/ledger';
 import { usePlusStore, hasPaidPlan } from '@/store/plus';
 
@@ -13,6 +15,8 @@ type Props = {
 
 export function LedgerSwitcher({ compact = false }: Props) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const insets = useSafeAreaInsets();
   const ledgers = useLedgerStore((state) => state.ledgers);
   const activeLedgerId = useLedgerStore((state) => state.activeLedgerId);
@@ -24,6 +28,7 @@ export function LedgerSwitcher({ compact = false }: Props) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const active = ledgers.find((item) => item.id === activeLedgerId) ?? ledgers[0];
+  const activeName = active ? displayLedgerName(active.name, locale) : copy.ledger.fallback;
 
   const close = () => {
     setOpen(false);
@@ -46,8 +51,8 @@ export function LedgerSwitcher({ compact = false }: Props) {
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Libro activo ${active?.name}. Cambiar libro`}
-        accessibilityHint="Abre la lista de libros"
+        accessibilityLabel={copy.ledger.activeA11y(activeName)}
+        accessibilityHint={copy.ledger.openHint}
         onPress={() => setOpen(true)}
         style={({ pressed }) => [
           styles.trigger,
@@ -62,7 +67,7 @@ export function LedgerSwitcher({ compact = false }: Props) {
             compact ? styles.triggerCompact : styles.triggerTitle,
             { color: theme.text },
           ]}>
-          {active?.name ?? 'Libro'}
+          {activeName}
         </Text>
         <AppIcon name="chevron.down" color={theme.muted} size={compact ? 12 : 13} />
       </Pressable>
@@ -74,10 +79,11 @@ export function LedgerSwitcher({ compact = false }: Props) {
           <Pressable
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
-            <Text style={[styles.sheetTitle, { color: theme.muted }]}>LIBROS DE CONTABILIDAD</Text>
+            <Text style={[styles.sheetTitle, { color: theme.muted }]}>{copy.ledger.sheetTitle}</Text>
 
             {ledgers.map((ledger) => {
               const selected = ledger.id === activeLedgerId;
+              const name = displayLedgerName(ledger.name, locale);
               return (
                 <View
                   key={ledger.id}
@@ -96,16 +102,16 @@ export function LedgerSwitcher({ compact = false }: Props) {
                       <AppIcon name={ledger.icon} color={ledger.color} size={18} />
                     </View>
                     <View style={styles.copy}>
-                      <Text style={[styles.name, { color: theme.text }]}>{ledger.name}</Text>
+                      <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
                       <Text style={[styles.meta, { color: theme.muted }]}>
                         {ledger.type === 'shared'
-                          ? `${ledger.members.length} personas`
-                          : 'Personal'}
+                          ? copy.common.people(ledger.members.length)
+                          : copy.common.personal}
                       </Text>
                     </View>
                   </ScalePressable>
                   <ScalePressable
-                    accessibilityLabel={`Compartir ${ledger.name}`}
+                    accessibilityLabel={copy.ledger.shareA11y(name)}
                     onPress={() => {
                       close();
                       if (!hasPaidPlan(plusAccess)) {
@@ -118,7 +124,7 @@ export function LedgerSwitcher({ compact = false }: Props) {
                     <AppIcon name="person.2.fill" color={theme.muted} size={18} />
                   </ScalePressable>
                   <ScalePressable
-                    accessibilityLabel={`Ajustes de ${ledger.name}`}
+                    accessibilityLabel={`${copy.tabs.mas} ${name}`}
                     onPress={() => {
                       close();
                       router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id } });
@@ -136,17 +142,17 @@ export function LedgerSwitcher({ compact = false }: Props) {
                   autoFocus
                   value={newName}
                   onChangeText={setNewName}
-                  placeholder="Nombre del libro"
+                  placeholder={copy.ledger.namePlaceholder}
                   placeholderTextColor={theme.muted}
                   style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
                   onSubmitEditing={() => void onCreate()}
                 />
                 <View style={styles.createActions}>
                   <Pressable onPress={() => setCreating(false)}>
-                    <Text style={{ color: theme.muted, fontWeight: '600' }}>Cancelar</Text>
+                    <Text style={{ color: theme.muted, fontWeight: '600' }}>{copy.common.cancel}</Text>
                   </Pressable>
                   <Pressable onPress={() => void onCreate()}>
-                    <Text style={{ color: theme.primary, fontWeight: '700' }}>Crear</Text>
+                    <Text style={{ color: theme.primary, fontWeight: '700' }}>{copy.common.create}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -161,7 +167,7 @@ export function LedgerSwitcher({ compact = false }: Props) {
                   setCreating(true);
                 }}
                 style={[styles.addRow, { borderTopColor: theme.border }]}>
-                <Text style={[styles.addText, { color: theme.primary }]}>+ Añadir Libro</Text>
+                <Text style={[styles.addText, { color: theme.primary }]}>{copy.ledger.addBook}</Text>
                 <AppIcon name="person.badge.plus" color={theme.success} size={20} />
               </ScalePressable>
             )}

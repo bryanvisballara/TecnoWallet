@@ -21,8 +21,13 @@ export function monthFromDate(date = new Date()): MonthCursor {
   return { year: date.getFullYear(), month: date.getMonth() };
 }
 
-export function formatMonthLabel({ year, month }: MonthCursor, style: 'long' | 'short' = 'long') {
-  const label = new Intl.DateTimeFormat('es-ES', {
+export function formatMonthLabel(
+  { year, month }: MonthCursor,
+  style: 'long' | 'short' = 'long',
+  locale: string = 'es',
+) {
+  const tag = locale === 'es' ? 'es-ES' : 'en-US';
+  const label = new Intl.DateTimeFormat(tag, {
     month: style,
     year: 'numeric',
   }).format(new Date(year, month, 1));

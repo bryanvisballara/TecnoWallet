@@ -17,6 +17,7 @@ import Animated, {
 
 import { AppIcon } from '@/components/ui';
 import { Colors, Radius } from '@/constants/theme';
+import { useAppCopy } from '@/i18n/app-copy';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { useTabBarStore } from '@/store/tab-bar';
@@ -60,20 +61,36 @@ const MAS_SCREENS = new Set([
   'ledgers',
   'export',
   'afiliados',
+  'admin',
 ]);
 const INICIO_SCREENS = new Set(['inicio', 'notifications', 'cashflow/[type]', 'movimientos', 'profile']);
 const SOBRES_SCREENS = new Set(['sobres', 'envelope/[id]']);
 const CALENDARIO_SCREENS = new Set(['calendario', 'calendars']);
 
-const financeOptions = [
-  { key: 'cuentas', title: 'Cuentas', icon: 'creditcard.fill', route: 'mis-cuentas' },
-  { key: 'salud', title: 'Salud financiera', icon: 'heart.fill', route: 'salud-financiera' },
-  { key: 'metas', title: 'Metas/Ahorros', icon: 'target', route: 'metas' },
-];
-
 export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBarProps) {
   const dark = useColorScheme() === 'dark';
   const theme = Colors[dark ? 'dark' : 'light'];
+  const copy = useAppCopy();
+  const financeOptions = [
+    {
+      key: 'cuentas',
+      title: copy.financeMenu.accounts,
+      icon: 'creditcard.fill',
+      route: 'mis-cuentas' as const,
+    },
+    {
+      key: 'salud',
+      title: copy.financeMenu.health,
+      icon: 'heart.fill',
+      route: 'salud-financiera' as const,
+    },
+    {
+      key: 'metas',
+      title: copy.financeMenu.goals,
+      icon: 'target',
+      route: 'metas' as const,
+    },
+  ];
   const { tabBarPadding } = useSafeLayout();
   const collapsed = useTabBarStore((s) => s.collapsed);
   const expand = useTabBarStore((s) => s.expand);

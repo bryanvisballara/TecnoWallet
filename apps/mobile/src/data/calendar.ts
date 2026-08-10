@@ -246,6 +246,15 @@ export const typeLabels: Record<CalendarItemType, string> = {
   birthday: 'Cumpleaños',
 };
 
+export function localizedTypeLabels(locale: string): Record<CalendarItemType, string> {
+  if (locale === 'es') return typeLabels;
+  return {
+    event: 'Event',
+    task: 'Task',
+    birthday: 'Birthday',
+  };
+}
+
 export const typeIcons: Record<CalendarItemType, string> = {
   event: 'calendar',
   task: 'checkmark.circle.fill',
@@ -264,12 +273,14 @@ export function parseDateKey(key: string) {
   return new Date(y, (m ?? 1) - 1, d ?? 1);
 }
 
-export function formatDayLabel(date: Date) {
-  return new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).format(date);
+export function formatDayLabel(date: Date, locale: string = 'es') {
+  const tag = locale === 'es' ? 'es-ES' : 'en-US';
+  return new Intl.DateTimeFormat(tag, { weekday: 'short', day: 'numeric', month: 'short' }).format(date);
 }
 
-export function formatMonthTitle(date: Date) {
-  const raw = new Intl.DateTimeFormat('es-ES', { month: 'long' }).format(date);
+export function formatMonthTitle(date: Date, locale: string = 'es') {
+  const tag = locale === 'es' ? 'es-ES' : 'en-US';
+  const raw = new Intl.DateTimeFormat(tag, { month: 'long' }).format(date);
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
@@ -302,8 +313,12 @@ export function buildMonthMatrix(anchor: Date, weekStartsOn: 0 | 1 = 0) {
   return cells;
 }
 
-export function weekDayLabels(weekStartsOn: 0 | 1 = 0) {
-  const labels = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+export function weekDayLabels(weekStartsOn: 0 | 1 = 0, locale: string = 'es') {
+  // English uses 2 letters so Tuesday/Thursday (and Sun/Sat) stay unique as React keys.
+  const labels =
+    locale === 'es'
+      ? ['D', 'L', 'M', 'X', 'J', 'V', 'S']
+      : ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   if (weekStartsOn === 0) return labels;
   return [...labels.slice(1), labels[0]];
 }

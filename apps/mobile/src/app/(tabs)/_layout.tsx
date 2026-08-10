@@ -3,16 +3,17 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { AppIcon, useAppTheme } from '@/components/ui';
+import { useAppCopy } from '@/i18n/app-copy';
 import { useAuthStore } from '@/store/auth';
 import { useLedgerStore } from '@/store/ledger';
 
-const tabs = [
-  { name: 'inicio', title: 'Inicio', icon: 'house.fill' },
-  { name: 'sobres', title: 'Sobres', icon: 'wallet.pass.fill' },
-  { name: 'cuentas', title: 'Finanzas', icon: 'creditcard.fill' },
-  { name: 'recaudos', title: 'Recaudos', icon: 'person.2.fill' },
-  { name: 'calendario', title: 'Calendario', icon: 'calendar', a11y: 'Calendario' },
-  { name: 'mas', title: 'Más', icon: 'ellipsis.circle.fill' },
+const tabDefs = [
+  { name: 'inicio', key: 'inicio' as const, icon: 'house.fill' },
+  { name: 'sobres', key: 'sobres' as const, icon: 'wallet.pass.fill' },
+  { name: 'cuentas', key: 'finanzas' as const, icon: 'creditcard.fill' },
+  { name: 'recaudos', key: 'recaudos' as const, icon: 'person.2.fill' },
+  { name: 'calendario', key: 'calendario' as const, icon: 'calendar' },
+  { name: 'mas', key: 'mas' as const, icon: 'ellipsis.circle.fill' },
 ];
 
 /** Secondary routes keep the floating tab bar but stay out of the tab strip. */
@@ -35,10 +36,12 @@ const hiddenTabs = [
   'goal/[id]',
   'recaudo/[id]',
   'afiliados',
+  'admin',
 ] as const;
 
 export default function TabsLayout() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const hydrated = useAuthStore((state) => state.hydrated);
   const authenticated = useAuthStore((state) => state.authenticated);
   const ledgerHydrated = useLedgerStore((state) => state.hydrated);
@@ -73,19 +76,22 @@ export default function TabsLayout() {
         tabBarStyle: styles.hiddenNativeBar,
         sceneStyle: { backgroundColor: theme.background },
       }}>
-      {tabs.map((tab) => (
-        <Tabs.Screen
-          key={tab.name}
-          name={tab.name}
-          options={{
-            title: tab.title,
-            tabBarAccessibilityLabel: tab.a11y ?? tab.title,
-            tabBarIcon: ({ color, focused }) => (
-              <AppIcon name={tab.icon} color={color} size={focused ? 22 : 20} />
-            ),
-          }}
-        />
-      ))}
+      {tabDefs.map((tab) => {
+        const title = copy.tabs[tab.key];
+        return (
+          <Tabs.Screen
+            key={tab.name}
+            name={tab.name}
+            options={{
+              title,
+              tabBarAccessibilityLabel: title,
+              tabBarIcon: ({ color, focused }) => (
+                <AppIcon name={tab.icon} color={color} size={focused ? 22 : 20} />
+              ),
+            }}
+          />
+        );
+      })}
       {hiddenTabs.map((name) => (
         <Tabs.Screen key={name} name={name} options={{ href: null }} />
       ))}

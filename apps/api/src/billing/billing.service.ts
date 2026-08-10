@@ -2,8 +2,10 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   ServiceUnavailableException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -85,6 +87,7 @@ export class BillingService {
     @InjectModel(RevenueCatWebhookEvent.name)
     private readonly webhookEvents: Model<RevenueCatWebhookEvent>,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => AffiliateService))
     private readonly affiliates: AffiliateService,
   ) {}
 
@@ -315,7 +318,7 @@ export class BillingService {
 
     const expiresAt = this.dateFromMilliseconds(event.expiration_at_ms);
     const purchasedAt = this.dateFromMilliseconds(event.purchased_at_ms);
-    await this.subscriptions.findOneAndUpdate(
+    const subscription = await this.subscriptions.findOneAndUpdate(
       { userId },
       {
         $set: this.withoutUndefined({
@@ -348,6 +351,7 @@ export class BillingService {
       String(userId),
       event,
       purchasedAt,
+      subscription?._id?.toString(),
     );
 
     return { processed: true, ignored: false };
@@ -359,6 +363,7 @@ export class BillingService {
     userId: string,
     event: NonNullable<RevenueCatWebhookPayload['event']>,
     purchasedAt?: Date,
+    subscriptionId?: string,
   ) {
     if (
       ![
@@ -406,6 +411,7 @@ export class BillingService {
       currency,
       occurredAt: purchasedAt ?? new Date(),
       status: eventType === 'REFUND' ? 'reversed' : 'pending',
+      subscriptionId,
     });
   }
 

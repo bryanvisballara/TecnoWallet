@@ -15,6 +15,7 @@ import {
   ScalePressable,
   useAppTheme,
 } from '@/components/ui';
+import { useAppCopy } from '@/i18n/app-copy';
 import {
   purchaseBusiness,
   purchasePlus,
@@ -22,53 +23,27 @@ import {
 } from '@/services/purchases';
 import {
   type PaywallPlan,
-  type PlusReason,
   usePlusStore,
 } from '@/store/plus';
 
-const contextCopy: Record<PlusReason, { title: string; body: string }> = {
-  UPGRADE: {
-    title: 'Desbloquea tu plan',
-    body: 'Organiza más, comparte con tu gente y recibe respuestas inteligentes sobre tu dinero.',
-  },
-  BOOK_LIMIT: {
-    title: 'Haz espacio para todos tus proyectos',
-    body: 'Tu plan gratis incluye un libro. Con un plan de pago puedes separar hogar, negocio, viajes y más.',
-  },
-  ENVELOPE_LIMIT: {
-    title: 'Tu presupuesto puede crecer contigo',
-    body: 'Ya usaste los 5 sobres gratuitos de esta sección. Con Plus o Business puedes crear todos los que necesites.',
-  },
-  SHARING_REQUIRED: {
-    title: 'Las finanzas funcionan mejor en equipo',
-    body: 'Invita colaboradores a tus libros y calendarios con acceso controlado.',
-  },
-  AI_REQUIRED: {
-    title: 'Convierte tus movimientos en respuestas',
-    body: 'Pregunta cuánto gastaste, dónde se fue tu dinero y cómo avanzan tus metas.',
-  },
-  SEAT_LIMIT: {
-    title: 'Tu equipo necesita más cupos',
-    body: 'TecnoWallet+ incluye 5 colaboradores. Business abre hasta 10 cupos únicos.',
-  },
-};
-
-const plusBenefits = [
-  ['sparkles', 'Asistente IA financiero'],
-  ['wallet.pass.fill', 'Libros y sobres sin límites Free'],
-  ['person.2.fill', 'Hasta 5 colaboradores'],
-  ['calendar', 'Libros y calendarios compartidos'],
+const plusBenefitIcons = [
+  'sparkles',
+  'wallet.pass.fill',
+  'person.2.fill',
+  'calendar',
 ] as const;
 
-const businessBenefits = [
-  ['briefcase.fill', 'Todo lo de TecnoWallet+'],
-  ['person.2.fill', 'Hasta 10 colaboradores'],
-  ['sparkles', 'Asistente IA financiero'],
-  ['calendar', 'Libros y calendarios compartidos'],
+const businessBenefitIcons = [
+  'briefcase.fill',
+  'person.2.fill',
+  'gift.fill',
+  'sparkles',
+  'calendar',
 ] as const;
 
 export function PlusPaywallModal() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const visible = usePlusStore((state) => state.paywallOpen);
   const reason = usePlusStore((state) => state.paywallReason);
   const plan = usePlusStore((state) => state.paywallPlan);
@@ -78,11 +53,20 @@ export function PlusPaywallModal() {
   const setBilling = usePlusStore((state) => state.setBilling);
   const [working, setWorking] = useState<'buy' | 'restore' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const copy = contextCopy[reason];
+  const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
-  const benefits = isBusiness ? businessBenefits : plusBenefits;
+  const benefitLabels = isBusiness ? copy.paywall.businessBenefits : copy.paywall.plusBenefits;
+  const benefitIcons = isBusiness ? businessBenefitIcons : plusBenefitIcons;
   const activePrice = isBusiness ? businessPriceLabel : priceLabel;
   const brandLabel = isBusiness ? 'TECNOWALLET BUSINESS' : 'TECNOWALLET+';
+
+  const title = isBusiness
+    ? reason === 'SEAT_LIMIT'
+      ? copy.paywall.upgradeBusinessSeat
+      : copy.paywall.unlockBusiness
+    : reason === 'UPGRADE'
+      ? copy.paywall.unlockPlus
+      : reasonCopy.title;
 
   const runPurchase = async (target: PaywallPlan = plan) => {
     setError(null);
@@ -98,7 +82,7 @@ export function PlusPaywallModal() {
       const message =
         purchaseError instanceof Error
           ? purchaseError.message
-          : 'No pudimos completar la compra.';
+          : copy.paywall.purchaseFailed;
       if (!/cancel/i.test(message)) setError(message);
     } finally {
       setWorking(null);
@@ -112,12 +96,12 @@ export function PlusPaywallModal() {
       const billing = await restorePlusPurchases();
       setBilling(billing);
       if (billing.isPlus) close();
-      else setError('No encontramos una suscripción activa para restaurar.');
+      else setError(copy.paywall.restoreEmpty);
     } catch (restoreError) {
       setError(
         restoreError instanceof Error
           ? restoreError.message
-          : 'No pudimos restaurar tus compras.',
+          : copy.paywall.restoreFailed,
       );
     } finally {
       setWorking(null);
@@ -150,7 +134,7 @@ export function PlusPaywallModal() {
               />
             </View>
             <ScalePressable
-              accessibilityLabel="Cerrar"
+              accessibilityLabel={copy.common.close}
               disabled={Boolean(working)}
               onPress={close}
               style={[styles.close, { backgroundColor: theme.surfaceSecondary }]}>
@@ -161,24 +145,18 @@ export function PlusPaywallModal() {
           <Text style={[styles.eyebrow, { color: theme.primary }]}>
             {brandLabel}
           </Text>
-          <Text style={[styles.title, { color: theme.text }]}>
-            {isBusiness && reason === 'SEAT_LIMIT'
-              ? 'Pasa a TecnoWallet Business'
-              : isBusiness
-                ? 'Desbloquea TecnoWallet Business'
-                : copy.title.replace('tu plan', 'TecnoWallet+')}
-          </Text>
-          <Text style={[styles.body, { color: theme.muted }]}>{copy.body}</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+          <Text style={[styles.body, { color: theme.muted }]}>{reasonCopy.body}</Text>
 
           <View style={styles.benefits}>
-            {benefits.map(([icon, label]) => (
+            {benefitLabels.map((label, index) => (
               <View key={label} style={styles.benefit}>
                 <View
                   style={[
                     styles.check,
                     { backgroundColor: theme.successSoft },
                   ]}>
-                  <AppIcon name={icon} color={theme.success} size={16} />
+                  <AppIcon name={benefitIcons[index]} color={theme.success} size={16} />
                 </View>
                 <Text style={[styles.benefitText, { color: theme.text }]}>
                   {label}
@@ -205,16 +183,16 @@ export function PlusPaywallModal() {
                 <Text style={styles.primaryText}>
                   {Platform.OS === 'ios'
                     ? isBusiness
-                      ? 'Suscribirme a Business'
-                      : 'Suscribirme con Apple'
+                      ? copy.paywall.subscribeBusiness
+                      : copy.paywall.subscribeApple
                     : isBusiness
-                      ? 'Ver TecnoWallet Business'
-                      : 'Ver TecnoWallet+'}
+                      ? copy.paywall.viewBusiness
+                      : copy.paywall.viewPlus}
                 </Text>
                 <Text style={styles.price}>
                   {activePrice
-                    ? `${activePrice} al mes`
-                    : 'Precio mostrado antes de confirmar'}
+                    ? copy.paywall.pricePerMonth(activePrice)
+                    : copy.paywall.priceBeforeConfirm}
                 </Text>
               </>
             )}
@@ -228,24 +206,21 @@ export function PlusPaywallModal() {
               <ActivityIndicator color={theme.primary} />
             ) : (
               <Text style={[styles.restoreText, { color: theme.primary }]}>
-                Restaurar compras
+                {copy.paywall.restore}
               </Text>
             )}
           </ScalePressable>
 
           {error ? <Text style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
 
-          <Text style={[styles.legal, { color: theme.muted }]}>
-            La suscripción se renueva automáticamente hasta que la canceles.
-            El cobro se realiza con tu cuenta de Apple.
-          </Text>
+          <Text style={[styles.legal, { color: theme.muted }]}>{copy.paywall.legal}</Text>
           <View style={styles.legalLinks}>
             <Pressable onPress={() => void Linking.openURL('https://tecnowallet.app/terms')}>
-              <Text style={[styles.legalLink, { color: theme.primary }]}>Términos</Text>
+              <Text style={[styles.legalLink, { color: theme.primary }]}>{copy.paywall.terms}</Text>
             </Pressable>
             <Text style={{ color: theme.muted }}>·</Text>
             <Pressable onPress={() => void Linking.openURL('https://tecnowallet.app/privacy')}>
-              <Text style={[styles.legalLink, { color: theme.primary }]}>Privacidad</Text>
+              <Text style={[styles.legalLink, { color: theme.primary }]}>{copy.paywall.privacy}</Text>
             </Pressable>
           </View>
         </Pressable>

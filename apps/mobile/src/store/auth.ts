@@ -25,6 +25,7 @@ export type UserProfile = {
   name: string;
   email: string;
   avatarUri?: string;
+  platformRole?: 'user' | 'admin';
 };
 
 type AuthState = {
@@ -60,7 +61,12 @@ type AuthState = {
 type AuthResponse = {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; name: string; email: string };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    platformRole?: 'user' | 'admin';
+  };
 };
 
 type RegisterResponse =
@@ -78,15 +84,17 @@ const defaultProfile: UserProfile = {
 };
 
 async function readProfile(): Promise<UserProfile> {
-  const [name, email, avatarUri] = await Promise.all([
+  const [name, email, avatarUri, platformRole] = await Promise.all([
     localStorage.get('profile-name', defaultProfile.name),
     localStorage.get('profile-email', defaultProfile.email),
     localStorage.get<string | null>('profile-avatar', null),
+    localStorage.get<'user' | 'admin'>('profile-platform-role', 'user'),
   ]);
   return {
     name: name || defaultProfile.name,
     email: email || defaultProfile.email,
     avatarUri: avatarUri ?? undefined,
+    platformRole: platformRole === 'admin' ? 'admin' : 'user',
   };
 }
 
@@ -94,6 +102,10 @@ async function writeProfile(profile: UserProfile) {
   await Promise.all([
     localStorage.set('profile-name', profile.name),
     localStorage.set('profile-email', profile.email),
+    localStorage.set(
+      'profile-platform-role',
+      profile.platformRole === 'admin' ? 'admin' : 'user',
+    ),
     profile.avatarUri
       ? localStorage.set('profile-avatar', profile.avatarUri)
       : localStorage.remove('profile-avatar'),
@@ -107,6 +119,7 @@ async function persistAuthSession(
   const profile: UserProfile = {
     name: auth.user.name,
     email: auth.user.email.toLowerCase(),
+    platformRole: auth.user.platformRole === 'admin' ? 'admin' : 'user',
   };
   bumpAuthEpoch();
   await Promise.all([
@@ -146,6 +159,7 @@ async function clearLocalSession() {
     refreshTokenStorage.clear(),
     localStorage.set('demo-session', false),
     localStorage.remove('auth-user-id'),
+    localStorage.remove('profile-platform-role'),
   ]);
 }
 
@@ -194,13 +208,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })();
     });
 
-    const [onboarded, token, refreshToken, demo, profile] = await Promise.all([
+    const [onboarded, token, refreshToken, demo, storedProfile] = await Promise.all([
       localStorage.get('onboarded', false),
       tokenStorage.get(),
       refreshTokenStorage.get(),
       localStorage.get('demo-session', false),
       readProfile(),
     ]);
+    let profile = storedProfile;
 
     let stillAuthed = demo;
     if (!demo && (token || refreshToken)) {
@@ -233,6 +248,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         else {
           await clearLocalSession();
           stillAuthed = false;
+        }
+        if (stillAuthed) {
+          try {
+            const me = await apiRequest<{
+              id: string;
+              email: string;
+              name: string;
+              platformRole?: 'user' | 'admin';
+            }>('/auth/me');
+            profile.name = me.name;
+            profile.email = me.email.toLowerCase();
+            profile.platformRole =
+              me.platformRole === 'admin' ? 'admin' : 'user';
+            await writeProfile(profile);
+          } catch {
+            // Keep cached profile if /me is unavailable.
+          }
         }
       }
     }

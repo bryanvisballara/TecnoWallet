@@ -117,6 +117,23 @@ export class EntitlementService {
     });
   }
 
+  async assertBusiness(
+    userId: string,
+    reason: PlusRequirementReason = {},
+  ): Promise<void> {
+    const status = await this.statusFor(userId);
+    if (status.isBusiness) return;
+
+    throw new PaymentRequiredException({
+      statusCode: 402,
+      error: 'Payment Required',
+      message: 'TecnoWallet Business is required for this action',
+      code: 'BUSINESS_REQUIRED',
+      reason: { ...reason, upgradeTo: 'business' },
+      entitlement: status,
+    });
+  }
+
   accessFromEntitlementId(entitlementId?: string): PlanAccess {
     const normalized = entitlementId?.trim().toLowerCase();
     if (!normalized) return 'free';
@@ -129,6 +146,16 @@ export class EntitlementService {
     if (normalized.includes('business')) return 'business';
     if (normalized.includes('plus')) return 'plus';
     return 'free';
+  }
+
+  /** Real plan for admin stats (ignores PLUS_ENFORCEMENT bypass). */
+  planFromSubscription(
+    subscription: Pick<Subscription, 'status' | 'expiresAt' | 'entitlementId'> | null | undefined,
+  ): PlanAccess {
+    if (!subscription || !this.hasCurrentEntitlement(subscription)) {
+      return 'free';
+    }
+    return this.accessFromEntitlementId(subscription.entitlementId);
   }
 
   plusEntitlementId(): string {

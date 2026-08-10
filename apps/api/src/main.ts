@@ -65,6 +65,15 @@ export async function bootstrap(): Promise<void> {
       .map((origin) => origin.trim())
       .filter(Boolean),
     credentials: true,
+    // Fastify CORS defaults to GET,HEAD,POST only — browsers then block PATCH/DELETE.
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Accept',
+      'X-Request-Id',
+      'Idempotency-Key',
+    ],
   });
   // Nest and plugins can resolve separate Fastify type copies in workspaces.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-argument

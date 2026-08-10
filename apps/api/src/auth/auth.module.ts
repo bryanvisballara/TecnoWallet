@@ -6,6 +6,8 @@ import {
   createParamDecorator,
   Delete,
   ExecutionContext,
+  ForbiddenException,
+  Get,
   Injectable,
   Module,
   NotFoundException,
@@ -36,7 +38,11 @@ import { otpEmailHtml, otpEmailSubject } from './otp-email';
 export interface AuthPrincipal {
   userId: string;
   email: string;
+  platformRole: 'user' | 'admin';
 }
+
+export const PLATFORM_ROLES = ['user', 'admin'] as const;
+export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 
 @Schema({ timestamps: true })
 export class User {
@@ -86,6 +92,16 @@ export class User {
    */
   @Prop({ default: 0 })
   sessionVersion!: number;
+
+  /** Platform staff role. Workspace Membership.role is unrelated. */
+  @Prop({
+    required: true,
+    type: String,
+    enum: PLATFORM_ROLES,
+    default: 'user',
+    index: true,
+  })
+  platformRole!: PlatformRole;
 }
 export const UserSchema = SchemaFactory.createForClass(User);
 
@@ -221,6 +237,9 @@ class ConfirmDeleteAccountDto {
 const IS_PUBLIC = 'isPublic';
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 
+const IS_ADMIN = 'isAdmin';
+export const AdminOnly = () => SetMetadata(IS_ADMIN, true);
+
 export const CurrentUser = createParamDecorator(
   (_data: unknown, context: ExecutionContext): AuthPrincipal => {
     const request = context
@@ -260,12 +279,13 @@ export class AccessTokenGuard implements CanActivate {
         email: string;
         kind: string;
         sv?: number;
+        platformRole?: PlatformRole;
       }>(token, { secret: this.config.getOrThrow('JWT_ACCESS_SECRET') });
       if (payload.kind !== 'access') throw new Error('Wrong token kind');
 
       const user = await this.users
         .findById(payload.sub)
-        .select('active sessionVersion email')
+        .select('active sessionVersion email platformRole')
         .lean();
       if (!user?.active) {
         throw new UnauthorizedException({
@@ -281,12 +301,34 @@ export class AccessTokenGuard implements CanActivate {
         });
       }
 
-      request.user = { userId: payload.sub, email: payload.email };
+      request.user = {
+        userId: payload.sub,
+        email: user.email,
+        platformRole: user.platformRole === 'admin' ? 'admin' : 'user',
+      };
       return true;
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid or expired access token');
     }
+  }
+}
+
+@Injectable()
+export class AdminGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiresAdmin = this.reflector.getAllAndOverride<boolean>(IS_ADMIN, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!requiresAdmin) return true;
+    const request = context.switchToHttp().getRequest<{ user?: AuthPrincipal }>();
+    if (request.user?.platformRole !== 'admin') {
+      throw new ForbiddenException('Admin access required');
+    }
+    return true;
   }
 }
 
@@ -624,6 +666,17 @@ export class AuthService {
     return { deleted: true };
   }
 
+  async me(userId: string) {
+    const user = await this.users.findById(userId).lean();
+    if (!user?.active) throw new NotFoundException('User not found');
+    return {
+      id: user._id.toString(),
+      email: user.email,
+      name: user.name,
+      platformRole: user.platformRole === 'admin' ? 'admin' : 'user',
+    };
+  }
+
   private async issueTokens(
     user: User,
     options: { replaceSession: boolean },
@@ -641,11 +694,14 @@ export class AuthService {
           { $inc: { sessionVersion: 1 } },
           { new: true },
         )
-        .select('sessionVersion');
+        .select('sessionVersion platformRole email name');
       sessionVersion = updated?.sessionVersion ?? sessionVersion + 1;
       user.sessionVersion = sessionVersion;
+      if (updated?.platformRole) user.platformRole = updated.platformRole;
     }
 
+    const platformRole: PlatformRole =
+      user.platformRole === 'admin' ? 'admin' : 'user';
     const tokenId = randomUUID();
     const accessToken = await this.jwt.signAsync(
       {
@@ -653,6 +709,7 @@ export class AuthService {
         email: user.email,
         kind: 'access',
         sv: sessionVersion,
+        platformRole,
       },
       {
         secret: this.config.getOrThrow('JWT_ACCESS_SECRET'),
@@ -689,7 +746,12 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: { id: user._id, email: user.email, name: user.name },
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        platformRole,
+      },
     };
   }
 
@@ -803,6 +865,12 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
+  @Get('me')
+  me(@CurrentUser() user: AuthPrincipal) {
+    return this.auth.me(user.userId);
+  }
+
+  @ApiBearerAuth()
   @Post('logout')
   logout(@Body() dto: RefreshDto) {
     return this.auth.logout(dto.refreshToken);
@@ -848,8 +916,10 @@ export class AuthController {
   providers: [
     AuthService,
     AccessTokenGuard,
+    AdminGuard,
     { provide: APP_GUARD, useExisting: AccessTokenGuard },
+    { provide: APP_GUARD, useExisting: AdminGuard },
   ],
-  exports: [MongooseModule, AuthService],
+  exports: [MongooseModule, AuthService, AdminGuard],
 })
 export class AuthModule {}

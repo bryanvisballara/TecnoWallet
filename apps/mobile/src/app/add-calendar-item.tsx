@@ -42,6 +42,7 @@ import {
 } from '@/services/push-notifications';
 import { useAuthStore } from '@/store/auth';
 import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
+import { useLanguageStore } from '@/store/language';
 import { useActiveLedger } from '@/store/ledger';
 
 const colors = ['#0878F9', '#7F56D9', '#12B76A', '#F79009', '#F5C518', '#EE46BC', '#06AED4'];
@@ -69,6 +70,7 @@ function pickOption(title: string, options: readonly string[], onPick: (value: s
 
 export default function AddCalendarItemScreen() {
   const theme = useAppTheme();
+  const locale = useLanguageStore((state) => state.locale);
   const addItem = useCalendarStore((state) => state.addItem);
   const profile = useAuthStore((state) => state.profile);
   const { ledger } = useActiveLedger();
@@ -112,7 +114,10 @@ export default function AddCalendarItemScreen() {
     return [...map.values()];
   }, [profile.name, profile.email, ledger.members, calendar?.members]);
 
-  const dateLabel = useMemo(() => formatDayLabel(parseDateKey(dateKey)), [dateKey]);
+  const dateLabel = useMemo(
+    () => formatDayLabel(parseDateKey(dateKey), locale),
+    [dateKey, locale],
+  );
   const titlePlaceholder = type === 'birthday' ? 'Agregar nombre' : 'Agregar título';
   const timed = type !== 'birthday' && !allDay;
   const reminderIsCustom =

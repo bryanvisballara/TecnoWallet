@@ -35,6 +35,14 @@ export class AcceptCollaborationInviteDto {
   token!: string;
 }
 
+export class ListCollaborationInvitesQueryDto {
+  @IsEnum(COLLABORATION_RESOURCE_TYPES)
+  resourceType!: CollaborationResourceType;
+
+  @IsMongoId()
+  resourceId!: string;
+}
+
 export class InviteTokenParamDto {
   @IsString()
   @Length(32, 512)

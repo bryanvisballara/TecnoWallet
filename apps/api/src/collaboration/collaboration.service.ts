@@ -34,6 +34,7 @@ import {
   CollaborationInvite,
   CollaborationSeat,
   type CollaborationResourceRef,
+  type CollaborationResourceType,
   type CollaborationSeatDocument,
 } from './collaboration.schemas';
 import { createHash, randomBytes } from 'node:crypto';
@@ -265,6 +266,48 @@ export class CollaborationService {
       .find({ sponsorUserId, status: { $in: ['pending', 'active'] } })
       .sort({ slot: 1 })
       .lean();
+  }
+
+  async listResourceInvites(
+    resourceType: CollaborationResourceType,
+    resourceId: string,
+    principal: AuthPrincipal,
+  ) {
+    await this.assertCanInvite(resourceType, resourceId, principal.userId);
+
+    const now = new Date();
+    const expiredPending = await this.invites
+      .find({
+        resourceType,
+        resourceId: new Types.ObjectId(resourceId),
+        status: 'pending',
+        expiresAt: { $lte: now },
+      })
+      .exec();
+    for (const invite of expiredPending) {
+      await this.expireInvite(invite);
+    }
+
+    const rows = await this.invites
+      .find({
+        resourceType,
+        resourceId: new Types.ObjectId(resourceId),
+        status: { $in: ['pending', 'accepted'] },
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return {
+      invites: rows.map((row) => ({
+        id: row._id.toString(),
+        email: row.email,
+        role: row.role,
+        status: row.status as 'pending' | 'accepted',
+        createdAt: row.createdAt,
+        expiresAt: row.expiresAt,
+        acceptedAt: row.acceptedAt ?? null,
+      })),
+    };
   }
 
   async revokeSeat(seatId: string, sponsorUserId: string) {

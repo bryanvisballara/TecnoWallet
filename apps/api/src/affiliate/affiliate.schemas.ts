@@ -10,6 +10,47 @@ export const commissionEventStatuses = [
 ] as const;
 export type CommissionEventStatus = (typeof commissionEventStatuses)[number];
 
+export const AFFILIATE_PAYOUT_TYPES = ['usdt_wallet'] as const;
+export type AffiliatePayoutType = (typeof AFFILIATE_PAYOUT_TYPES)[number];
+
+export const AFFILIATE_USDT_NETWORKS = [
+  'bep20',
+  'trc20',
+  'erc20',
+  'sol',
+] as const;
+export type AffiliateUsdtNetwork = (typeof AFFILIATE_USDT_NETWORKS)[number];
+
+@Schema({ _id: false })
+export class AffiliatePayoutMethod {
+  @Prop({
+    required: true,
+    type: String,
+    enum: AFFILIATE_PAYOUT_TYPES,
+    default: 'usdt_wallet',
+  })
+  type!: AffiliatePayoutType;
+
+  @Prop({ required: true, uppercase: true, default: 'USDT' })
+  asset!: string;
+
+  @Prop({
+    required: true,
+    type: String,
+    enum: AFFILIATE_USDT_NETWORKS,
+  })
+  network!: AffiliateUsdtNetwork;
+
+  @Prop({ required: true, trim: true, maxlength: 128 })
+  address!: string;
+
+  @Prop()
+  updatedAt?: Date;
+}
+export const AffiliatePayoutMethodSchema = SchemaFactory.createForClass(
+  AffiliatePayoutMethod,
+);
+
 @Schema({ timestamps: true })
 export class Affiliate {
   _id!: Types.ObjectId;
@@ -57,6 +98,9 @@ export class Affiliate {
     type: MongooseSchema.Types.ObjectId,
   })
   ownerUserId?: Types.ObjectId;
+
+  @Prop({ type: AffiliatePayoutMethodSchema })
+  payoutMethod?: AffiliatePayoutMethod;
 
   createdAt!: Date;
   updatedAt!: Date;
@@ -220,6 +264,16 @@ export class CommissionEvent {
 
   @Prop({ required: true, min: 0 })
   monthsSinceAttribution!: number;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, index: true })
+  subscriptionId?: Types.ObjectId;
+
+  /** Percent applied at event time (e.g. 20). */
+  @Prop({ required: true, min: 0, max: 100, default: 0 })
+  commissionRate!: number;
+
+  @Prop()
+  paidAt?: Date;
 
   createdAt!: Date;
   updatedAt!: Date;

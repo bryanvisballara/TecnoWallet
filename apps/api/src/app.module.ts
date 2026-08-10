@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AdminModule } from './admin/admin.module';
 import { AssistantModule } from './assistant/assistant.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
 import { AuthModule } from './auth/auth.module';
@@ -30,6 +31,7 @@ import { RecaudosModule } from './recaudos/recaudos.module';
       }),
     }),
     AuthModule,
+    AdminModule,
     BillingModule,
     AffiliateModule,
     CollaborationModule,

@@ -18,7 +18,9 @@ import {
 } from 'react-native';
 
 import { AppIcon, Card, Pill, PrimaryButton, Screen, uiStyles, useAppTheme } from '@/components/ui';
-import { featureGroups, money } from '@/data/demo';
+import { money } from '@/data/demo';
+import { localizedFeatureGroups, useAppCopy } from '@/i18n/app-copy';
+import { useLanguageStore } from '@/store/language';
 import { askAssistant } from '@/services/assistant-api';
 import { ApiError } from '@/services/api';
 import {
@@ -100,10 +102,15 @@ const CONTACT_WHATSAPP_DIGITS = '573016214806';
 
 export default function FeatureScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { slug = '' } = useLocalSearchParams<{ slug: string }>();
   const feature = useMemo(
-    () => featureGroups.flatMap((group) => group.items).find((item) => item.slug === slug),
-    [slug],
+    () =>
+      localizedFeatureGroups(copy)
+        .flatMap((group) => group.items)
+        .find((item) => item.slug === slug),
+    [slug, copy],
   );
   const title = feature?.title ?? 'TecnoWallet';
 
@@ -523,13 +530,15 @@ function BiometricsSettings() {
 }
 
 function AdvancedSettings() {
+  const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
   const setWeekStartsOn = usePreferencesStore((state) => state.setWeekStartsOn);
   const hapticsEnabled = usePreferencesStore((state) => state.hapticsEnabled);
   const setHapticsEnabled = usePreferencesStore((state) => state.setHapticsEnabled);
   const appearance = usePreferencesStore((state) => state.appearance);
   const setAppearance = usePreferencesStore((state) => state.setAppearance);
-  const theme = useAppTheme();
 
   return (
     <Screen withTabBar title="Más ajustes" subtitle="Semana y opciones avanzadas" right={<BackButton />}>
@@ -538,7 +547,7 @@ function AdvancedSettings() {
         {(['monday', 'sunday'] as WeekStartsOn[]).map((option) => (
           <OptionRow
             key={option}
-            title={weekStartsOnLabel(option)}
+            title={weekStartsOnLabel(option, locale)}
             selected={weekStartsOn === option}
             onPress={() => {
               void setWeekStartsOn(option);
@@ -548,11 +557,13 @@ function AdvancedSettings() {
       </Card>
 
       <Card style={styles.list}>
-        <Text style={[styles.settingTitle, { color: theme.text, marginBottom: 8 }]}>Apariencia</Text>
+        <Text style={[styles.settingTitle, { color: theme.text, marginBottom: 8 }]}>
+          {copy.more.appearanceSheet}
+        </Text>
         {(['system', 'light', 'dark'] as AppearanceMode[]).map((option) => (
           <OptionRow
             key={option}
-            title={appearanceLabel(option)}
+            title={appearanceLabel(option, locale)}
             selected={appearance === option}
             onPress={() => {
               void setAppearance(option);
@@ -699,6 +710,7 @@ type ChatBubble = { id: string; role: 'user' | 'assistant'; text: string };
 
 function AssistantFeature() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const active = useActiveLedger();
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
@@ -710,7 +722,7 @@ function AssistantFeature() {
     {
       id: 'welcome',
       role: 'assistant',
-      text: 'Pregunta por categorías, totales del mes, saldos o metas. TecnoWallet calcula los números; la IA solo interpreta y responde.',
+      text: copy.assistant.bubble,
     },
   ]);
 
@@ -723,7 +735,7 @@ function AssistantFeature() {
     }
     const workspaceId = active.activeLedgerId || active.ledger.id;
     if (!workspaceId) {
-      setError('No hay un libro activo.');
+      setError(copy.assistant.noLedger);
       return;
     }
     setError(null);
@@ -751,7 +763,7 @@ function AssistantFeature() {
         });
         return;
       }
-      const message = err instanceof ApiError ? err.message : 'No pudimos consultar al asistente.';
+      const message = err instanceof ApiError ? err.message : copy.assistant.error;
       setError(message);
       setMessages((prev) => [
         ...prev,
@@ -767,16 +779,18 @@ function AssistantFeature() {
   };
 
   return (
-    <Screen withTabBar title="Asistente IA" subtitle="Análisis privado de tus finanzas" right={<BackButton />}>
+    <Screen
+      withTabBar
+      title={copy.assistant.title}
+      subtitle={copy.assistant.subtitle}
+      right={<BackButton />}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1, gap: 12 }}>
         <Card style={[styles.hero, { backgroundColor: theme.primary }]}>
           <AppIcon name="sparkles" color="#FFFFFF" size={30} />
-          <Text style={styles.heroTitle}>Pregunta lo que quieras sobre tu dinero</Text>
-          <Text style={styles.heroHint}>
-            Los cálculos los hace TecnoWallet. La IA no recibe tu historial completo ni mueve dinero.
-          </Text>
+          <Text style={styles.heroTitle}>{copy.assistant.hero}</Text>
+          <Text style={styles.heroHint}>{copy.assistant.heroHint}</Text>
         </Card>
 
         {!isPlus ? (
@@ -789,9 +803,11 @@ function AssistantFeature() {
                 <View style={uiStyles.row}>
                   <Pill tone="blue">TecnoWallet+</Pill>
                 </View>
-                <Text style={[styles.upgradeTitle, { color: theme.text }]}>Incluido en planes de pago</Text>
+                <Text style={[styles.upgradeTitle, { color: theme.text }]}>
+                  {copy.assistant.paidOnly}
+                </Text>
                 <Text style={[styles.small, { color: theme.muted }]}>
-                  El asistente necesita TecnoWallet+ o Business.
+                  {copy.assistant.needsPlus}
                 </Text>
               </View>
             </View>
@@ -824,7 +840,7 @@ function AssistantFeature() {
           <TextInput
             value={question}
             onChangeText={setQuestion}
-            placeholder="¿En qué gasté más?"
+            placeholder={copy.assistant.placeholder}
             placeholderTextColor={theme.muted}
             style={[styles.composerInput, { color: theme.text }]}
             editable={!busy && isPlus}

@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
@@ -7,6 +8,12 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
+import {
+  AFFILIATE_PAYOUT_TYPES,
+  AFFILIATE_USDT_NETWORKS,
+  type AffiliatePayoutType,
+  type AffiliateUsdtNetwork,
+} from './affiliate.schemas';
 
 const normalizeCode = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim().toUpperCase() : value;
@@ -49,4 +56,16 @@ export class EnrollAffiliateDto {
   @Length(3, 24)
   @Matches(/^[A-Z0-9_-]+$/)
   code?: string;
+}
+
+export class UpdateAffiliatePayoutDto {
+  @IsEnum(AFFILIATE_PAYOUT_TYPES)
+  type!: AffiliatePayoutType;
+
+  @IsEnum(AFFILIATE_USDT_NETWORKS)
+  network!: AffiliateUsdtNetwork;
+
+  @IsString()
+  @Length(20, 128)
+  address!: string;
 }

@@ -4,7 +4,9 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
+import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
 import { useCalendarStore } from '@/store/calendar';
+import { useLanguageStore } from '@/store/language';
 
 type Props = {
   compact?: boolean;
@@ -12,6 +14,8 @@ type Props = {
 
 export function CalendarSwitcher({ compact = false }: Props) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const insets = useSafeAreaInsets();
   const calendars = useCalendarStore((state) => state.calendars);
   const activeCalendarId = useCalendarStore((state) => state.activeCalendarId);
@@ -21,6 +25,9 @@ export function CalendarSwitcher({ compact = false }: Props) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const active = calendars.find((item) => item.id === activeCalendarId) ?? calendars[0];
+  const activeName = active
+    ? displayCalendarName(active.name, locale)
+    : copy.calendar.fallback;
 
   const close = () => {
     setOpen(false);
@@ -38,8 +45,8 @@ export function CalendarSwitcher({ compact = false }: Props) {
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Calendario activo ${active?.name}. Cambiar calendario`}
-        accessibilityHint="Abre la lista de calendarios"
+        accessibilityLabel={copy.calendar.activeA11y(activeName)}
+        accessibilityHint={copy.calendar.openHint}
         onPress={() => setOpen(true)}
         style={({ pressed }) => [
           styles.trigger,
@@ -54,7 +61,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
             compact ? styles.triggerCompact : styles.triggerTitle,
             { color: theme.text },
           ]}>
-          {active?.name ?? 'Calendario'}
+          {activeName}
         </Text>
         <AppIcon name="chevron.down" color={theme.muted} size={compact ? 12 : 13} />
       </Pressable>
@@ -66,11 +73,12 @@ export function CalendarSwitcher({ compact = false }: Props) {
           <Pressable
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
-            <Text style={[styles.sheetTitle, { color: theme.muted }]}>CALENDARIOS</Text>
+            <Text style={[styles.sheetTitle, { color: theme.muted }]}>{copy.calendar.sheetTitle}</Text>
 
             {calendars.map((calendar) => {
               const selected = calendar.id === activeCalendarId;
               const others = calendar.members.filter((member) => member.id !== 'me').length;
+              const name = displayCalendarName(calendar.name, locale);
               return (
                 <View
                   key={calendar.id}
@@ -93,16 +101,16 @@ export function CalendarSwitcher({ compact = false }: Props) {
                       <AppIcon name={calendar.icon} color={calendar.color} size={18} />
                     </View>
                     <View style={styles.copy}>
-                      <Text style={[styles.name, { color: theme.text }]}>{calendar.name}</Text>
+                      <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
                       <Text style={[styles.meta, { color: theme.muted }]}>
                         {others > 0
-                          ? `${others + 1} personas · compartido`
-                          : 'Solo tú'}
+                          ? copy.calendar.sharedMeta(others + 1)
+                          : copy.calendar.onlyYou}
                       </Text>
                     </View>
                   </ScalePressable>
                   <ScalePressable
-                    accessibilityLabel={`Invitar a ${calendar.name}`}
+                    accessibilityLabel={copy.common.inviteTo(name)}
                     onPress={() => {
                       close();
                       router.push({
@@ -114,7 +122,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
                     <AppIcon name="person.badge.plus" color={theme.muted} size={18} />
                   </ScalePressable>
                   <ScalePressable
-                    accessibilityLabel={`Ajustes de ${calendar.name}`}
+                    accessibilityLabel={copy.calendar.settingsA11y(name)}
                     onPress={() => {
                       close();
                       router.push({ pathname: '/(tabs)/calendars', params: { focus: calendar.id } });
@@ -132,7 +140,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
                   autoFocus
                   value={newName}
                   onChangeText={setNewName}
-                  placeholder="Ej. Calendario de Ana"
+                  placeholder={copy.calendar.namePlaceholder}
                   placeholderTextColor={theme.muted}
                   style={[
                     styles.input,
@@ -146,10 +154,10 @@ export function CalendarSwitcher({ compact = false }: Props) {
                 />
                 <View style={styles.createActions}>
                   <Pressable onPress={() => setCreating(false)}>
-                    <Text style={{ color: theme.muted, fontWeight: '600' }}>Cancelar</Text>
+                    <Text style={{ color: theme.muted, fontWeight: '600' }}>{copy.common.cancel}</Text>
                   </Pressable>
                   <Pressable onPress={() => void onCreate()}>
-                    <Text style={{ color: theme.primary, fontWeight: '700' }}>Crear</Text>
+                    <Text style={{ color: theme.primary, fontWeight: '700' }}>{copy.common.create}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -157,7 +165,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
               <ScalePressable
                 onPress={() => setCreating(true)}
                 style={[styles.addRow, { borderTopColor: theme.border }]}>
-                <Text style={[styles.addText, { color: theme.primary }]}>+ Añadir calendario</Text>
+                <Text style={[styles.addText, { color: theme.primary }]}>{copy.calendar.addCalendar}</Text>
                 <AppIcon name="person.badge.plus" color={theme.success} size={20} />
               </ScalePressable>
             )}

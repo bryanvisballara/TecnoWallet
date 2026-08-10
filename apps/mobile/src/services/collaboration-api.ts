@@ -12,10 +12,33 @@ export type CollaborationInvitePreview = {
   expiresAt: string;
 };
 
+export type CollaborationResourceInvite = {
+  id: string;
+  email: string;
+  role: 'member' | 'editor' | 'viewer';
+  status: 'pending' | 'accepted';
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+};
+
 export function lookupCollaborationInvite(token: string) {
   return apiRequest<CollaborationInvitePreview>(
     `/collaboration/invites/${encodeURIComponent(token)}`,
   );
+}
+
+export function listCollaborationInvites(input: {
+  resourceType: 'workspace' | 'calendar';
+  resourceId: string;
+}) {
+  const query = new URLSearchParams({
+    resourceType: input.resourceType,
+    resourceId: input.resourceId,
+  });
+  return apiRequest<{ invites: CollaborationResourceInvite[] }>(
+    `/collaboration/invites?${query.toString()}`,
+  ).then((result) => result.invites ?? []);
 }
 
 export function acceptCollaborationInvite(token: string) {

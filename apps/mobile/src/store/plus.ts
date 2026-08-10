@@ -100,6 +100,7 @@ export function isPlusRequiredError(error: unknown): error is {
   const value = error as { code?: string; reason?: string; status?: number };
   return (
     value.code === 'PLUS_REQUIRED' ||
+    value.code === 'BUSINESS_REQUIRED' ||
     value.code === 'SEAT_LIMIT' ||
     value.code === 'SHARING_REQUIRED' ||
     value.status === 402

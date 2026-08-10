@@ -18,6 +18,7 @@ import {
   CreateCollaborationInviteDto,
   InviteTokenParamDto,
   ListCalendarsQueryDto,
+  ListCollaborationInvitesQueryDto,
   MongoIdParamDto,
   UpdateCalendarDto,
   UpdateCalendarItemDto,
@@ -61,6 +62,19 @@ export class CollaborationController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     return this.collaboration.acceptInvite(body, user);
+  }
+
+  @ApiBearerAuth()
+  @Get('invites')
+  listInvites(
+    @Query() query: ListCollaborationInvitesQueryDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.listResourceInvites(
+      query.resourceType,
+      query.resourceId,
+      user,
+    );
   }
 
   @Public()

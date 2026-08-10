@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Account } from '@/data/demo';
+import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import {
   isLiquidAccount,
   isWealthAsset,
@@ -12,10 +13,12 @@ import {
 } from '@/lib/accounts';
 import { buildRecurringCashflow, type RecurringLine } from '@/lib/recurring-cashflow';
 import { useActiveLedger } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
 
 function AccountRow({ account }: { account: Account }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   return (
     <ScalePressable
       accessibilityRole="button"
@@ -39,7 +42,7 @@ function AccountRow({ account }: { account: Account }) {
               {money(account.balance < 0 ? Math.abs(account.balance) : account.balance)}
             </Text>
             <Text style={[styles.sync, { color: account.balance < 0 ? theme.danger : theme.success }]}>
-              {account.balance < 0 ? 'Deuda' : 'Activo'}
+              {account.balance < 0 ? copy.health.badgeDebt : copy.health.badgeAsset}
             </Text>
           </View>
           <AppIcon name="chevron" color={theme.muted} size={15} />
@@ -54,6 +57,7 @@ function RecurringGroup({
   total,
   items,
   empty,
+  tapToAdd,
   tone,
   onAdd,
 }: {
@@ -61,6 +65,7 @@ function RecurringGroup({
   total: number;
   items: RecurringLine[];
   empty: string;
+  tapToAdd: string;
   tone: 'income' | 'expense';
   onAdd: () => void;
 }) {
@@ -84,7 +89,7 @@ function RecurringGroup({
       {items.length === 0 ? (
         <Pressable accessibilityRole="button" onPress={onAdd}>
           <Text style={[styles.small, { color: theme.muted }]}>{empty}</Text>
-          <Text style={[styles.addHint, { color: theme.primary }]}>Toca para agregar</Text>
+          <Text style={[styles.addHint, { color: theme.primary }]}>{tapToAdd}</Text>
         </Pressable>
       ) : (
         items.map((item, index) => (
@@ -111,6 +116,8 @@ function RecurringGroup({
 
 export default function SaludFinancieraScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { accounts, ledger, transactions, upcoming, planning } = useActiveLedger();
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
@@ -139,10 +146,10 @@ export default function SaludFinancieraScreen() {
   const healthColor = creditUsage === 0 ? theme.muted : creditUsage < 0.3 ? theme.success : theme.warning;
   const healthCopy =
     deudas === 0
-      ? 'Sin deudas registradas. Tu patrimonio es liquidez más bienes.'
+      ? copy.health.noDebts
       : creditUsage < 0.3
-        ? 'Bien. La deuda es baja frente a tu patrimonio.'
-        : 'La deuda pesa más. Revisa pasivos y pagos.';
+        ? copy.health.debtOk
+        : copy.health.debtHeavy;
 
   const recurring = useMemo(
     () => buildRecurringCashflow(transactions, { year, month }, upcoming, planning),
@@ -159,16 +166,17 @@ export default function SaludFinancieraScreen() {
     () => [...recurring.bills, ...recurring.subscriptions, ...recurring.recurrings],
     [recurring.bills, recurring.subscriptions, recurring.recurrings],
   );
+  const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   if (!ledger) {
-    return <Screen withTabBar title="Salud financiera" />;
+    return <Screen withTabBar title={copy.health.title} />;
   }
 
   return (
     <Screen
       withTabBar
-      title="Salud financiera"
-      subtitle={`Patrimonio · ${ledger.name}`}
+      title={copy.health.title}
+      subtitle={`${copy.health.netWorth} · ${ledgerLabel}`}
       right={
         <Pressable
           onPress={() => router.replace('/(tabs)/inicio')}
@@ -177,22 +185,22 @@ export default function SaludFinancieraScreen() {
         </Pressable>
       }>
       <Card style={[styles.patrimonioCard, { backgroundColor: '#0B1D3A' }]}>
-        <Text style={styles.heroLabel}>Patrimonio</Text>
+        <Text style={styles.heroLabel}>{copy.health.netWorth}</Text>
         <Text style={styles.heroValue}>{money(patrimonio)}</Text>
-        <Text style={styles.patrimonioHint}>Liquidez + bienes − deudas</Text>
+        <Text style={styles.patrimonioHint}>{copy.health.netWorthHint}</Text>
         <View style={styles.heroStats}>
           <View>
-            <Text style={styles.heroSmall}>Liquidez</Text>
+            <Text style={styles.heroSmall}>{copy.accounts.liquidity}</Text>
             <Text style={styles.heroStat}>{money(liquidez, true)}</Text>
           </View>
           <View style={styles.divider} />
           <View>
-            <Text style={styles.heroSmall}>Bienes</Text>
+            <Text style={styles.heroSmall}>{copy.health.assets}</Text>
             <Text style={styles.heroStat}>{money(bienes, true)}</Text>
           </View>
           <View style={styles.divider} />
           <View>
-            <Text style={styles.heroSmall}>Deudas</Text>
+            <Text style={styles.heroSmall}>{copy.health.debts}</Text>
             <Text style={styles.heroStat}>{money(deudas, true)}</Text>
           </View>
         </View>
@@ -200,10 +208,10 @@ export default function SaludFinancieraScreen() {
 
       <Card style={styles.health}>
         <View style={uiStyles.between}>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Peso de la deuda</Text>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>{copy.health.debtWeight}</Text>
           <Text style={[styles.score, { color: healthColor }]}>{Math.round(creditUsage * 100)}%</Text>
         </View>
-        <ProgressBar value={creditUsage} color={healthColor} label="Peso de la deuda" />
+        <ProgressBar value={creditUsage} color={healthColor} label={copy.health.debtWeight} />
         <View style={uiStyles.between}>
           <Text style={[styles.small, { color: theme.muted, flex: 1 }]}>{healthCopy}</Text>
           {deudas > 0 ? (
@@ -213,7 +221,7 @@ export default function SaludFinancieraScreen() {
       </Card>
 
       <View style={styles.sectionHeader}>
-        <Text style={[styles.subsection, { color: theme.muted }]}>ACTIVOS</Text>
+        <Text style={[styles.subsection, { color: theme.muted }]}>{copy.health.sectionAssets}</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Agregar activo"
@@ -225,7 +233,7 @@ export default function SaludFinancieraScreen() {
       {wealthAssets.length === 0 ? (
         <Card>
           <Text style={[styles.small, { color: theme.muted, textAlign: 'center' }]}>
-            Sin bienes registrados. Usa + para agregar una casa u otro activo.
+            {copy.health.emptyAssets}
           </Text>
         </Card>
       ) : (
@@ -233,7 +241,7 @@ export default function SaludFinancieraScreen() {
       )}
 
       <View style={styles.sectionHeader}>
-        <Text style={[styles.subsection, { color: theme.muted }]}>DEUDAS</Text>
+        <Text style={[styles.subsection, { color: theme.muted }]}>{copy.health.sectionDebts}</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Agregar deuda"
@@ -245,7 +253,7 @@ export default function SaludFinancieraScreen() {
       {wealthDebts.length === 0 ? (
         <Card>
           <Text style={[styles.small, { color: theme.muted, textAlign: 'center' }]}>
-            Sin deudas registradas.
+            {copy.health.noDebts}
           </Text>
         </Card>
       ) : (
@@ -253,40 +261,36 @@ export default function SaludFinancieraScreen() {
       )}
 
       <Text style={[styles.subsection, { color: theme.muted, marginTop: 8 }]}>
-        PLANIFICACIÓN
+        {copy.health.sectionPlanning}
       </Text>
       <Text style={[styles.planCopy, { color: theme.muted }]}>
-        Analiza y proyecta todos tus gastos mensuales en cada categoría —por ejemplo, en
-        Hogar: suscripciones, hipoteca o arriendo, telefonía, internet, servicios públicos,
-        entre otros— y compáralos con tus ingresos. Así podrás conocer tu capacidad de
-        ahorro, identificar tus principales gastos y entender cómo se encuentra tu salud
-        financiera cada mes.
+        {copy.health.planningBlurb}
       </Text>
 
       <Card style={styles.recurringSummary}>
         <View style={styles.recurringSummaryRow}>
           <View style={styles.recurringSummaryCell}>
-            <Text style={[styles.small, { color: theme.muted }]}>Ingresos</Text>
+            <Text style={[styles.small, { color: theme.muted }]}>{copy.envelopes.income}</Text>
             <Text style={[styles.recurringSummaryValue, { color: theme.success }]}>
               {money(recurring.incomeTotal)}
             </Text>
             <Text style={[styles.tiny, { color: theme.muted }]}>
-              {recurring.income.length} · salario y otros
+              {copy.health.incomeHint(recurring.income.length)}
             </Text>
           </View>
           <View style={[styles.recurringSummaryDivider, { backgroundColor: theme.border }]} />
           <View style={styles.recurringSummaryCell}>
-            <Text style={[styles.small, { color: theme.muted }]}>Gastos</Text>
+            <Text style={[styles.small, { color: theme.muted }]}>{copy.envelopes.expenses}</Text>
             <Text style={[styles.recurringSummaryValue, { color: theme.danger }]}>
               {money(recurring.expenseTotal)}
             </Text>
             <Text style={[styles.tiny, { color: theme.muted }]}>
-              {expenseLines.length} · facturas y más
+              {copy.health.expensesHint(expenseLines.length)}
             </Text>
           </View>
           <View style={[styles.recurringSummaryDivider, { backgroundColor: theme.border }]} />
           <View style={styles.recurringSummaryCell}>
-            <Text style={[styles.small, { color: theme.muted }]}>Resultado</Text>
+            <Text style={[styles.small, { color: theme.muted }]}>{copy.health.result}</Text>
             <Text
               style={[
                 styles.recurringSummaryValue,
@@ -294,7 +298,9 @@ export default function SaludFinancieraScreen() {
               ]}>
               {money(recurring.net)}
             </Text>
-            <Text style={[styles.tiny, { color: theme.muted }]}>ingresos − gastos</Text>
+            <Text style={[styles.tiny, { color: theme.muted }]}>
+              {copy.health.incomeMinusExpenses}
+            </Text>
           </View>
         </View>
         <View style={styles.bucketPills}>
@@ -302,36 +308,38 @@ export default function SaludFinancieraScreen() {
             accessibilityRole="button"
             accessibilityLabel="Agregar factura"
             onPress={() => openPlanningAdd('expense', 'bill')}>
-            <Pill tone="neutral">Facturas {recurring.bills.length}</Pill>
+            <Pill tone="neutral">{copy.health.bills} {recurring.bills.length}</Pill>
           </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Agregar suscripción"
             onPress={() => openPlanningAdd('expense', 'subscription')}>
-            <Pill tone="neutral">Suscripciones {recurring.subscriptions.length}</Pill>
+            <Pill tone="neutral">{copy.health.subscriptions} {recurring.subscriptions.length}</Pill>
           </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Agregar gasto recurrente"
             onPress={() => openPlanningAdd('expense', 'recurring')}>
-            <Pill tone="neutral">Recurrentes {recurring.recurrings.length}</Pill>
+            <Pill tone="neutral">{copy.health.recurring} {recurring.recurrings.length}</Pill>
           </Pressable>
         </View>
       </Card>
 
       <RecurringGroup
-        title="Ingresos recurrentes"
+        title={copy.health.recurringIncome}
         total={recurring.incomeTotal}
         items={recurring.income}
-        empty="Aún no hay ingresos recurrentes (ej. salario o nómina)."
+        empty={copy.health.emptyRecurringIncome}
+        tapToAdd={copy.health.tapToAdd}
         tone="income"
         onAdd={() => openPlanningAdd('income')}
       />
       <RecurringGroup
-        title="Gastos recurrentes"
+        title={copy.health.recurringExpenses}
         total={recurring.expenseTotal}
         items={expenseLines}
-        empty="Sin facturas, suscripciones ni reglas recurrentes este mes."
+        empty={copy.health.emptyRecurringExpense}
+        tapToAdd={copy.health.tapToAdd}
         tone="expense"
         onAdd={() => openPlanningAdd('expense')}
       />

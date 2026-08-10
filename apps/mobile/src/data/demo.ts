@@ -122,6 +122,13 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
         icon: 'briefcase.fill',
         color: '#0878F9',
       },
+      {
+        slug: 'afiliados',
+        title: 'Afiliados',
+        subtitle: 'Requiere TecnoWallet Business',
+        icon: 'gift.fill',
+        color: '#12B76A',
+      },
       { slug: 'asistente', title: 'Asistente IA', subtitle: 'Pregunta sobre tus finanzas', icon: 'sparkles', color: '#7F56D9' },
     ],
   },
@@ -130,7 +137,6 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
     items: [
       { slug: 'recordatorios', title: 'Recordatorios', subtitle: 'Pagos, metas y calendario', icon: 'bell', color: '#F79009' },
       { slug: 'seguridad', title: 'Face ID / Biometría', subtitle: 'Pedir desbloqueo al abrir', icon: 'faceid', color: '#7F56D9' },
-      { slug: 'afiliados', title: 'Afiliados', subtitle: 'Tu enlace, código y comisiones', icon: 'gift.fill', color: '#12B76A' },
       { slug: 'ajustes', title: 'Más ajustes', subtitle: 'Semana y opciones avanzadas', icon: 'gearshape.fill', color: '#0878F9' },
     ],
   },

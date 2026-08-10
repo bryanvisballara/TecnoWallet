@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -11,7 +11,12 @@ import {
   View,
 } from 'react-native';
 
+import { CollaborationInvitesList } from '@/components/collaboration-invites-list';
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
+import {
+  listCollaborationInvites,
+  type CollaborationResourceInvite,
+} from '@/services/collaboration-api';
 import { useLedgerStore } from '@/store/ledger';
 import {
   isPlusRequiredError,
@@ -43,11 +48,28 @@ export default function LedgersScreen() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [newLedgerName, setNewLedgerName] = useState('');
+  const [invites, setInvites] = useState<CollaborationResourceInvite[]>([]);
 
   const selected = useMemo(
     () => ledgers.find((item) => item.id === selectedId) ?? ledgers[0],
     [ledgers, selectedId],
   );
+
+  const loadInvites = useCallback(async (resourceId?: string) => {
+    if (!resourceId) {
+      setInvites([]);
+      return;
+    }
+    try {
+      const rows = await listCollaborationInvites({
+        resourceType: 'workspace',
+        resourceId,
+      });
+      setInvites(rows);
+    } catch {
+      setInvites([]);
+    }
+  }, []);
 
   useEffect(() => {
     if (selected) setName(selected.name);
@@ -59,6 +81,10 @@ export default function LedgersScreen() {
     }
   }, [params.focus, ledgers]);
 
+  useEffect(() => {
+    void loadInvites(selected?.id);
+  }, [selected?.id, loadInvites]);
+
   const onInvite = async () => {
     if (!hasPaidPlan(plusAccess)) {
       openPaywall('SHARING_REQUIRED');
@@ -69,6 +95,7 @@ export default function LedgersScreen() {
       const emailed = inviteEmail.trim();
       setInviteEmail('');
       setInviteName('');
+      await loadInvites(selected.id);
       if (result.pendingSignup) {
         Alert.alert(
           'Correo enviado',
@@ -288,6 +315,10 @@ export default function LedgersScreen() {
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
             />
             <PrimaryButton onPress={() => void onInvite()}>Compartir libro</PrimaryButton>
+            <CollaborationInvitesList
+              invites={invites}
+              emptyLabel="Cuando invites a alguien, verás aquí si está pendiente o aceptó."
+            />
           </Card>
         </>
       ) : null}

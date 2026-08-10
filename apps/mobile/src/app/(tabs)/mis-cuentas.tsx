@@ -4,11 +4,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Card, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Account } from '@/data/demo';
+import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { isLiquidAccount, sumBalances } from '@/lib/accounts';
 import { useActiveLedger } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 
 function AccountRow({ account }: { account: Account }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   return (
     <ScalePressable
       accessibilityRole="button"
@@ -29,7 +32,7 @@ function AccountRow({ account }: { account: Account }) {
           <View style={styles.balanceCopy}>
             <Text style={[styles.balance, { color: theme.text }]}>{money(account.balance)}</Text>
             <Text style={[styles.sync, { color: theme.success }]}>
-              {account.balance === 0 ? 'Sin movimiento' : 'Al día'}
+              {account.balance === 0 ? copy.accounts.noMovement : copy.accounts.upToDate}
             </Text>
           </View>
           <AppIcon name="chevron" color={theme.muted} size={15} />
@@ -41,22 +44,25 @@ function AccountRow({ account }: { account: Account }) {
 
 export default function MisCuentasScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { accounts, ledger } = useActiveLedger();
   const liquidAccounts = useMemo(
     () => accounts.filter((item) => isLiquidAccount(item.kind)),
     [accounts],
   );
   const liquidez = sumBalances(liquidAccounts);
+  const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   if (!ledger) {
-    return <Screen withTabBar title="Cuentas" />;
+    return <Screen withTabBar title={copy.accounts.title} />;
   }
 
   return (
     <Screen
       withTabBar
-      title="Cuentas"
-      subtitle={`Liquidez · ${ledger.name}`}
+      title={copy.accounts.title}
+      subtitle={copy.accounts.liquidityMonth(ledgerLabel)}
       right={
         <Pressable
           onPress={() => router.replace('/(tabs)/inicio')}
@@ -65,16 +71,16 @@ export default function MisCuentasScreen() {
         </Pressable>
       }>
       <Card style={[styles.hero, { backgroundColor: theme.primary }]}>
-        <Text style={styles.heroLabel}>Liquidez</Text>
+        <Text style={styles.heroLabel}>{copy.accounts.liquidity}</Text>
         <Text style={styles.heroValue}>{money(liquidez)}</Text>
         <View style={styles.heroStats}>
           <View>
-            <Text style={styles.heroSmall}>Cuentas</Text>
+            <Text style={styles.heroSmall}>{copy.accounts.title}</Text>
             <Text style={styles.heroStat}>{liquidAccounts.length}</Text>
           </View>
           <View style={styles.divider} />
           <View>
-            <Text style={styles.heroSmall}>Disponible</Text>
+            <Text style={styles.heroSmall}>{copy.accounts.available}</Text>
             <Text style={styles.heroStat}>{money(liquidez, true)}</Text>
           </View>
         </View>
@@ -82,7 +88,7 @@ export default function MisCuentasScreen() {
 
       <View style={styles.accountsHeader}>
         <Text accessibilityRole="header" style={[styles.accountsTitle, { color: theme.text }]}>
-          Mis cuentas
+          {copy.accounts.myAccounts}
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -95,7 +101,7 @@ export default function MisCuentasScreen() {
       {liquidAccounts.length === 0 ? (
         <Card>
           <Text style={[styles.small, { color: theme.muted, textAlign: 'center' }]}>
-            Este libro no tiene cuentas líquidas todavía.
+            {copy.accounts.empty}
           </Text>
         </Card>
       ) : (

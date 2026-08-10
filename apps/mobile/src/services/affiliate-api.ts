@@ -1,5 +1,15 @@
 import { apiRequest } from './api';
 
+export type AffiliateUsdtNetwork = 'bep20' | 'trc20' | 'erc20' | 'sol';
+
+export type AffiliatePayoutMethod = {
+  type: 'usdt_wallet';
+  asset: string;
+  network: AffiliateUsdtNetwork;
+  address: string;
+  updatedAt?: string | null;
+};
+
 export type AffiliatePublic = {
   affiliateId: string;
   code: string;
@@ -8,6 +18,7 @@ export type AffiliatePublic = {
   revenueShareMonths?: number;
   branchUrl?: string;
   clickId?: string;
+  payoutMethod?: AffiliatePayoutMethod | null;
 };
 
 export type AffiliateTier = {
@@ -128,4 +139,21 @@ export async function enrollAffiliatePartner(code?: string) {
 
 export async function getAffiliatePartnerDashboard() {
   return apiRequest<AffiliatePartnerDashboard>('/affiliate/partner/dashboard');
+}
+
+export async function updateAffiliatePayout(input: {
+  network: AffiliateUsdtNetwork;
+  address: string;
+}) {
+  return apiRequest<{
+    payoutMethod: AffiliatePayoutMethod | null;
+    affiliate: AffiliatePublic;
+  }>('/affiliate/partner/payout', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      type: 'usdt_wallet',
+      network: input.network,
+      address: input.address,
+    }),
+  });
 }

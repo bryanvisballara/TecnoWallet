@@ -7,6 +7,7 @@ import {
   shiftMonth,
   type MonthCursor,
 } from '@/lib/dates';
+import { useLanguageStore } from '@/store/language';
 
 type PeriodState = MonthCursor & {
   label: string;
@@ -15,13 +16,15 @@ type PeriodState = MonthCursor & {
   goPrevMonth: () => void;
   goNextMonth: () => void;
   goToCurrentMonth: () => void;
+  refreshLabel: () => void;
 };
 
 function withMeta(cursor: MonthCursor): Pick<PeriodState, 'year' | 'month' | 'label' | 'isCurrentMonth'> {
   const now = monthFromDate();
+  const locale = useLanguageStore.getState().locale;
   return {
     ...cursor,
-    label: formatMonthLabel(cursor),
+    label: formatMonthLabel(cursor, 'long', locale),
     isCurrentMonth: isSameMonth(cursor, now),
   };
 }
@@ -34,4 +37,5 @@ export const usePeriodStore = create<PeriodState>((set, get) => ({
   goPrevMonth: () => set(withMeta(shiftMonth(get(), -1))),
   goNextMonth: () => set(withMeta(shiftMonth(get(), 1))),
   goToCurrentMonth: () => set(withMeta(monthFromDate())),
+  refreshLabel: () => set(withMeta({ year: get().year, month: get().month })),
 }));

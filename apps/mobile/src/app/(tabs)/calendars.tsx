@@ -1,9 +1,14 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { CollaborationInvitesList } from '@/components/collaboration-invites-list';
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
+import {
+  listCollaborationInvites,
+  type CollaborationResourceInvite,
+} from '@/services/collaboration-api';
 import {
   useCalendarStore,
   type CalendarMemberRole,
@@ -45,11 +50,28 @@ export default function CalendarsScreen() {
   const [inviteName, setInviteName] = useState('');
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor');
   const [newCalendarName, setNewCalendarName] = useState('');
+  const [invites, setInvites] = useState<CollaborationResourceInvite[]>([]);
 
   const selected = useMemo(
     () => calendars.find((item) => item.id === selectedId) ?? calendars[0],
     [calendars, selectedId],
   );
+
+  const loadInvites = useCallback(async (resourceId?: string) => {
+    if (!resourceId) {
+      setInvites([]);
+      return;
+    }
+    try {
+      const rows = await listCollaborationInvites({
+        resourceType: 'calendar',
+        resourceId,
+      });
+      setInvites(rows);
+    } catch {
+      setInvites([]);
+    }
+  }, []);
 
   useEffect(() => {
     if (selected) setName(selected.name);
@@ -61,6 +83,10 @@ export default function CalendarsScreen() {
     }
   }, [params.focus, calendars]);
 
+  useEffect(() => {
+    void loadInvites(selected?.id);
+  }, [selected?.id, loadInvites]);
+
   const onInvite = async () => {
     if (!hasPaidPlan(plusAccess)) {
       openPaywall('SHARING_REQUIRED');
@@ -70,6 +96,7 @@ export default function CalendarsScreen() {
       await inviteMember(selected.id, inviteEmail, inviteRole, inviteName);
       setInviteEmail('');
       setInviteName('');
+      await loadInvites(selected.id);
       Alert.alert(
         'Invitación lista',
         inviteRole === 'editor'
@@ -305,6 +332,10 @@ export default function CalendarsScreen() {
               </Pressable>
             </View>
             <PrimaryButton onPress={() => void onInvite()}>Invitar al calendario</PrimaryButton>
+            <CollaborationInvitesList
+              invites={invites}
+              emptyLabel="Cuando invites a alguien, verás aquí si está pendiente o aceptó."
+            />
           </Card>
         </>
       ) : null}

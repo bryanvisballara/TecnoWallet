@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
 import { AffiliateModule } from '../affiliate/affiliate.module';
@@ -18,7 +18,7 @@ import { EntitlementService } from './entitlement.service';
 @Module({
   imports: [
     AuthModule,
-    AffiliateModule,
+    forwardRef(() => AffiliateModule),
     MongooseModule.forFeature([
       { name: Subscription.name, schema: SubscriptionSchema },
       {

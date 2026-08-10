@@ -17,13 +17,14 @@ import {
 } from 'react-native';
 
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
-import { featureGroups } from '@/data/demo';
+import { localizedFeatureGroups, useAppCopy } from '@/i18n/app-copy';
 import { languages } from '@/i18n/languages';
 import { currencies, currencyLabel } from '@/lib/currencies';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { usePlusStore, hasPaidPlan } from '@/store/plus';
+import { isBusinessPlan } from '@/services/plus-api';
 import {
   appearanceLabel,
   usePreferencesStore,
@@ -33,11 +34,13 @@ import {
 
 export default function MoreScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const featureGroups = useMemo(() => localizedFeatureGroups(copy), [copy]);
   const demo = useAuthStore((state) => state.demo);
   const profile = useAuthStore((state) => state.profile);
   const signOut = useAuthStore((state) => state.signOut);
   const requestDeleteAccountCode = useAuthStore(
-    (state) => state.requestDeleteAccountCode,
+    state => state.requestDeleteAccountCode,
   );
   const deleteAccount = useAuthStore((state) => state.deleteAccount);
   const locale = useLanguageStore((state) => state.locale);
@@ -81,6 +84,10 @@ export default function MoreScreen() {
   }, [currencyQuery]);
 
   const openItem = (slug: string) => {
+    if (slug === 'admin') {
+      router.push('/(tabs)/admin');
+      return;
+    }
     if (slug === 'idioma') {
       setLanguageOpen(true);
       return;
@@ -131,60 +138,91 @@ export default function MoreScreen() {
         return {
           subtitle:
             plusAccess === 'business'
-              ? 'Incluido en Business'
-              : 'Suscripción activa',
-          badge: 'Activo' as string | undefined,
+              ? copy.more.badges.includedInBusiness
+              : copy.more.badges.subscriptionActive,
+          badge: copy.more.badges.active as string | undefined,
         };
       }
       return {
         subtitle: fallbackSubtitle,
-        badge: 'Upgrade' as string | undefined,
+        badge: copy.more.badges.upgrade as string | undefined,
       };
     }
     if (slug === 'upgrade-business') {
       if (plusAccess === 'business') {
         return {
-          subtitle: 'Suscripción activa',
-          badge: 'Activo' as string | undefined,
+          subtitle: copy.more.badges.subscriptionActive,
+          badge: copy.more.badges.active as string | undefined,
         };
       }
       return {
         subtitle: fallbackSubtitle,
-        badge: hasPaidPlan(plusAccess) ? 'Upgrade' : 'Business',
+        badge: hasPaidPlan(plusAccess)
+          ? copy.more.badges.upgrade
+          : copy.more.badges.business,
+      };
+    }
+    if (slug === 'afiliados') {
+      if (isBusinessPlan(plusAccess)) {
+        return {
+          subtitle:
+            locale === 'es'
+              ? 'Tu enlace, código y comisiones'
+              : 'Your link, code, and commissions',
+          badge: undefined as string | undefined,
+        };
+      }
+      return {
+        subtitle: copy.more.items.afiliados.subtitle,
+        badge: copy.more.badges.business as string | undefined,
       };
     }
     if (slug === 'divisa') {
       return {
-        subtitle: `${currencyLabel(activeCurrency)} · libro ${ledger?.name ?? 'activo'}`,
+        subtitle:
+          locale === 'es'
+            ? `${currencyLabel(activeCurrency)} · libro ${ledger?.name ?? 'activo'}`
+            : `${currencyLabel(activeCurrency)} · book ${ledger?.name ?? 'active'}`,
         badge: activeCurrency,
       };
     }
     if (slug === 'bancos') {
       return {
-        subtitle: 'Próximamente',
-        badge: 'Pronto' as string | undefined,
+        subtitle: copy.more.items.bancos.subtitle,
+        badge: (copy.more.items.bancos.badge ?? copy.more.badges.soon) as
+          | string
+          | undefined,
       };
     }
     if (slug === 'presupuesto-ia') {
-      return { subtitle: 'Sin sugerencias aún', badge: undefined as string | undefined };
+      return {
+        subtitle:
+          locale === 'es' ? 'Sin sugerencias aún' : 'No suggestions yet',
+        badge: undefined as string | undefined,
+      };
     }
     if (slug === 'recordatorios') {
       return {
-        subtitle: remindersEnabled ? 'Pagos, metas y calendario' : 'Avisos desactivados',
-        badge: remindersEnabled ? 'Activo' : 'Off',
+        subtitle: remindersEnabled
+          ? copy.more.items.recordatorios.subtitle
+          : locale === 'es'
+            ? 'Avisos desactivados'
+            : 'Reminders off',
+        badge: remindersEnabled ? copy.more.badges.active : 'Off',
       };
     }
     if (slug === 'seguridad') {
       return {
-        subtitle: biometricsLockEnabled
-          ? 'Pide desbloqueo al abrir'
-          : 'Pedir desbloqueo al abrir',
-        badge: biometricsLockEnabled ? 'Activo' : 'Off',
+        subtitle: copy.more.items.seguridad.subtitle,
+        badge: biometricsLockEnabled ? copy.more.badges.active : 'Off',
       };
     }
     if (slug === 'ajustes') {
       return {
-        subtitle: `Semana · ${weekStartsOnLabel(weekStartsOn)}`,
+        subtitle:
+          locale === 'es'
+            ? `Semana · ${weekStartsOnLabel(weekStartsOn, locale)}`
+            : `Week · ${weekStartsOnLabel(weekStartsOn, locale)}`,
         badge: undefined as string | undefined,
       };
     }
@@ -282,10 +320,10 @@ export default function MoreScreen() {
   };
 
   return (
-    <Screen withTabBar title="Más" subtitle="Herramientas y preferencias">
+    <Screen withTabBar title={copy.more.title} subtitle={copy.more.subtitle}>
       <ScalePressable
         accessibilityRole="button"
-        accessibilityLabel="Ver perfil"
+        accessibilityLabel={copy.more.viewProfile}
         onPress={() => router.push('/(tabs)/profile')}>
         <Card style={styles.profile}>
           <Image
@@ -304,6 +342,26 @@ export default function MoreScreen() {
         </Card>
       </ScalePressable>
 
+      {profile.platformRole === 'admin' ? (
+        <ScalePressable
+          accessibilityRole="button"
+          accessibilityLabel={copy.more.adminPortal}
+          onPress={() => openItem('admin')}>
+          <Card style={styles.adminCard}>
+            <View style={[styles.adminIcon, { backgroundColor: theme.primarySoft }]}>
+              <AppIcon name="gearshape.fill" color={theme.primary} />
+            </View>
+            <View style={styles.copy}>
+              <Text style={[styles.name, { color: theme.text }]}>{copy.more.adminPortal}</Text>
+              <Text style={[styles.small, { color: theme.muted }]}>
+                {copy.more.adminSubtitle}
+              </Text>
+            </View>
+            <Pill tone="blue">Admin</Pill>
+          </Card>
+        </ScalePressable>
+      ) : null}
+
       {featureGroups.map((group) => (
         <View key={group.title} style={styles.group}>
           <Text style={[styles.groupTitle, { color: theme.muted }]}>{group.title.toUpperCase()}</Text>
@@ -314,11 +372,11 @@ export default function MoreScreen() {
                 item.slug === 'idioma'
                   ? language.nativeLabel
                   : item.slug === 'apariencia'
-                    ? appearanceLabel(appearance)
+                    ? appearanceLabel(appearance, locale)
                     : item.slug === 'sonido'
                       ? hapticsEnabled
-                        ? 'Activado'
-                        : 'Desactivado'
+                        ? copy.more.enabled
+                        : copy.more.disabled
                       : resolved.subtitle;
               const badge =
                 item.slug === 'idioma'
@@ -340,8 +398,12 @@ export default function MoreScreen() {
                   ? upgradeActive
                     ? 'green'
                     : 'blue'
+                  : item.slug === 'afiliados'
+                    ? isBusinessPlan(plusAccess)
+                      ? 'green'
+                      : 'blue'
                   : item.slug === 'recordatorios' || item.slug === 'seguridad'
-                    ? resolved.badge === 'Activo'
+                    ? resolved.badge === copy.more.badges.active
                       ? 'green'
                       : 'neutral'
                     : (item.badgeTone ?? 'neutral');
@@ -406,10 +468,12 @@ export default function MoreScreen() {
                         </View>
                         <View style={styles.copy}>
                           <Text style={[styles.menuTitle, { color: theme.danger }]}>
-                            Eliminar cuenta
+                            {copy.more.deleteAccount}
                           </Text>
                           <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
-                            Borra tu usuario y libros en el servidor
+                            {locale === 'es'
+                              ? 'Borra tu usuario y libros en el servidor'
+                              : 'Deletes your user and books on the server'}
                           </Text>
                         </View>
                         <AppIcon name="chevron" color={theme.muted} size={15} />
@@ -427,17 +491,21 @@ export default function MoreScreen() {
         onPress={() => void leave()}
         disabled={deleting}
         style={[styles.signOut, { backgroundColor: '#FDECEC' }]}>
-        <Text style={[styles.signOutText, { color: theme.danger }]}>Cerrar sesión</Text>
+        <Text style={[styles.signOutText, { color: theme.danger }]}>{copy.more.signOut}</Text>
       </ScalePressable>
 
-      <Text style={[styles.version, { color: theme.muted }]}>TecnoWallet 1.0.0 · Hecho con cuidado</Text>
+      <Text style={[styles.version, { color: theme.muted }]}>
+        {locale === 'es'
+          ? 'TecnoWallet 1.0.0 · Hecho con cuidado'
+          : 'TecnoWallet 1.0.0 · Made with care'}
+      </Text>
 
       <Modal visible={languageOpen} transparent animationType="fade" onRequestClose={() => setLanguageOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setLanguageOpen(false)}>
           <Pressable
             style={[styles.sheet, styles.languageSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Idioma</Text>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>{copy.more.languageSheet}</Text>
             <ScrollView
               style={styles.languageList}
               contentContainerStyle={styles.languageListContent}
@@ -479,12 +547,24 @@ export default function MoreScreen() {
           <Pressable
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Apariencia</Text>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>{copy.more.appearanceSheet}</Text>
             {(
               [
-                { id: 'system' as AppearanceMode, title: 'Automático', hint: 'Sigue el sistema' },
-                { id: 'light' as AppearanceMode, title: 'Claro', hint: 'Siempre modo claro' },
-                { id: 'dark' as AppearanceMode, title: 'Oscuro', hint: 'Siempre modo oscuro' },
+                {
+                  id: 'system' as AppearanceMode,
+                  title: locale === 'es' ? 'Automático' : 'Automatic',
+                  hint: locale === 'es' ? 'Sigue el sistema' : 'Follow system',
+                },
+                {
+                  id: 'light' as AppearanceMode,
+                  title: copy.appearance.light,
+                  hint: locale === 'es' ? 'Siempre modo claro' : 'Always light mode',
+                },
+                {
+                  id: 'dark' as AppearanceMode,
+                  title: copy.appearance.dark,
+                  hint: locale === 'es' ? 'Siempre modo oscuro' : 'Always dark mode',
+                },
               ] as const
             ).map((item) => {
               const selected = appearance === item.id;
@@ -527,9 +607,11 @@ export default function MoreScreen() {
           />
           <View style={[styles.currencySheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.currencyHeader}>
-              <Text style={[styles.sheetTitle, { color: theme.text, marginBottom: 0 }]}>Divisa</Text>
+              <Text style={[styles.sheetTitle, { color: theme.text, marginBottom: 0 }]}>
+                {copy.more.currencySheet}
+              </Text>
               <Pressable
-                accessibilityLabel="Cerrar divisas"
+                accessibilityLabel={copy.more.close}
                 disabled={savingCurrency}
                 onPress={() => setCurrencyOpen(false)}
                 style={styles.currencyClose}>
@@ -537,12 +619,16 @@ export default function MoreScreen() {
               </Pressable>
             </View>
             <Text style={[styles.small, { color: theme.muted, fontSize: 13, lineHeight: 18 }]}>
-              Moneda del libro {ledger?.name ?? 'activo'}. Los montos se mostrarán en esta divisa.
+              {locale === 'es'
+                ? `Moneda del libro ${ledger?.name ?? 'activo'}. Los montos se mostrarán en esta divisa.`
+                : `Currency for book ${ledger?.name ?? 'active'}. Amounts will show in this currency.`}
             </Text>
             <TextInput
               value={currencyQuery}
               onChangeText={setCurrencyQuery}
-              placeholder="Buscar por código o nombre"
+              placeholder={
+                locale === 'es' ? 'Buscar por código o nombre' : 'Search by code or name'
+              }
               placeholderTextColor={theme.muted}
               autoCapitalize="none"
               autoCorrect={false}
@@ -600,16 +686,19 @@ export default function MoreScreen() {
           <Pressable
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Eliminar cuenta</Text>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>{copy.more.deleteAccount}</Text>
             {deleteStep === 'confirm' ? (
               <Text style={[styles.small, { color: theme.muted, fontSize: 13, lineHeight: 18 }]}>
-                Te enviaremos un código de 6 dígitos a {profile.email}. Sin ese código no se
-                elimina la cuenta ni tus libros.
+                {locale === 'es'
+                  ? `Te enviaremos un código de 6 dígitos a ${profile.email}. Sin ese código no se elimina la cuenta ni tus libros.`
+                  : `We'll send a 6-digit code to ${profile.email}. Without it your account and books won't be deleted.`}
               </Text>
             ) : (
               <>
                 <Text style={[styles.small, { color: theme.muted, fontSize: 13, lineHeight: 18 }]}>
-                  Escribe el código que llegó a tu correo para confirmar el borrado.
+                  {locale === 'es'
+                    ? 'Escribe el código que llegó a tu correo para confirmar el borrado.'
+                    : 'Enter the code from your email to confirm deletion.'}
                 </Text>
                 <TextInput
                   value={deleteCode}
@@ -640,7 +729,7 @@ export default function MoreScreen() {
                 disabled={deleting}
                 onPress={closeDeleteModal}
                 style={[styles.deleteActionBtn, { backgroundColor: theme.surfaceSecondary }]}>
-                <Text style={[styles.signOutText, { color: theme.text }]}>Cancelar</Text>
+                <Text style={[styles.signOutText, { color: theme.text }]}>{copy.more.cancel}</Text>
               </ScalePressable>
               <ScalePressable
                 disabled={deleting || (deleteStep === 'code' && deleteCode.length !== 6)}
@@ -652,7 +741,7 @@ export default function MoreScreen() {
                   <ActivityIndicator color={theme.danger} />
                 ) : (
                   <Text style={[styles.signOutText, { color: theme.danger }]}>
-                    {deleteStep === 'confirm' ? 'Enviar código' : 'Eliminar'}
+                    {deleteStep === 'confirm' ? copy.more.sendCode : copy.more.delete}
                   </Text>
                 )}
               </ScalePressable>
@@ -660,7 +749,7 @@ export default function MoreScreen() {
             {deleteStep === 'code' ? (
               <ScalePressable disabled={deleting} onPress={() => void sendDeleteCode()}>
                 <Text style={[styles.resendCode, { color: theme.primary }]}>
-                  Reenviar código
+                  {copy.more.resendCode}
                 </Text>
               </ScalePressable>
             ) : null}
@@ -673,6 +762,14 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   profile: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  adminCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  adminIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatar: { width: 52, height: 52, borderRadius: 18 },
   copy: { flex: 1, gap: 3, minWidth: 0 },
   name: { fontSize: 17, fontWeight: '700' },

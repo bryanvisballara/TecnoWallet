@@ -7,19 +7,27 @@ import { LedgerSwitcher } from '@/components/ledger-switcher';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, IconButton, Pill, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import {
+  displayLedgerName,
+  timeGreeting,
+  useAppCopy,
+  type MovementFilterKey,
+} from '@/i18n/app-copy';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
 import { useAuthStore } from '@/store/auth';
 import { useActiveCalendar } from '@/store/calendar';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 import { buildNotificationFeed, unreadCount, useNotificationsStore } from '@/store/notifications';
 import { usePeriodStore } from '@/store/period';
 import { usePreferencesStore } from '@/store/preferences';
 
-const movementFilters = ['Todos', 'Gastos', 'Ingresos', 'Recurrentes'] as const;
-type MovementFilter = (typeof movementFilters)[number];
+const movementFilterKeys: MovementFilterKey[] = ['all', 'expenses', 'income', 'recurring'];
 
 export default function DashboardScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const profile = useAuthStore((state) => state.profile);
   const { summary, transactions, upcoming, ledger, envelopes } = useActiveLedger();
   const { items: calendarItems } = useActiveCalendar();
@@ -34,8 +42,9 @@ export default function DashboardScreen() {
   const hideBalances = usePreferencesStore((state) => state.hideBalances);
   const setHideBalances = usePreferencesStore((state) => state.setHideBalances);
   const [hidden, setHidden] = useState(hideBalances);
-  const [movementFilter, setMovementFilter] = useState<MovementFilter>('Todos');
+  const [movementFilter, setMovementFilter] = useState<MovementFilterKey>('all');
   const value = (amount: number, compact = false) => (hidden ? '••••••' : money(amount, compact));
+  const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   useEffect(() => {
     setHidden(hideBalances);
@@ -82,14 +91,14 @@ export default function DashboardScreen() {
     const daily = available / daysLeft;
     const status =
       assigned <= 0
-        ? 'Sin presupuesto mensual'
+        ? copy.home.budgetNone
         : ratio >= 0.4
-          ? 'Tu presupuesto va bien'
+          ? copy.home.budgetOk
           : ratio >= 0.15
-            ? 'Vas justo este mes'
-            : 'Presupuesto casi agotado';
+            ? copy.home.budgetTight
+            : copy.home.budgetLow;
     return { assigned, spent, available, ratio, daily, status };
-  }, [envelopes, monthTransactions, isCurrentMonth, year, month]);
+  }, [envelopes, monthTransactions, isCurrentMonth, year, month, copy.home]);
 
   const weekAnchor = useMemo(
     () => (isCurrentMonth ? new Date() : new Date(year, month + 1, 0, 12, 0, 0)),
@@ -109,49 +118,53 @@ export default function DashboardScreen() {
     const delta = Math.abs(Math.round(summary.comparison));
     const spentLess = summary.comparison < 0;
     return {
-      title: spentLess ? 'Buen ritmo esta semana' : 'Esta semana gastaste más',
-      body: spentLess
-        ? `Gastaste ${delta}% menos. Mantén el rumbo.`
-        : `Gastaste ${delta}% más que la semana anterior.`,
+      title: spentLess ? copy.home.weekGood : copy.home.weekMore,
+      body: spentLess ? copy.home.weekLessBody(delta) : copy.home.weekMoreBody(delta),
     };
-  }, [monthTransactions.length, weekTotal, summary.comparison]);
+  }, [monthTransactions.length, weekTotal, summary.comparison, copy.home]);
 
   const filteredMovements = useMemo(
     () =>
       monthTransactions.filter((item) => {
-        if (movementFilter === 'Gastos') return item.amount < 0;
-        if (movementFilter === 'Ingresos') return item.amount > 0;
-        if (movementFilter === 'Recurrentes') return Boolean(item.recurring);
+        if (movementFilter === 'expenses') return item.amount < 0;
+        if (movementFilter === 'income') return item.amount > 0;
+        if (movementFilter === 'recurring') return Boolean(item.recurring);
         return true;
       }),
     [monthTransactions, movementFilter],
   );
 
   if (!profile || !ledger) {
-    return <Screen withTabBar title="Cargando…" />;
+    return <Screen withTabBar title={copy.common.loading} />;
   }
+
+  const greeting = timeGreeting(copy);
 
   return (
     <Screen
       withTabBar
       title={<LedgerSwitcher />}
-      subtitle={`Buenos días, ${profile.name.split(' ')[0]} · ${ledger.name}`}
+      subtitle={`${greeting}, ${profile.name.split(' ')[0]} · ${ledgerLabel}`}
       right={
         <View style={[uiStyles.row, uiStyles.gap8]}>
           <IconButton
             icon="person.badge.plus"
-            label={`Invitar a ${ledger.name}`}
+            label={copy.common.inviteTo(ledgerLabel)}
             onPress={() =>
               router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id } })
             }
           />
           <IconButton
             icon="bell"
-            label="Notificaciones"
+            label={copy.common.notifications}
             badge={notificationBadge}
             onPress={() => router.push('/(tabs)/notifications')}
           />
-          <IconButton icon="person.crop.circle" label="Perfil" onPress={() => router.push('/(tabs)/profile')} />
+          <IconButton
+            icon="person.crop.circle"
+            label={copy.common.profile}
+            onPress={() => router.push('/(tabs)/profile')}
+          />
         </View>
       }>
       <MonthSwitcher />
@@ -159,14 +172,14 @@ export default function DashboardScreen() {
         <View style={uiStyles.between}>
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel={`Liquidez total ${money(liquidezTotal)}. Ingresos menos gastos de ${monthLabel}`}
+            accessibilityLabel={copy.home.liquidityA11y(money(liquidezTotal), monthLabel)}
             style={styles.balancePress}
             onPress={() => router.push('/(tabs)/movimientos')}>
-            <Text style={styles.balanceLabel}>Liquidez total</Text>
+            <Text style={styles.balanceLabel}>{copy.home.totalLiquidity}</Text>
           </ScalePressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Mostrar u ocultar saldos"
+            accessibilityLabel={copy.home.toggleBalances}
             hitSlop={12}
             onPress={() => {
               setHidden((prev) => {
@@ -180,12 +193,12 @@ export default function DashboardScreen() {
         </View>
         <ScalePressable
           accessibilityRole="button"
-          accessibilityLabel={`Liquidez total ${money(liquidezTotal)}. Ingresos menos gastos de ${monthLabel}`}
+          accessibilityLabel={copy.home.liquidityA11y(money(liquidezTotal), monthLabel)}
           onPress={() => router.push('/(tabs)/movimientos')}>
           <Text style={styles.balance}>{value(liquidezTotal)}</Text>
           <View style={styles.balanceFooter}>
             <Pill tone="neutral">{monthLabel}</Pill>
-            <Text style={styles.updated}>Ingresos − gastos</Text>
+            <Text style={styles.updated}>{copy.home.incomeMinusExpenses}</Text>
           </View>
         </ScalePressable>
       </Card>
@@ -194,14 +207,14 @@ export default function DashboardScreen() {
         <View style={styles.metricSlot}>
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel="Ver detalle de ingresos"
+            accessibilityLabel={copy.home.viewIncomeDetail}
             style={styles.metricPress}
             onPress={() => router.push({ pathname: '/(tabs)/cashflow/[type]', params: { type: 'ingresos' } })}>
             <Card style={styles.metric} delay={40}>
               <View style={[styles.metricIcon, { backgroundColor: theme.successSoft }]}>
                 <AppIcon name="arrow.down.circle.fill" color={theme.success} />
               </View>
-              <Text style={[styles.metricLabel, { color: theme.muted }]}>Ingresos</Text>
+              <Text style={[styles.metricLabel, { color: theme.muted }]}>{copy.home.income}</Text>
               <Text style={[styles.metricValue, { color: theme.text }]}>{value(cashflow.income, true)}</Text>
             </Card>
           </ScalePressable>
@@ -209,14 +222,14 @@ export default function DashboardScreen() {
         <View style={styles.metricSlot}>
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel="Ver detalle de gastos"
+            accessibilityLabel={copy.home.viewExpensesDetail}
             style={styles.metricPress}
             onPress={() => router.push({ pathname: '/(tabs)/cashflow/[type]', params: { type: 'gastos' } })}>
             <Card style={styles.metric} delay={80}>
               <View style={[styles.metricIcon, { backgroundColor: '#FDECEC' }]}>
                 <AppIcon name="arrow.up.circle.fill" color={theme.danger} />
               </View>
-              <Text style={[styles.metricLabel, { color: theme.muted }]}>Gastos</Text>
+              <Text style={[styles.metricLabel, { color: theme.muted }]}>{copy.home.expenses}</Text>
               <Text style={[styles.metricValue, { color: theme.text }]}>{value(cashflow.expenses, true)}</Text>
             </Card>
           </ScalePressable>
@@ -226,7 +239,7 @@ export default function DashboardScreen() {
             <View style={[styles.metricIcon, { backgroundColor: theme.primarySoft }]}>
               <AppIcon name="wallet.pass.fill" color={theme.primary} />
             </View>
-            <Text style={[styles.metricLabel, { color: theme.muted }]}>Restante</Text>
+            <Text style={[styles.metricLabel, { color: theme.muted }]}>{copy.home.remaining}</Text>
             <Text style={[styles.metricValue, { color: theme.text }]}>{value(cashflow.remaining, true)}</Text>
           </Card>
         </View>
@@ -237,15 +250,17 @@ export default function DashboardScreen() {
           <>
             <View style={uiStyles.between}>
               <View style={styles.budgetCopy}>
-                <Text style={[styles.cardLabel, { color: theme.muted }]}>Disponible · {monthLabel}</Text>
+                <Text style={[styles.cardLabel, { color: theme.muted }]}>
+                  {copy.home.availableMonth(monthLabel)}
+                </Text>
                 <Text style={[styles.cardTitle, { color: theme.text }]}>{budget.status}</Text>
-                <Pill tone="blue">{Math.round(budget.ratio * 100)}% disponible</Pill>
+                <Pill tone="blue">{copy.home.pctAvailable(Math.round(budget.ratio * 100))}</Pill>
               </View>
               <DonutChart value={budget.ratio} amount={budget.available} />
             </View>
             <View style={[styles.daily, { backgroundColor: theme.surfaceSecondary }]}>
               <View>
-                <Text style={[styles.dailyLabel, { color: theme.muted }]}>Puedes gastar por día</Text>
+                <Text style={[styles.dailyLabel, { color: theme.muted }]}>{copy.home.dailySpend}</Text>
                 <Text style={[styles.dailyValue, { color: theme.text }]}>{value(budget.daily)}</Text>
               </View>
               <AppIcon name="calendar" color={theme.primary} size={26} />
@@ -254,16 +269,16 @@ export default function DashboardScreen() {
         ) : (
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel="Sin presupuesto mensual. Configurar presupuesto opcional"
+            accessibilityLabel={copy.home.configureBudgetA11y}
             onPress={() => router.push('/(tabs)/sobres')}
             style={styles.noBudgetPress}>
             <View style={uiStyles.between}>
               <View style={styles.budgetCopy}>
-                <Text style={[styles.cardLabel, { color: theme.muted }]}>Presupuesto mensual · Opcional</Text>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>Sin presupuesto</Text>
-                <Text style={[styles.small, { color: theme.muted }]}>
-                  Puedes registrar y controlar gastos sin establecer un límite.
+                <Text style={[styles.cardLabel, { color: theme.muted }]}>
+                  {copy.home.monthlyBudgetOptional}
                 </Text>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>{copy.home.noBudget}</Text>
+                <Text style={[styles.small, { color: theme.muted }]}>{copy.home.noBudgetHint}</Text>
               </View>
               <View style={[styles.noBudgetIcon, { backgroundColor: theme.primarySoft }]}>
                 <AppIcon name="wallet.pass.fill" color={theme.primary} size={28} />
@@ -271,9 +286,9 @@ export default function DashboardScreen() {
             </View>
             <View style={[styles.noBudgetAction, { backgroundColor: theme.surfaceSecondary }]}>
               <Text style={[styles.noBudgetActionText, { color: theme.text }]}>
-                Configurar presupuesto
+                {copy.home.configureBudget}
               </Text>
-              <Text style={[styles.optionalText, { color: theme.muted }]}>Opcional</Text>
+              <Text style={[styles.optionalText, { color: theme.muted }]}>{copy.common.optional}</Text>
             </View>
           </ScalePressable>
         )}
@@ -282,34 +297,40 @@ export default function DashboardScreen() {
       {summary.goal > 0 ? (
         <ScalePressable
           accessibilityRole="button"
-          accessibilityLabel="Ver detalle de la meta de agosto"
+          accessibilityLabel={copy.home.viewGoalA11y}
           onPress={() => router.push({ pathname: '/(tabs)/goal/[id]', params: { id: 'agosto' } })}>
           <Card>
             <View style={uiStyles.between}>
               <View>
-                <Text style={[styles.cardLabel, { color: theme.muted }]}>Meta · {monthLabel}</Text>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>Ahorrar {value(summary.goal)}</Text>
+                <Text style={[styles.cardLabel, { color: theme.muted }]}>
+                  {copy.home.goalMonth(monthLabel)}
+                </Text>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>
+                  {copy.home.saveGoal(value(summary.goal))}
+                </Text>
               </View>
               <Text style={[styles.percent, { color: theme.success }]}>{Math.round(goalRatio * 100)}%</Text>
             </View>
-            <ProgressBar value={goalRatio} color={theme.success} label="Progreso de meta mensual" />
+            <ProgressBar value={goalRatio} color={theme.success} label={copy.home.goalProgress} />
             <View style={uiStyles.between}>
-              <Text style={[styles.small, { color: theme.muted }]}>{value(summary.goalCurrent)} ahorrados</Text>
-              <Text style={[styles.small, { color: theme.muted }]}>Faltan {value(Math.max(summary.goal - summary.goalCurrent, 0))}</Text>
+              <Text style={[styles.small, { color: theme.muted }]}>
+                {copy.home.savedAmount(value(summary.goalCurrent))}
+              </Text>
+              <Text style={[styles.small, { color: theme.muted }]}>
+                {copy.home.remainingAmount(value(Math.max(summary.goal - summary.goalCurrent, 0)))}
+              </Text>
             </View>
           </Card>
         </ScalePressable>
       ) : (
         <Card>
-          <Text style={[styles.cardLabel, { color: theme.muted }]}>Meta · {monthLabel}</Text>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Sin meta en este libro</Text>
-          <Text style={[styles.small, { color: theme.muted }]}>
-            Cuando definas una meta, verás el progreso aquí.
-          </Text>
+          <Text style={[styles.cardLabel, { color: theme.muted }]}>{copy.home.goalMonth(monthLabel)}</Text>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>{copy.home.noGoalTitle}</Text>
+          <Text style={[styles.small, { color: theme.muted }]}>{copy.home.noGoalHint}</Text>
         </Card>
       )}
 
-      <SectionTitle>Actividad semanal</SectionTitle>
+      <SectionTitle>{copy.home.weeklyActivity}</SectionTitle>
       <Card>
         <WeeklyBars
           transactions={monthTransactions}
@@ -318,19 +339,20 @@ export default function DashboardScreen() {
         />
       </Card>
 
-      <SectionTitle action="Ver todos" onAction={() => router.push('/(tabs)/movimientos')}>
-        Movimientos · {monthLabel}
+      <SectionTitle action={copy.common.viewAll} onAction={() => router.push('/(tabs)/movimientos')}>
+        {copy.home.movementsMonth(monthLabel)}
       </SectionTitle>
 
       <View style={styles.filters}>
-        {movementFilters.map((item) => {
-          const selected = movementFilter === item;
+        {movementFilterKeys.map((key) => {
+          const selected = movementFilter === key;
+          const label = copy.home.filters[key];
           return (
             <Pressable
-              key={item}
+              key={key}
               accessibilityRole="button"
               accessibilityState={{ selected }}
-              onPress={() => setMovementFilter(item)}
+              onPress={() => setMovementFilter(key)}
               style={[
                 styles.filter,
                 {
@@ -339,7 +361,7 @@ export default function DashboardScreen() {
                 },
               ]}>
               <Text style={[styles.filterText, { color: selected ? '#FFFFFF' : theme.muted }]}>
-                {item}
+                {label}
               </Text>
             </Pressable>
           );
@@ -348,7 +370,7 @@ export default function DashboardScreen() {
 
       <Card style={[styles.movementSummary, { backgroundColor: theme.primarySoft }]}>
         <View style={styles.movementSummaryCopy}>
-          <Text style={[styles.small, { color: theme.muted }]}>Balance · {monthLabel}</Text>
+          <Text style={[styles.small, { color: theme.muted }]}>{copy.home.balanceMonth(monthLabel)}</Text>
           <Text style={[styles.movementSummaryValue, { color: theme.text }]}>
             {value(cashflow.remaining)}
           </Text>
@@ -367,8 +389,8 @@ export default function DashboardScreen() {
         {filteredMovements.length === 0 ? (
           <Text style={[styles.emptyList, { color: theme.muted }]}>
             {monthTransactions.length === 0
-              ? `No hay movimientos en ${monthLabel}.`
-              : `No hay ${movementFilter.toLowerCase()} en ${monthLabel}.`}
+              ? copy.home.noMovements(monthLabel)
+              : copy.home.noFiltered(copy.home.filters[movementFilter], monthLabel)}
           </Text>
         ) : (
           filteredMovements.slice(0, 4).map((item, index) => (
@@ -413,12 +435,12 @@ export default function DashboardScreen() {
         )}
       </Card>
 
-      <SectionTitle action="Calendario" onAction={() => router.push('/(tabs)/calendario')}>
-        Próximos pagos
+      <SectionTitle action={copy.home.calendar} onAction={() => router.push('/(tabs)/calendario')}>
+        {copy.home.upcomingPayments}
       </SectionTitle>
       {upcoming.length === 0 ? (
         <Card>
-          <Text style={[styles.emptyList, { color: theme.muted }]}>No hay pagos próximos en este libro.</Text>
+          <Text style={[styles.emptyList, { color: theme.muted }]}>{copy.home.noUpcoming}</Text>
         </Card>
       ) : (
       <View style={styles.upcomingRow}>

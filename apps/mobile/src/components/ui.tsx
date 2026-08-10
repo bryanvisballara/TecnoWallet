@@ -44,7 +44,7 @@ const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
   magnifyingglass: 'search', plus: 'add', chevron: 'chevron-forward', 'chevron.down': 'chevron-down',
   bell: 'notifications-outline', 'person.crop.circle': 'person-circle', 'wallet.pass.fill': 'wallet',
   'person.crop.circle.badge.checkmark': 'person-circle',
-  'chart.pie.fill': 'pie-chart', 'arrow.left': 'arrow-back', camera: 'camera',
+  'chart.pie.fill': 'pie-chart', 'arrow.left': 'arrow-back', 'arrow.right': 'arrow-forward', camera: 'camera',
   checkmark: 'checkmark', 'checkmark.circle.fill': 'checkmark-circle', circle: 'ellipse-outline',
   trash: 'trash', 'paperplane.fill': 'send', 'moon.fill': 'moon',
   'faceid': 'scan', 'icloud.and.arrow.up': 'cloud-upload', 'lock.fill': 'lock-closed',

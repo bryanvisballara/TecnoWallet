@@ -735,7 +735,7 @@ export class RecaudosService {
       input.recaudoId,
       { amountMinor: input.amountMinor, note: input.note },
       input.idempotencyKey,
-      { userId: input.userId, email: '' },
+      { userId: input.userId, email: '', platformRole: 'user' },
     );
   }
 
@@ -753,7 +753,7 @@ export class RecaudosService {
       input.recaudoId,
       { amountMinor: input.amountMinor, note: input.note },
       input.idempotencyKey,
-      { userId: input.organizerId, email: '' },
+      { userId: input.organizerId, email: '', platformRole: 'user' },
     );
   }
 

@@ -15,30 +15,37 @@ import { CalendarSwitcher } from '@/components/calendar-switcher';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
   buildMonthMatrix,
+  formatDayLabel,
   formatHour,
   formatMonthTitle,
+  localizedTypeLabels,
   parseDateKey,
   toDateKey,
   typeIcons,
-  typeLabels,
   weekDayLabels,
   type CalendarItem,
   type CalendarItemType,
 } from '@/data/calendar';
+import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
+import { dateLocale } from '@/i18n/locale-format';
 import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
+import { useLanguageStore } from '@/store/language';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { usePreferencesStore, weekStartsOnJsDay } from '@/store/preferences';
 import { useTabBarStore } from '@/store/tab-bar';
 
 export default function CalendarScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
+  const typeLabels = useMemo(() => localizedTypeLabels(locale), [locale]);
   const { tabsBottom, fabBottom } = useSafeLayout();
   const { items, calendar, activeCalendarId } = useActiveCalendar();
   const toggleTask = useCalendarStore((state) => state.toggleTask);
   const onScrollOffset = useTabBarStore((state) => state.onScrollOffset);
   const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
   const weekStartJs = weekStartsOnJsDay(weekStartsOn);
-  const weekDays = useMemo(() => weekDayLabels(weekStartJs), [weekStartJs]);
+  const weekDays = useMemo(() => weekDayLabels(weekStartJs, locale), [weekStartJs, locale]);
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => toDateKey(today), [today]);
   const [anchor, setAnchor] = useState(
@@ -78,6 +85,10 @@ export default function CalendarScreen() {
     router.push({ pathname: '/add-calendar-item', params: { type, date: selectedKey } });
   };
 
+  const calendarTitle = calendar?.name
+    ? displayCalendarName(calendar.name, locale)
+    : copy.calendar.myCalendar;
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
       {fabOpen ? <Pressable style={styles.fabScrim} onPress={() => setFabOpen(false)} /> : null}
@@ -92,7 +103,9 @@ export default function CalendarScreen() {
               setView('day');
             }}
             style={styles.monthButton}>
-            <Text style={[styles.monthTitle, { color: theme.text }]}>{formatMonthTitle(anchor)}</Text>
+            <Text style={[styles.monthTitle, { color: theme.text }]}>
+              {formatMonthTitle(anchor, locale)}
+            </Text>
             <AppIcon name="chevron" color={theme.muted} size={14} />
           </Pressable>
           <Pressable
@@ -103,13 +116,15 @@ export default function CalendarScreen() {
               setView('day');
             }}>
             <Text style={[styles.subtitle, { color: theme.muted }]}>
-              {view === 'month' ? 'Vista mensual' : formatDayLabelSafe(selectedDate)}
-              {selectedKey !== todayKey ? ' · Ir a hoy' : ''}
+              {view === 'month'
+                ? copy.calendar.monthView
+                : formatDayLabel(selectedDate, locale)}
+              {selectedKey !== todayKey ? ` · ${copy.calendar.goToday}` : ''}
             </Text>
           </Pressable>
         </View>
         <ScalePressable
-          accessibilityLabel={`Invitar a ${calendar?.name ?? 'calendario'}`}
+          accessibilityLabel={copy.common.inviteTo(calendarTitle)}
           onPress={() =>
             router.push({
               pathname: '/(tabs)/calendars',
@@ -128,7 +143,9 @@ export default function CalendarScreen() {
         style={styles.monthStrip}>
         {months.map((month) => {
           const active = month.getMonth() === anchor.getMonth() && month.getFullYear() === anchor.getFullYear();
-          const label = new Intl.DateTimeFormat('es-ES', { month: 'short' }).format(month).replace('.', '');
+          const label = new Intl.DateTimeFormat(dateLocale(locale), { month: 'short' })
+            .format(month)
+            .replace('.', '');
           return (
             <Pressable
               key={`${month.getFullYear()}-${month.getMonth()}`}
@@ -159,19 +176,19 @@ export default function CalendarScreen() {
         }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={view === 'month' ? 'Ver día' : 'Ver mes'}
+          accessibilityLabel={view === 'month' ? copy.calendar.viewDay : copy.calendar.viewMonth}
           onPress={() => setView(view === 'month' ? 'day' : 'month')}
           style={styles.viewToggle}>
           <Text style={{ color: theme.primary, fontWeight: '600' }}>
-            {view === 'month' ? 'Ver día' : 'Ver mes'}
+            {view === 'month' ? copy.calendar.viewDay : copy.calendar.viewMonth}
           </Text>
         </Pressable>
 
         {view === 'month' ? (
           <View style={[styles.monthCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.weekRow}>
-              {weekDays.map((day) => (
-                <Text key={day} style={[styles.weekDay, { color: theme.muted }]}>{day}</Text>
+              {weekDays.map((day, index) => (
+                <Text key={`${day}-${index}`} style={[styles.weekDay, { color: theme.muted }]}>{day}</Text>
               ))}
             </View>
             <View style={styles.grid}>
@@ -226,22 +243,23 @@ export default function CalendarScreen() {
             date={selectedDate}
             items={dayItems}
             theme={theme}
+            locale={locale}
             onToggleTask={toggleTask}
           />
         )}
 
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            {view === 'month' ? 'Del día seleccionado' : 'Agenda del día'}
+            {view === 'month' ? copy.calendar.selectedDay : copy.calendar.dayAgenda}
           </Text>
         </View>
 
         {dayItems.length === 0 ? (
           <View style={[styles.empty, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <AppIcon name="calendar" color={theme.muted} size={28} />
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>Sin entradas este día</Text>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>{copy.calendar.emptyDay}</Text>
             <Text style={[styles.emptyText, { color: theme.muted }]}>
-              Toca + para agregar un evento, tarea o cumpleaños.
+              {copy.calendar.emptyDayHint}
             </Text>
           </View>
         ) : (
@@ -268,7 +286,7 @@ export default function CalendarScreen() {
                 <Text style={[styles.itemMeta, { color: theme.muted }]}>
                   {typeLabels[item.type]}
                   {item.allDay
-                    ? ' · Todo el día'
+                    ? ` · ${copy.calendar.allDay}`
                     : ` · ${formatHour(item.startHour)}${item.endHour != null ? ` – ${formatHour(item.endHour)}` : ''}`}
                   {item.location ? ` · ${item.location}` : ''}
                 </Text>
@@ -282,9 +300,9 @@ export default function CalendarScreen() {
         {fabOpen ? (
           <Animated.View entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)} style={styles.fabMenu}>
             {([
-              { type: 'birthday' as const, label: 'Cumpleaños', icon: 'gift.fill' },
-              { type: 'task' as const, label: 'Tarea', icon: 'checkmark.circle.fill' },
-              { type: 'event' as const, label: 'Evento', icon: 'calendar' },
+              { type: 'birthday' as const, label: copy.calendar.birthday, icon: 'gift.fill' },
+              { type: 'task' as const, label: copy.calendar.task, icon: 'checkmark.circle.fill' },
+              { type: 'event' as const, label: copy.calendar.event, icon: 'calendar' },
             ]).map((action) => (
               <ScalePressable
                 key={action.type}
@@ -313,23 +331,17 @@ export default function CalendarScreen() {
   );
 }
 
-function formatDayLabelSafe(date: Date) {
-  return new Intl.DateTimeFormat('es-ES', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  }).format(date);
-}
-
 function DayTimeline({
   date,
   items,
   theme,
+  locale,
   onToggleTask,
 }: {
   date: Date;
   items: CalendarItem[];
   theme: ReturnType<typeof useAppTheme>;
+  locale: string;
   onToggleTask: (id: string) => void;
 }) {
   const hours = Array.from({ length: 14 }, (_, index) => index + 7);
@@ -341,7 +353,9 @@ function DayTimeline({
       <View style={styles.dayBadgeRow}>
         <View>
           <Text style={[styles.dayBadgeWeek, { color: theme.primary }]}>
-            {new Intl.DateTimeFormat('es-ES', { weekday: 'short' }).format(date).toUpperCase()}
+            {new Intl.DateTimeFormat(dateLocale(locale), { weekday: 'short' })
+              .format(date)
+              .toUpperCase()}
           </Text>
           <View style={[styles.dayBadge, { backgroundColor: theme.primary }]}>
             <Text style={styles.dayBadgeNum}>{date.getDate()}</Text>

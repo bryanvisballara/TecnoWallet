@@ -5,20 +5,24 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppIcon, Card, Pill, ScalePressable, Screen, useAppTheme } from '@/components/ui';
 import { formatDayLabel, parseDateKey } from '@/data/calendar';
 import { money } from '@/data/demo';
+import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { goalPeriodLabels, useGoalsStore, type GoalPeriod, type UserGoal } from '@/store/goals';
 import { useActiveLedger } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 
 const periodOrder: GoalPeriod[] = ['week', 'month', 'year', 'date'];
 
-function goalDeadlineLabel(goal: UserGoal) {
+function goalDeadlineLabel(goal: UserGoal, locale: string) {
   if (goal.period === 'date' && goal.targetDate) {
-    return formatDayLabel(parseDateKey(goal.targetDate));
+    return formatDayLabel(parseDateKey(goal.targetDate), locale);
   }
   return goalPeriodLabels[goal.period];
 }
 
 function GoalCard({ goal }: { goal: UserGoal }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const toggleCompleted = useGoalsStore((state) => state.toggleCompleted);
   const activeColor = goal.completed ? theme.success : goal.color;
   const surface = goal.completed ? theme.successSoft : theme.surface;
@@ -52,19 +56,21 @@ function GoalCard({ goal }: { goal: UserGoal }) {
             {goal.title}
           </Text>
           <Text style={[styles.goalMeta, { color: theme.muted }]}>
-            {goalDeadlineLabel(goal)}
+            {goalDeadlineLabel(goal, locale)}
             {goal.targetAmount ? ` · ${money(goal.targetAmount, true)}` : ''}
             {goal.envelopeId ? ' · Con sobre' : ''}
           </Text>
         </View>
         <Pill tone={goal.completed ? 'green' : 'neutral'}>
-          {goal.completed ? 'Completada' : 'Activa'}
+          {goal.completed ? copy.goals.completed : copy.goals.active}
         </Pill>
       </View>
       <ScalePressable
         accessibilityRole="button"
         accessibilityLabel={
-          goal.completed ? `Marcar ${goal.title} como pendiente` : `Completar ${goal.title}`
+          goal.completed
+            ? `${copy.goals.markPending}: ${goal.title}`
+            : `${copy.goals.markCompleted}: ${goal.title}`
         }
         onPress={() => void toggleCompleted(goal.id)}
         style={[
@@ -80,7 +86,7 @@ function GoalCard({ goal }: { goal: UserGoal }) {
           size={16}
         />
         <Text style={{ color: activeColor, fontWeight: '700', fontSize: 13 }}>
-          {goal.completed ? 'Marcar pendiente' : 'Marcar completada'}
+          {goal.completed ? copy.goals.markPending : copy.goals.markCompleted}
         </Text>
       </ScalePressable>
     </Card>
@@ -89,6 +95,8 @@ function GoalCard({ goal }: { goal: UserGoal }) {
 
 export default function MetasScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { ledger } = useActiveLedger();
   const goals = useGoalsStore((state) => state.goals);
 
@@ -101,16 +109,17 @@ export default function MetasScreen() {
   }, [goals]);
 
   const completedCount = goals.filter((item) => item.completed).length;
+  const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   if (!ledger) {
-    return <Screen withTabBar title="Metas/Ahorros" />;
+    return <Screen withTabBar title={copy.goals.title} />;
   }
 
   return (
     <Screen
       withTabBar
-      title="Metas/Ahorros"
-      subtitle={`Libro ${ledger.name}`}
+      title={copy.goals.title}
+      subtitle={copy.goals.book(ledgerLabel)}
       right={
         <View style={styles.headerActions}>
           <Pressable
@@ -127,9 +136,9 @@ export default function MetasScreen() {
         </View>
       }>
       <Card style={[styles.hero, { backgroundColor: '#F79009' }]}>
-        <Text style={styles.heroLabel}>Tus objetivos</Text>
+        <Text style={styles.heroLabel}>{copy.goals.yourGoals}</Text>
         <Text style={styles.heroValue}>
-          {goals.length === 0 ? 'Sin metas' : `${goals.length} meta${goals.length === 1 ? '' : 's'}`}
+          {goals.length === 0 ? copy.goals.none : `${goals.length} meta${goals.length === 1 ? '' : 's'}`}
         </Text>
         <Text style={styles.heroHint}>
           {completedCount > 0
@@ -141,12 +150,12 @@ export default function MetasScreen() {
       {goals.length === 0 ? (
         <Card>
           <Text style={[styles.empty, { color: theme.muted }]}>
-            Aún no hay metas. Usa + para crear la primera y, si quieres, su sobre de ahorros.
+            {copy.goals.empty}
           </Text>
           <ScalePressable
             onPress={() => router.push('/add-goal')}
             style={[styles.createCta, { backgroundColor: theme.primary }]}>
-            <Text style={styles.createCtaText}>Crear meta</Text>
+            <Text style={styles.createCtaText}>{copy.goals.create}</Text>
           </ScalePressable>
         </Card>
       ) : (
