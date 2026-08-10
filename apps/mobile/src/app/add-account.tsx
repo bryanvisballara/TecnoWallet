@@ -1,11 +1,9 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { isLiquidAccount, isWealthDebt } from '@/lib/accounts';
@@ -68,9 +67,11 @@ function resolveKind(value: string | undefined, mode: FormMode): (typeof allKind
 
 export default function AddAccountScreen() {
   const theme = useAppTheme();
+  const scrollRef = useRef<ScrollView>(null);
   const { ledger, accounts } = useActiveLedger();
   const addAccount = useLedgerStore((state) => state.addAccount);
   const updateAccount = useLedgerStore((state) => state.updateAccount);
+  const removeAccount = useLedgerStore((state) => state.removeAccount);
   const params = useLocalSearchParams<{ id?: string; mode?: string }>();
   const editing = accounts.find((item) => item.id === params.id);
   const isEditing = Boolean(editing);
@@ -171,10 +172,47 @@ export default function AddAccountScreen() {
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({ pathname: '/(tabs)/account/[id]', params: { id: account.id } });
-    } catch {
+    } catch (error) {
       Alert.alert(
         isEditing ? 'No se pudo guardar' : 'No se pudo crear',
-        'Inténtalo de nuevo.',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    if (!editing) return;
+    const label =
+      mode === 'debt' ? 'deuda' : mode === 'asset' ? 'activo' : 'cuenta';
+    Alert.alert(
+      `Eliminar ${label}`,
+      `¿Seguro que quieres eliminar "${editing.name}"? Esta acción no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: () => void runDelete(),
+        },
+      ],
+    );
+  };
+
+  const runDelete = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await removeAccount(editing.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      safeGoBack(
+        mode === 'asset' || mode === 'debt' ? '/(tabs)/salud-financiera' : '/(tabs)/mis-cuentas',
+      );
+    } catch (error) {
+      Alert.alert(
+        'No se pudo eliminar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
       );
     } finally {
       setSaving(false);
@@ -183,9 +221,7 @@ export default function AddAccountScreen() {
 
   return (
     <SheetScreen fallback="/(tabs)/mis-cuentas">
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/mis-cuentas')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
@@ -199,7 +235,7 @@ export default function AddAccountScreen() {
           </ScalePressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
             Libro {ledger.name}
@@ -214,6 +250,7 @@ export default function AddAccountScreen() {
           <TextInput
             value={name}
             onChangeText={setName}
+            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={
               mode === 'debt'
                 ? 'Ej. Visa, Préstamo carro'
@@ -280,6 +317,7 @@ export default function AddAccountScreen() {
           <TextInput
             value={balance}
             onChangeText={setBalance}
+            onFocus={focusScrollToEnd(scrollRef, 120)}
             keyboardType="decimal-pad"
             placeholder="0"
             placeholderTextColor={theme.muted}
@@ -308,6 +346,7 @@ export default function AddAccountScreen() {
               <TextInput
                 value={lastFour}
                 onChangeText={setLastFour}
+                onFocus={focusScrollToEnd(scrollRef, 120)}
                 keyboardType="number-pad"
                 maxLength={4}
                 placeholder="••••"
@@ -360,8 +399,29 @@ export default function AddAccountScreen() {
               />
             ))}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+
+          {isEditing ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Eliminar"
+              disabled={saving}
+              onPress={confirmDelete}
+              style={[
+                styles.deleteBtn,
+                { borderColor: theme.danger, opacity: saving ? 0.6 : 1 },
+              ]}>
+              <AppIcon name="trash" color={theme.danger} size={16} />
+              <Text style={[styles.deleteText, { color: theme.danger }]}>
+                {mode === 'debt'
+                  ? 'Eliminar deuda'
+                  : mode === 'asset'
+                    ? 'Eliminar activo'
+                    : 'Eliminar cuenta'}
+              </Text>
+            </Pressable>
+          ) : null}
+        </FormScrollView>
+      </View>
     </SheetScreen>
   );
 }
@@ -414,4 +474,15 @@ const styles = StyleSheet.create({
   },
   colors: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   swatch: { width: 32, height: 32, borderRadius: 16 },
+  deleteBtn: {
+    marginTop: 18,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  deleteText: { fontSize: 15, fontWeight: '700' },
 });

@@ -348,6 +348,12 @@ export async function updateResource(
   });
 }
 
+export async function deleteResource(kind: ResourceKind, id: string) {
+  return apiRequest<{ deletedAt?: string } | ApiResource>(`/resources/${kind}/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function listTransactions(workspaceId: string) {
   return apiRequest<ApiTransaction[]>(
     `/transactions?workspaceId=${encodeURIComponent(workspaceId)}`,

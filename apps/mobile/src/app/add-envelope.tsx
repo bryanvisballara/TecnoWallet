@@ -1,11 +1,9 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
@@ -82,9 +81,11 @@ const envelopeIcons = [
 
 export default function AddEnvelopeScreen() {
   const theme = useAppTheme();
+  const scrollRef = useRef<ScrollView>(null);
   const { ledger, envelopes } = useActiveLedger();
   const addEnvelope = useLedgerStore((state) => state.addEnvelope);
   const updateEnvelope = useLedgerStore((state) => state.updateEnvelope);
+  const removeEnvelope = useLedgerStore((state) => state.removeEnvelope);
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const params = useLocalSearchParams<{ kind?: string; id?: string }>();
@@ -214,9 +215,48 @@ export default function AddEnvelopeScreen() {
     }
   };
 
+  const confirmDelete = () => {
+    if (!editing) return;
+    Alert.alert(
+      'Eliminar sobre',
+      `¿Seguro que quieres eliminar "${editing.name}"? Esta acción no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: () => void runDelete(),
+        },
+      ],
+    );
+  };
+
+  const runDelete = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await removeEnvelope(editing.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      safeGoBack('/(tabs)/sobres');
+    } catch (error) {
+      if (isPlusRequiredError(error)) {
+        openPaywall(plusReasonFromError(error), {
+          plan: paywallPlanFromError(error),
+        });
+        return;
+      }
+      Alert.alert(
+        'No se pudo eliminar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <SheetScreen fallback="/(tabs)/sobres">
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/sobres')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
@@ -230,7 +270,7 @@ export default function AddEnvelopeScreen() {
           </ScalePressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>Libro {ledger.name}</Text>
 
@@ -238,6 +278,7 @@ export default function AddEnvelopeScreen() {
           <TextInput
             value={name}
             onChangeText={setName}
+            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={
               kind === 'income'
                 ? 'Ej. Freelance'
@@ -262,6 +303,7 @@ export default function AddEnvelopeScreen() {
           <TextInput
             value={budget}
             onChangeText={setBudget}
+            onFocus={focusScrollToEnd(scrollRef, 120)}
             keyboardType="decimal-pad"
             placeholder="Sin presupuesto"
             placeholderTextColor={theme.muted}
@@ -322,6 +364,7 @@ export default function AddEnvelopeScreen() {
           <TextInput
             value={rule}
             onChangeText={setRule}
+            onFocus={focusScrollToEnd(scrollRef, 120)}
             placeholder="Cómo se usa este sobre"
             placeholderTextColor={theme.muted}
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
@@ -336,8 +379,23 @@ export default function AddEnvelopeScreen() {
                 ? 'Guardar cambios'
                 : 'Crear sobre'}
           </PrimaryButton>
-        </ScrollView>
-      </KeyboardAvoidingView>
+
+          {isEditing ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Eliminar sobre"
+              disabled={saving}
+              onPress={confirmDelete}
+              style={[
+                styles.deleteBtn,
+                { borderColor: theme.danger, opacity: saving ? 0.6 : 1 },
+              ]}>
+              <AppIcon name="trash" color={theme.danger} size={16} />
+              <Text style={[styles.deleteText, { color: theme.danger }]}>Eliminar sobre</Text>
+            </Pressable>
+          ) : null}
+        </FormScrollView>
+      </View>
     </SheetScreen>
   );
 }
@@ -389,4 +447,15 @@ const styles = StyleSheet.create({
   },
   copy: { flex: 1, gap: 2 },
   switchTitle: { fontSize: 15, fontWeight: '700' },
+  deleteBtn: {
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  deleteText: { fontSize: 15, fontWeight: '700' },
 });

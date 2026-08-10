@@ -14,6 +14,7 @@ import {
   createResource,
   createWorkspace,
   deleteWorkspace,
+  ensureWorkspaceDefaults,
   listMembers,
   listWorkspaces,
   loadWorkspaceSnapshot,
@@ -21,6 +22,7 @@ import {
   mapWorkspaceToLedger,
   objectId,
   toMinor,
+  deleteResource,
   updateResource,
   updateWorkspace,
 } from '@/services/ledgers-api';
@@ -82,11 +84,13 @@ type LedgerState = {
     accountId: string,
     patch: Partial<Omit<Account, 'id'>>,
   ) => Promise<Account>;
+  removeAccount: (accountId: string) => Promise<void>;
   addEnvelope: (value: NewEnvelope) => Promise<Envelope>;
   updateEnvelope: (
     envelopeId: string,
     patch: Partial<Omit<Envelope, 'id' | 'kind' | 'spent'>>,
   ) => Promise<Envelope>;
+  removeEnvelope: (envelopeId: string) => Promise<void>;
   addPlanningItem: (value: NewPlanningItem) => Promise<PlanningItem>;
 };
 
@@ -337,23 +341,35 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     const slice = activeSlice(get());
     const ledger = get().ledgers.find((item) => item.id === ledgerId);
     const currency = await currencyFor(ledger);
-    const clearingId = get().clearingIds[ledgerId];
+    let clearingId = get().clearingIds[ledgerId];
     const account = slice.accounts.find((item) => item.name === value.account);
     if (!account) throw new Error('Selecciona una cuenta válida.');
+    if (!clearingId) {
+      // Ensure clearing exists after fresh hydrate races.
+      await ensureWorkspaceDefaults(ledgerId, currency);
+      await get().hydrate();
+      clearingId = get().clearingIds[ledgerId];
+    }
     if (!clearingId) throw new Error('El libro aún no está listo. Recarga e intenta de nuevo.');
 
     const kind = value.amount >= 0 ? 'income' : 'expense';
+    const envelope = slice.envelopes.find((item) => item.name === value.category);
     const idempotencyKey =
       globalThis.crypto?.randomUUID?.() ?? `tx-${Date.now()}-${Math.random()}`;
+    const occurredAt =
+      value.date && /^\d{4}-\d{2}-\d{2}$/.test(value.date)
+        ? new Date(`${value.date}T12:00:00`).toISOString()
+        : new Date().toISOString();
     const created = await createLedgerTransaction({
       workspaceId: ledgerId,
       kind,
       description: value.title.trim() || 'Movimiento',
-      occurredAt: new Date().toISOString(),
+      occurredAt,
       accountId: account.id,
       clearingAccountId: clearingId,
       amountMajor: value.amount,
       currency,
+      envelopeId: envelope?.id,
       idempotencyKey,
     });
 
@@ -447,6 +463,15 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     return updated;
   },
 
+  removeAccount: async (accountId) => {
+    const ledgerId = get().activeLedgerId;
+    const current = activeSlice(get()).accounts.find((item) => item.id === accountId);
+    if (!current) throw new Error('La cuenta no existe.');
+    await deleteResource('account', accountId);
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+  },
+
   addEnvelope: async (value) => {
     const ledgerId = get().activeLedgerId;
     const ledger = get().ledgers.find((item) => item.id === ledgerId);
@@ -522,6 +547,15 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     );
     if (!updated) throw new Error('No se pudo actualizar el sobre.');
     return updated;
+  },
+
+  removeEnvelope: async (envelopeId) => {
+    const ledgerId = get().activeLedgerId;
+    const current = activeSlice(get()).envelopes.find((item) => item.id === envelopeId);
+    if (!current) throw new Error('El sobre no existe.');
+    await deleteResource('envelope', envelopeId);
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
   },
 
   addPlanningItem: async (value) => {

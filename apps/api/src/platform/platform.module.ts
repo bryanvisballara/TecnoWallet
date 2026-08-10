@@ -536,6 +536,17 @@ class ResourceService {
     return this.update(kind, id, { data: { tombstone: true } }, principal).then(
       async (resource) => {
         resource.deletedAt = new Date();
+        // Free freemium envelope slots so soft-deleted docs don't block recreates.
+        if (
+          kind === 'envelope' &&
+          resource.data &&
+          Object.prototype.hasOwnProperty.call(resource.data, 'freeQuotaSlot')
+        ) {
+          const next = { ...resource.data };
+          delete next.freeQuotaSlot;
+          resource.data = next;
+          resource.markModified('data');
+        }
         return resource.save();
       },
     );
