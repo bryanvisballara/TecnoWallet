@@ -6,7 +6,7 @@ import { buildWeeklySpend, DonutChart, WeeklyBars } from '@/components/charts';
 import { LedgerSwitcher } from '@/components/ledger-switcher';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, IconButton, Pill, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
-import { money } from '@/data/demo';
+import { getActiveMoneyCurrency, money, moneyAmount } from '@/data/demo';
 import {
   displayLedgerName,
   timeGreeting,
@@ -14,8 +14,8 @@ import {
   type MovementFilterKey,
 } from '@/i18n/app-copy';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
+import { isLiquidAccount, sumBalances } from '@/lib/accounts';
 import { useAuthStore } from '@/store/auth';
-import { useActiveCalendar } from '@/store/calendar';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { buildNotificationFeed, unreadCount, useNotificationsStore } from '@/store/notifications';
@@ -29,12 +29,12 @@ export default function DashboardScreen() {
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
   const profile = useAuthStore((state) => state.profile);
-  const { summary, transactions, upcoming, ledger, envelopes } = useActiveLedger();
-  const { items: calendarItems } = useActiveCalendar();
+  const { summary, transactions, upcoming, ledger, envelopes, accounts } = useActiveLedger();
   const ledgers = useLedgerStore((state) => state.ledgers);
   const snapshots = useLedgerStore((state) => state.snapshots);
   const readIds = useNotificationsStore((state) => state.readIds);
   const dismissedIds = useNotificationsStore((state) => state.dismissedIds);
+  const activities = useNotificationsStore((state) => state.activities);
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
   const monthLabel = usePeriodStore((state) => state.label);
@@ -44,6 +44,9 @@ export default function DashboardScreen() {
   const [hidden, setHidden] = useState(hideBalances);
   const [movementFilter, setMovementFilter] = useState<MovementFilterKey>('all');
   const value = (amount: number, compact = false) => (hidden ? '••••••' : money(amount, compact));
+  const amountOnly = (amount: number, compact = false) =>
+    hidden ? '••••••' : moneyAmount(amount, compact);
+  const moneyCurrency = getActiveMoneyCurrency();
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   useEffect(() => {
@@ -59,18 +62,22 @@ export default function DashboardScreen() {
     const totals = monthTotals(monthTransactions);
     return { ...totals, remaining: totals.income - totals.expenses };
   }, [monthTransactions]);
-  const liquidezTotal = cashflow.remaining;
+  const liquidAccounts = useMemo(
+    () => accounts.filter((item) => isLiquidAccount(item.kind)),
+    [accounts],
+  );
+  const liquidezTotal = useMemo(() => sumBalances(liquidAccounts), [liquidAccounts]);
 
   const notificationBadge = useMemo(() => {
     if (!profile?.name) return 0;
     const feed = buildNotificationFeed({
-      calendarItems,
+      activities,
       ledgers,
       snapshots,
       selfName: profile.name,
     });
     return unreadCount(feed, readIds, dismissedIds);
-  }, [calendarItems, ledgers, snapshots, profile?.name, readIds, dismissedIds]);
+  }, [activities, ledgers, snapshots, profile?.name, readIds, dismissedIds]);
 
   const budget = useMemo(() => {
     const expenseEnvelopes = envelopes.filter((item) => item.kind === 'expense');
@@ -151,7 +158,10 @@ export default function DashboardScreen() {
             icon="person.badge.plus"
             label={copy.common.inviteTo(ledgerLabel)}
             onPress={() =>
-              router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id } })
+              router.push({
+                pathname: '/(tabs)/ledgers',
+                params: { focus: ledger.id, tab: 'share' },
+              })
             }
           />
           <IconButton
@@ -172,9 +182,12 @@ export default function DashboardScreen() {
         <View style={uiStyles.between}>
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel={copy.home.liquidityA11y(money(liquidezTotal), monthLabel)}
+            accessibilityLabel={copy.home.liquidityA11y(
+              money(liquidezTotal),
+              liquidAccounts.length,
+            )}
             style={styles.balancePress}
-            onPress={() => router.push('/(tabs)/movimientos')}>
+            onPress={() => router.push('/(tabs)/mis-cuentas')}>
             <Text style={styles.balanceLabel}>{copy.home.totalLiquidity}</Text>
           </ScalePressable>
           <Pressable
@@ -193,12 +206,17 @@ export default function DashboardScreen() {
         </View>
         <ScalePressable
           accessibilityRole="button"
-          accessibilityLabel={copy.home.liquidityA11y(money(liquidezTotal), monthLabel)}
-          onPress={() => router.push('/(tabs)/movimientos')}>
+          accessibilityLabel={copy.home.liquidityA11y(
+            money(liquidezTotal),
+            liquidAccounts.length,
+          )}
+          onPress={() => router.push('/(tabs)/mis-cuentas')}>
           <Text style={styles.balance}>{value(liquidezTotal)}</Text>
           <View style={styles.balanceFooter}>
-            <Pill tone="neutral">{monthLabel}</Pill>
-            <Text style={styles.updated}>{copy.home.incomeMinusExpenses}</Text>
+            <Pill tone="neutral">{ledgerLabel}</Pill>
+            <Text style={styles.updated}>
+              {copy.home.liquidityFromAccounts(liquidAccounts.length)}
+            </Text>
           </View>
         </ScalePressable>
       </Card>
@@ -214,8 +232,16 @@ export default function DashboardScreen() {
               <View style={[styles.metricIcon, { backgroundColor: theme.successSoft }]}>
                 <AppIcon name="arrow.down.circle.fill" color={theme.success} />
               </View>
-              <Text style={[styles.metricLabel, { color: theme.muted }]}>{copy.home.income}</Text>
-              <Text style={[styles.metricValue, { color: theme.text }]}>{value(cashflow.income, true)}</Text>
+              <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={1}>
+                {copy.home.income} ({moneyCurrency})
+              </Text>
+              <Text
+                style={[styles.metricValue, { color: theme.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.55}>
+                {amountOnly(cashflow.income, true)}
+              </Text>
             </Card>
           </ScalePressable>
         </View>
@@ -229,8 +255,16 @@ export default function DashboardScreen() {
               <View style={[styles.metricIcon, { backgroundColor: '#FDECEC' }]}>
                 <AppIcon name="arrow.up.circle.fill" color={theme.danger} />
               </View>
-              <Text style={[styles.metricLabel, { color: theme.muted }]}>{copy.home.expenses}</Text>
-              <Text style={[styles.metricValue, { color: theme.text }]}>{value(cashflow.expenses, true)}</Text>
+              <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={1}>
+                {copy.home.expenses} ({moneyCurrency})
+              </Text>
+              <Text
+                style={[styles.metricValue, { color: theme.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.55}>
+                {amountOnly(cashflow.expenses, true)}
+              </Text>
             </Card>
           </ScalePressable>
         </View>
@@ -239,8 +273,16 @@ export default function DashboardScreen() {
             <View style={[styles.metricIcon, { backgroundColor: theme.primarySoft }]}>
               <AppIcon name="wallet.pass.fill" color={theme.primary} />
             </View>
-            <Text style={[styles.metricLabel, { color: theme.muted }]}>{copy.home.remaining}</Text>
-            <Text style={[styles.metricValue, { color: theme.text }]}>{value(cashflow.remaining, true)}</Text>
+            <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={1}>
+              {copy.home.remaining} ({moneyCurrency})
+            </Text>
+            <Text
+              style={[styles.metricValue, { color: theme.text }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.55}>
+              {amountOnly(cashflow.remaining, true)}
+            </Text>
           </Card>
         </View>
       </View>
@@ -486,7 +528,12 @@ const styles = StyleSheet.create({
   metric: { width: '100%', padding: 12, gap: 7, borderRadius: 18 },
   metricIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   metricLabel: { fontSize: 12, fontWeight: '600' },
-  metricValue: { fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  metricValue: {
+    width: '100%',
+    fontSize: 18,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
   budgetCopy: { flex: 1, gap: 8 },
   cardLabel: { fontSize: 12, fontWeight: '600' },
   cardTitle: { fontSize: 20, fontWeight: '700', letterSpacing: -0.4 },

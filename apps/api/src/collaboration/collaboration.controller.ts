@@ -14,9 +14,11 @@ import { BrevoMailer } from '../mail/brevo';
 import { inviteEmailHtml, inviteEmailSubject } from '../mail/invite-email';
 import {
   AcceptCollaborationInviteDto,
+  CreateAccessRequestDto,
   CreateCalendarDto,
   CreateCollaborationInviteDto,
   InviteTokenParamDto,
+  ListAccessRequestsQueryDto,
   ListCalendarsQueryDto,
   ListCollaborationInvitesQueryDto,
   MongoIdParamDto,
@@ -81,6 +83,57 @@ export class CollaborationController {
   @Get('invites/:token')
   lookupInvite(@Param() params: InviteTokenParamDto) {
     return this.collaboration.lookupInvite(params.token);
+  }
+
+  @ApiBearerAuth()
+  @Delete('invites/:id')
+  revokeInvite(
+    @Param() params: MongoIdParamDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.revokeInvite(params.id, user);
+  }
+
+  @ApiBearerAuth()
+  @Post('access-requests')
+  createAccessRequest(
+    @Body() body: CreateAccessRequestDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.createAccessRequest(body, user);
+  }
+
+  @ApiBearerAuth()
+  @Get('access-requests/inbox')
+  listOwnedAccessRequests(@CurrentUser() user: AuthPrincipal) {
+    return this.collaboration.listOwnedPendingAccessRequests(user.userId);
+  }
+
+  @ApiBearerAuth()
+  @Get('access-requests')
+  listAccessRequests(
+    @Query() query: ListAccessRequestsQueryDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.listAccessRequests(query, user);
+  }
+
+  @ApiBearerAuth()
+  @Post('access-requests/:id/accept')
+  acceptAccessRequest(
+    @Param() params: MongoIdParamDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.acceptAccessRequest(params.id, user);
+  }
+
+  @ApiBearerAuth()
+  @Post('access-requests/:id/reject')
+  rejectAccessRequest(
+    @Param() params: MongoIdParamDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.rejectAccessRequest(params.id, user);
   }
 
   @ApiBearerAuth()

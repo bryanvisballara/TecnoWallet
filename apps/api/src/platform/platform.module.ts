@@ -704,7 +704,21 @@ class WorkspaceController {
           : null;
       }),
     );
-    return visible.filter(Boolean);
+    const books = visible.filter(Boolean) as Workspace[];
+    // Lazy backfill share codes for owners so join-by-ID works on older books.
+    await Promise.all(
+      books.map(async (workspace) => {
+        if (
+          workspace.ownerId.toString() === user.userId &&
+          !workspace.shareCode
+        ) {
+          workspace.shareCode = await this.collaboration.ensureShareCode(
+            workspace._id.toString(),
+          );
+        }
+      }),
+    );
+    return books;
   }
 
   @Post()
@@ -733,6 +747,7 @@ class WorkspaceController {
         ownerId: user.userId,
         color: dto.color?.trim() || '#F5C518',
         icon: dto.icon?.trim() || 'wallet.pass.fill',
+        shareCode: await this.collaboration.allocateShareCode(),
         ...(isPlus ? {} : { freeSlot: 1 }),
       });
     } catch (error) {
@@ -880,6 +895,19 @@ class WorkspaceController {
       pendingSignup: !invited,
       delivered: delivery.delivered,
     };
+  }
+
+  @Delete(':id/members/:userId')
+  async removeMember(
+    @Param('id') workspaceId: string,
+    @Param('userId') memberUserId: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.removeWorkspaceMember(
+      workspaceId,
+      memberUserId,
+      user,
+    );
   }
 }
 

@@ -20,9 +20,11 @@ import {
 } from '../billing/entitlement.service';
 import {
   AcceptCollaborationInviteDto,
+  CreateAccessRequestDto,
   CreateCalendarDto,
   CreateCalendarItemDto,
   CreateCollaborationInviteDto,
+  ListAccessRequestsQueryDto,
   ListCalendarsQueryDto,
   UpdateCalendarItemDto,
   UpdateCalendarDto,
@@ -31,6 +33,7 @@ import {
   Calendar,
   CalendarMembership,
   CalendarItemRecord,
+  CollaborationAccessRequest,
   CollaborationInvite,
   CollaborationSeat,
   type CollaborationResourceRef,
@@ -40,6 +43,16 @@ import {
 import { createHash, randomBytes } from 'node:crypto';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SHARE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateShareCode(): string {
+  const bytes = randomBytes(8);
+  let code = 'TW';
+  for (let i = 0; i < 8; i += 1) {
+    code += SHARE_CODE_ALPHABET[bytes[i]! % SHARE_CODE_ALPHABET.length];
+  }
+  return code;
+}
 
 interface InviteMailDispatch {
   to: string;
@@ -73,6 +86,8 @@ export class CollaborationService {
     private readonly invites: Model<CollaborationInvite>,
     @InjectModel(CollaborationSeat.name)
     private readonly seats: Model<CollaborationSeat>,
+    @InjectModel(CollaborationAccessRequest.name)
+    private readonly accessRequests: Model<CollaborationAccessRequest>,
     @InjectModel(Calendar.name)
     private readonly calendars: Model<Calendar>,
     @InjectModel(CalendarMembership.name)
@@ -86,6 +101,248 @@ export class CollaborationService {
     private readonly entitlements: EntitlementService,
     private readonly config: ConfigService,
   ) {}
+
+  async allocateShareCode(): Promise<string> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const shareCode = generateShareCode();
+      const exists = await this.workspaces.exists({ shareCode });
+      if (!exists) return shareCode;
+    }
+    throw new ConflictException('Could not allocate a share code');
+  }
+
+  async ensureShareCode(workspaceId: string): Promise<string> {
+    const workspace = await this.workspaces.findOne({
+      _id: workspaceId,
+      deletedAt: { $exists: false },
+    });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+    if (workspace.shareCode) return workspace.shareCode;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const shareCode = await this.allocateShareCode();
+      try {
+        workspace.shareCode = shareCode;
+        await workspace.save();
+        return shareCode;
+      } catch (error) {
+        if (!this.isDuplicateKey(error)) throw error;
+      }
+    }
+    throw new ConflictException('Could not allocate a share code');
+  }
+
+  async createAccessRequest(
+    dto: CreateAccessRequestDto,
+    principal: AuthPrincipal,
+  ) {
+    const shareCode = dto.shareCode.trim().toUpperCase();
+    const workspace = await this.workspaces.findOne({
+      shareCode,
+      deletedAt: { $exists: false },
+    });
+    if (!workspace) throw new NotFoundException('Book ID not found');
+
+    const requesterId = new Types.ObjectId(principal.userId);
+    if (workspace.ownerId.equals(requesterId)) {
+      throw new BadRequestException('You already own this book');
+    }
+    const alreadyMember = await this.memberships.exists({
+      workspaceId: workspace._id,
+      userId: requesterId,
+    });
+    if (alreadyMember) {
+      throw new ConflictException('You already have access to this book');
+    }
+
+    await this.assertSharingPlus(workspace.ownerId.toString(), 'access_request');
+
+    try {
+      const created = await this.accessRequests.create({
+        workspaceId: workspace._id,
+        requesterUserId: requesterId,
+        ownerUserId: workspace.ownerId,
+        status: 'pending',
+      });
+      return {
+        id: created._id.toString(),
+        workspaceId: workspace._id.toString(),
+        workspaceName: workspace.name,
+        status: 'pending' as const,
+        createdAt: created.createdAt,
+      };
+    } catch (error) {
+      if (this.isDuplicateKey(error)) {
+        throw new ConflictException(
+          'You already have a pending request for this book',
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listAccessRequests(
+    query: ListAccessRequestsQueryDto,
+    principal: AuthPrincipal,
+  ) {
+    await this.assertCanInvite('workspace', query.workspaceId, principal.userId);
+    const rows = await this.accessRequests
+      .find({
+        workspaceId: new Types.ObjectId(query.workspaceId),
+        status: 'pending',
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+    const users = await this.users
+      .find({ _id: { $in: rows.map((row) => row.requesterUserId) } })
+      .select('name email')
+      .lean();
+    return {
+      requests: rows.map((row) => {
+        const user = users.find((item) => item._id.equals(row.requesterUserId));
+        return {
+          id: row._id.toString(),
+          workspaceId: row.workspaceId.toString(),
+          requesterUserId: row.requesterUserId.toString(),
+          name: user?.name?.trim() || user?.email?.split('@')[0] || 'Usuario',
+          email: (user?.email || '').toLowerCase(),
+          status: row.status,
+          createdAt: row.createdAt,
+        };
+      }),
+    };
+  }
+
+  async listOwnedPendingAccessRequests(ownerUserId: string) {
+    const rows = await this.accessRequests
+      .find({
+        ownerUserId: new Types.ObjectId(ownerUserId),
+        status: 'pending',
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+    if (!rows.length) return { requests: [] as const };
+
+    const [users, workspaces] = await Promise.all([
+      this.users
+        .find({ _id: { $in: rows.map((row) => row.requesterUserId) } })
+        .select('name email')
+        .lean(),
+      this.workspaces
+        .find({ _id: { $in: rows.map((row) => row.workspaceId) } })
+        .select('name')
+        .lean(),
+    ]);
+
+    return {
+      requests: rows.map((row) => {
+        const user = users.find((item) => item._id.equals(row.requesterUserId));
+        const workspace = workspaces.find((item) =>
+          item._id.equals(row.workspaceId),
+        );
+        return {
+          id: row._id.toString(),
+          workspaceId: row.workspaceId.toString(),
+          workspaceName: workspace?.name ?? 'Libro',
+          requesterUserId: row.requesterUserId.toString(),
+          name: user?.name?.trim() || user?.email?.split('@')[0] || 'Usuario',
+          email: (user?.email || '').toLowerCase(),
+          status: row.status,
+          createdAt: row.createdAt,
+        };
+      }),
+    };
+  }
+
+  async acceptAccessRequest(requestId: string, principal: AuthPrincipal) {
+    const request = await this.accessRequests.findOne({
+      _id: requestId,
+      status: 'pending',
+    });
+    if (!request) throw new NotFoundException('Access request not found');
+    await this.assertCanInvite(
+      'workspace',
+      request.workspaceId.toString(),
+      principal.userId,
+    );
+    await this.assertSharingPlus(principal.userId, 'accept_access_request');
+
+    const requester = await this.users
+      .findById(request.requesterUserId)
+      .select('email')
+      .lean();
+    if (!requester?.email) {
+      throw new ConflictException('Requester account is no longer available');
+    }
+
+    const email = requester.email.toLowerCase();
+    await this.assertNoExistingAccess(
+      'workspace',
+      request.workspaceId.toString(),
+      request.requesterUserId,
+    );
+
+    const resource: CollaborationResourceRef = {
+      resourceType: 'workspace',
+      resourceId: request.workspaceId,
+      role: 'member',
+    };
+    await this.reserveSeat(
+      principal.userId,
+      email,
+      request.requesterUserId,
+      resource,
+    );
+
+    await this.memberships.updateOne(
+      { workspaceId: request.workspaceId, userId: request.requesterUserId },
+      { $setOnInsert: { role: 'member' } },
+      { upsert: true },
+    );
+
+    await this.seats.updateOne(
+      {
+        sponsorUserId: principal.userId,
+        $or: [
+          { collaboratorUserId: request.requesterUserId },
+          { email },
+        ],
+        status: { $in: ['pending', 'active'] },
+      },
+      {
+        $set: {
+          collaboratorUserId: request.requesterUserId,
+          email,
+          status: 'active',
+        },
+      },
+    );
+
+    request.status = 'accepted';
+    request.resolvedAt = new Date();
+    await request.save();
+
+    return {
+      accepted: true,
+      workspaceId: request.workspaceId.toString(),
+    };
+  }
+
+  async rejectAccessRequest(requestId: string, principal: AuthPrincipal) {
+    const request = await this.accessRequests.findOne({
+      _id: requestId,
+      status: 'pending',
+    });
+    if (!request) throw new NotFoundException('Access request not found');
+    await this.assertCanInvite(
+      'workspace',
+      request.workspaceId.toString(),
+      principal.userId,
+    );
+    request.status = 'rejected';
+    request.resolvedAt = new Date();
+    await request.save();
+    return { rejected: true };
+  }
 
   async createInvite(
     dto: CreateCollaborationInviteDto,
@@ -308,6 +565,107 @@ export class CollaborationService {
         acceptedAt: row.acceptedAt ?? null,
       })),
     };
+  }
+
+  async revokeInvite(inviteId: string, principal: AuthPrincipal) {
+    const invite = await this.invites.findOne({
+      _id: inviteId,
+      status: 'pending',
+    });
+    if (!invite) throw new NotFoundException('Invite not found');
+    await this.assertCanInvite(
+      invite.resourceType,
+      invite.resourceId.toString(),
+      principal.userId,
+    );
+
+    await this.invites.updateOne(
+      { _id: invite._id, status: 'pending' },
+      { $set: { status: 'revoked' } },
+    );
+    await this.seats.updateOne(
+      {
+        sponsorUserId: invite.sponsorUserId,
+        email: invite.email,
+        status: 'pending',
+      },
+      {
+        $pull: {
+          resources: {
+            resourceType: invite.resourceType,
+            resourceId: invite.resourceId,
+          },
+        },
+      },
+    );
+    const seat = await this.seats.findOne({
+      sponsorUserId: invite.sponsorUserId,
+      email: invite.email,
+      status: 'pending',
+    });
+    if (seat && seat.resources.length === 0) {
+      seat.status = 'revoked';
+      seat.slot = undefined;
+      await seat.save();
+    }
+    return { revoked: true };
+  }
+
+  async removeWorkspaceMember(
+    workspaceId: string,
+    memberUserId: string,
+    principal: AuthPrincipal,
+  ) {
+    await this.assertCanInvite('workspace', workspaceId, principal.userId);
+    if (memberUserId === principal.userId) {
+      throw new BadRequestException('You cannot remove yourself');
+    }
+    const membership = await this.memberships.findOne({
+      workspaceId,
+      userId: memberUserId,
+    });
+    if (!membership) throw new NotFoundException('Member not found');
+    if (membership.role === 'owner') {
+      throw new ForbiddenException('Cannot remove the workspace owner');
+    }
+
+    await this.memberships.deleteOne({ _id: membership._id });
+
+    const user = await this.users.findById(memberUserId).select('email').lean();
+    const seat = await this.seats.findOne({
+      sponsorUserId: principal.userId,
+      $or: [
+        { collaboratorUserId: new Types.ObjectId(memberUserId) },
+        ...(user?.email ? [{ email: user.email.toLowerCase() }] : []),
+      ],
+      status: { $in: ['pending', 'active'] },
+    });
+    if (seat) {
+      seat.resources = seat.resources.filter(
+        (item) =>
+          !(
+            item.resourceType === 'workspace' &&
+            item.resourceId.toString() === workspaceId
+          ),
+      );
+      if (seat.resources.length === 0) {
+        seat.status = 'revoked';
+        seat.slot = undefined;
+      }
+      await seat.save();
+    }
+
+    await this.invites.updateMany(
+      {
+        resourceType: 'workspace',
+        resourceId: new Types.ObjectId(workspaceId),
+        inviteeUserId: new Types.ObjectId(memberUserId),
+        status: 'pending',
+      },
+      { $set: { status: 'revoked' } },
+    );
+
+    return { removed: true };
   }
 
   async revokeSeat(seatId: string, sponsorUserId: string) {
@@ -552,9 +910,12 @@ export class CollaborationService {
     const base = (
       this.config.get<string>('APP_WEB_URL') ||
       this.config.get<string>('APP_PUBLIC_URL') ||
+      this.config.get<string>('PUBLIC_WEB_ORIGIN') ||
       'https://tecnowallet.app'
     ).replace(/\/+$/, '');
-    return `${base}/invite?token=${encodeURIComponent(token)}`;
+    // Use invite.html so Hostinger does not 403 on the /invite/ directory
+    // (Expo static export also emits invite/[token] for recaudos).
+    return `${base}/invite.html?token=${encodeURIComponent(token)}`;
   }
 
   private isNonProduction() {

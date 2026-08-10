@@ -148,6 +148,10 @@ export class Workspace {
   @Prop({ trim: true, default: 'house.fill' })
   icon?: string;
 
+  /** Short public code for join-by-ID requests (e.g. TW8F3K2M1Q). */
+  @Prop({ trim: true, uppercase: true, sparse: true })
+  shareCode?: string;
+
   /** Atomic Free-plan ownership slot; Plus-created books omit it. */
   @Prop({ min: 1, max: 1 })
   freeSlot?: number;
@@ -156,6 +160,14 @@ export class Workspace {
   deletedAt?: Date;
 }
 export const WorkspaceSchema = SchemaFactory.createForClass(Workspace);
+WorkspaceSchema.index(
+  { shareCode: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { shareCode: { $type: 'string' } },
+    name: 'unique_workspace_share_code',
+  },
+);
 WorkspaceSchema.index(
   { ownerId: 1, freeSlot: 1 },
   {

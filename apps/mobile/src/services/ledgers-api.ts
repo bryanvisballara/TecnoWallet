@@ -20,6 +20,7 @@ export type ApiWorkspace = {
   baseCurrency?: string;
   color?: string;
   icon?: string;
+  shareCode?: string;
 };
 
 export type ApiMember = {
@@ -92,6 +93,7 @@ export function mapWorkspaceToLedger(
     icon: workspace.icon || 'wallet.pass.fill',
     type: members.length > 1 ? 'shared' : workspace.type === 'shared' ? 'shared' : 'personal',
     baseCurrency: (workspace.baseCurrency || 'COP').toUpperCase(),
+    shareCode: workspace.shareCode?.trim().toUpperCase() || undefined,
     members,
   };
 }
@@ -191,6 +193,7 @@ export function mapPlanningResource(
 export function mapTransaction(
   tx: ApiTransaction,
   accountsById: Map<string, Account>,
+  envelopesById?: Map<string, Envelope>,
 ): Transaction {
   const userFacing = tx.entries.find((entry) => {
     const account = accountsById.get(String(entry.accountId));
@@ -200,6 +203,11 @@ export function mapTransaction(
   const account = userFacing
     ? accountsById.get(String(userFacing.accountId))
     : undefined;
+  const envelopeIdRaw =
+    userFacing?.envelopeId ??
+    tx.entries.find((entry) => entry.envelopeId)?.envelopeId;
+  const envelopeId = envelopeIdRaw ? String(envelopeIdRaw) : undefined;
+  const envelope = envelopeId ? envelopesById?.get(envelopeId) : undefined;
   const occurred = new Date(tx.occurredAt);
   const dateLabel = Number.isNaN(occurred.getTime())
     ? tx.occurredAt
@@ -212,11 +220,14 @@ export function mapTransaction(
   return {
     id: objectId(tx),
     title: tx.description,
-    category: tx.kind,
+    // Sobres UI matches spent by envelope name — never use tx.kind here.
+    category: envelope?.name ?? (tx.kind === 'income' || tx.kind === 'expense' ? tx.kind : 'Movimiento'),
     account: account?.name ?? 'Cuenta',
     amount: fromMinor(amountMinor),
     date: dateLabel,
     icon: amountMinor >= 0 ? 'arrow.down.circle.fill' : 'banknote.fill',
+    envelopeId,
+    occurredAt: Number.isNaN(occurred.getTime()) ? undefined : occurred.toISOString(),
   };
 }
 
@@ -306,6 +317,16 @@ export async function addWorkspaceMember(
     method: 'POST',
     body: JSON.stringify({ email, role }),
   });
+}
+
+export async function removeWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+) {
+  return apiRequest<{ removed: boolean }>(
+    `/workspaces/${workspaceId}/members/${encodeURIComponent(userId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 export async function listResources(kind: ResourceKind, workspaceId: string) {
@@ -484,20 +505,38 @@ export async function loadWorkspaceSnapshot(
     .filter((item): item is Account => Boolean(item));
   const accountsById = new Map(accounts.map((item) => [item.id, item]));
   const envelopes = envelopeResources.map(mapEnvelopeResource);
+  const envelopesById = new Map(envelopes.map((item) => [item.id, item]));
   const planning = [
     ...billResources.map((item) => mapPlanningResource(item, 'bill')),
     ...subscriptionResources.map((item) => mapPlanningResource(item, 'subscription')),
   ];
   const mappedTx = transactions
     .filter((tx) => !tx.entries.every((entry) => String(entry.accountId) === clearingId))
-    .map((tx) => mapTransaction(tx, accountsById));
+    .map((tx) => mapTransaction(tx, accountsById, envelopesById));
+
+  // Derive envelope spent from ledger entries so UI stays correct even if
+  // spentMinor on the resource was never incremented.
+  const spentByEnvelopeId = new Map<string, number>();
+  for (const tx of mappedTx) {
+    if (!tx.envelopeId) continue;
+    spentByEnvelopeId.set(
+      tx.envelopeId,
+      (spentByEnvelopeId.get(tx.envelopeId) ?? 0) + Math.abs(tx.amount),
+    );
+  }
+  const envelopesWithSpent = envelopes.map((item) => ({
+    ...item,
+    spent: spentByEnvelopeId.has(item.id)
+      ? spentByEnvelopeId.get(item.id)!
+      : item.spent,
+  }));
 
   const snapshot: LedgerSnapshot = {
     ...emptySnapshot(),
     accounts,
-    envelopes,
+    envelopes: envelopesWithSpent,
     transactions: mappedTx,
-    summary: buildSummary(accounts, envelopes, mappedTx),
+    summary: buildSummary(accounts, envelopesWithSpent, mappedTx),
     upcoming: [],
     planning,
   };

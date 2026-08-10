@@ -1,6 +1,9 @@
 RewriteEngine On
 RewriteBase /
 RewriteRule ^index\.html$ - [L]
+# Collaboration invite emails use /invite?token=… — map onto invite.html
+# (the invite/ folder is for recaudo /invite/[token] and would otherwise 403).
+RewriteRule ^invite/?$ /invite.html [L,QSA]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule . /index.html [L]

@@ -35,6 +35,18 @@ export class AcceptCollaborationInviteDto {
   token!: string;
 }
 
+export class CreateAccessRequestDto {
+  @IsString()
+  @Length(6, 24)
+  @Matches(/^[A-Za-z0-9-]+$/)
+  shareCode!: string;
+}
+
+export class ListAccessRequestsQueryDto {
+  @IsMongoId()
+  workspaceId!: string;
+}
+
 export class ListCollaborationInvitesQueryDto {
   @IsEnum(COLLABORATION_RESOURCE_TYPES)
   resourceType!: CollaborationResourceType;

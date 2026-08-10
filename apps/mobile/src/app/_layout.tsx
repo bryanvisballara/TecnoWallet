@@ -10,6 +10,7 @@ import '@/polyfills/web-dom-props';
 import '@/global.css';
 import { AffiliateWelcomeModal } from '@/components/affiliate-welcome-modal';
 import { AppLockGate } from '@/components/app-lock-gate';
+import { BrandSplashOverlay } from '@/components/brand-splash-overlay';
 import { PlusPaywallModal } from '@/components/plus-paywall-modal';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -43,6 +44,9 @@ export default function RootLayout() {
   const hydrateAuth = useAuthStore((state) => state.hydrate);
   const hydrated = useAuthStore((state) => state.hydrated);
   const authenticated = useAuthStore((state) => state.authenticated);
+  const ledgerHydrated = useLedgerStore((state) => state.hydrated);
+  const languageHydrated = useLanguageStore((state) => state.hydrated);
+  const preferencesHydrated = usePreferencesStore((state) => state.hydrated);
   const hydrateFinance = useFinanceStore((state) => state.hydrate);
   const hydrateLedger = useLedgerStore((state) => state.hydrate);
   const hydrateCalendar = useCalendarStore((state) => state.hydrate);
@@ -55,6 +59,13 @@ export default function RootLayout() {
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
   const scheme = useColorScheme();
   const palette = Colors[scheme === 'dark' ? 'dark' : 'light'];
+
+  // Auth alone is not enough — wait for core stores so the splash progress can finish.
+  const appReady =
+    hydrated &&
+    languageHydrated &&
+    preferencesHydrated &&
+    (!authenticated || ledgerHydrated);
 
   useEffect(() => {
     void (async () => {
@@ -106,8 +117,16 @@ export default function RootLayout() {
   ]);
 
   useEffect(() => {
-    if (hydrated) void SplashScreen.hideAsync();
+    if (hydrated) void SplashScreen.hideAsync().catch(() => undefined);
   }, [hydrated]);
+
+  // Failsafe: never leave the native splash stuck if hydration is slow.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void SplashScreen.hideAsync().catch(() => undefined);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -135,6 +154,16 @@ export default function RootLayout() {
     void flushOfflineQueue().then(() => {
       if (authenticated) return refreshRecaudos();
     });
+    const pollAccessRequests = () => {
+      if (!authenticated) return;
+      void import('@/services/collaboration-api').then(
+        ({ listOwnedAccessRequests, notifyNewAccessRequests }) =>
+          listOwnedAccessRequests()
+            .then((requests) => notifyNewAccessRequests(requests))
+            .catch(() => undefined),
+      );
+    };
+    pollAccessRequests();
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void ensureAuthSession().then(() =>
@@ -142,6 +171,7 @@ export default function RootLayout() {
             if (authenticated) return refreshRecaudos();
           }),
         );
+        pollAccessRequests();
       }
     });
     return () => subscription.remove();
@@ -201,6 +231,7 @@ export default function RootLayout() {
             <PlusPaywallModal />
             <AffiliateWelcomeModal />
             <AppLockGate />
+            <BrandSplashOverlay ready={appReady} />
           </ThemeProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

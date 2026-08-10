@@ -14,6 +14,8 @@ import {
   CalendarItemRecord,
   CalendarItemRecordSchema,
   CalendarSchema,
+  CollaborationAccessRequest,
+  CollaborationAccessRequestSchema,
   CollaborationInvite,
   CollaborationInviteSchema,
   CollaborationSeat,
@@ -29,6 +31,10 @@ import { CalendarService, CollaborationService } from './collaboration.service';
     MongooseModule.forFeature([
       { name: CollaborationInvite.name, schema: CollaborationInviteSchema },
       { name: CollaborationSeat.name, schema: CollaborationSeatSchema },
+      {
+        name: CollaborationAccessRequest.name,
+        schema: CollaborationAccessRequestSchema,
+      },
       { name: Calendar.name, schema: CalendarSchema },
       { name: CalendarMembership.name, schema: CalendarMembershipSchema },
       { name: CalendarItemRecord.name, schema: CalendarItemRecordSchema },

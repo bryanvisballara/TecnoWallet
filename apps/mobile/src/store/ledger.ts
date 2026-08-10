@@ -7,9 +7,17 @@ import {
   type PlanningBucket,
   type PlanningItem,
 } from '@/data/ledgers';
-import { setActiveMoneyCurrency, type Account, type Envelope, type Transaction } from '@/data/demo';
+import {
+  money,
+  setActiveMoneyCurrency,
+  type Account,
+  type Envelope,
+  type Transaction,
+} from '@/data/demo';
+import { isWealthAsset, isWealthDebt } from '@/lib/accounts';
 import {
   addWorkspaceMember,
+  removeWorkspaceMember,
   createLedgerTransaction,
   createResource,
   createWorkspace,
@@ -27,6 +35,7 @@ import {
   updateWorkspace,
 } from '@/services/ledgers-api';
 import { localStorage } from '@/services/persistence';
+import { recordActivity } from '@/store/notifications';
 
 type NewTransaction = Omit<Transaction, 'id' | 'date' | 'icon'> & {
   date?: string;
@@ -187,6 +196,9 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         pendingIds: [],
         hydrated: true,
       });
+      void import('@/store/notifications').then(({ useNotificationsStore }) =>
+        useNotificationsStore.getState().syncBadge(),
+      );
       return;
     }
 
@@ -211,6 +223,9 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         : next.activeLedgerId;
       syncDisplayCurrency(next.ledgers, activeLedgerId);
       set({ ...next, activeLedgerId, pendingIds: [], hydrated: true });
+      void import('@/store/notifications').then(({ useNotificationsStore }) =>
+        useNotificationsStore.getState().syncBadge(),
+      );
     } catch (error) {
       const status =
         error && typeof error === 'object' && 'status' in error
@@ -305,11 +320,11 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     };
   },
 
-  removeMember: async (_ledgerId, memberId) => {
+  removeMember: async (ledgerId, memberId) => {
     if (memberId === 'me') return;
-    throw new Error(
-      'Quitar miembros aún no está disponible en el servidor. Usa el panel de administración.',
-    );
+    await removeWorkspaceMember(ledgerId, memberId);
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
   },
 
   renameLedger: async (ledgerId, name) => {
@@ -384,19 +399,50 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       lastFour: account.lastFour,
     });
 
+    if (envelope) {
+      const nextSpent = Math.max(0, envelope.spent + Math.abs(value.amount));
+      await updateResource(
+        'envelope',
+        envelope.id,
+        {
+          kind: envelope.kind,
+          budgetMinor: toMinor(Math.max(0, envelope.budget)),
+          spentMinor: toMinor(nextSpent),
+          balanceMinor: toMinor(nextSpent),
+          currency,
+          icon: envelope.icon,
+          color: envelope.color,
+          rollover: envelope.rollover,
+          rule: envelope.rule,
+          ...(envelope.goalId ? { goalId: envelope.goalId } : {}),
+        },
+        envelope.name,
+      );
+    }
+
     await get().hydrate();
     set({ activeLedgerId: ledgerId });
     const mapped = get().snapshots[ledgerId]?.transactions.find(
       (item) => item.id === objectId(created),
     );
-    return (
+    const result =
       mapped ?? {
         ...value,
         id: objectId(created),
         date: value.date ?? 'Ahora',
         icon: value.icon ?? (value.amount > 0 ? 'arrow.down.circle.fill' : 'banknote.fill'),
-      }
-    );
+        envelopeId: envelope?.id,
+        occurredAt: occurredAt,
+      };
+    const isIncome = value.amount >= 0;
+    void recordActivity({
+      kind: isIncome ? 'income' : 'expense',
+      title: isIncome ? 'Ingreso registrado' : 'Gasto registrado',
+      body: `${result.title} · ${money(Math.abs(value.amount))} · ${ledger?.name ?? 'Libro'}`,
+      icon: isIncome ? 'arrow.down.circle.fill' : 'arrow.up.circle.fill',
+      route: '/(tabs)/movimientos',
+    });
+    return result;
   },
 
   addAccount: async (value) => {
@@ -420,6 +466,18 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       (item) => item.id === objectId(created),
     );
     if (!mapped) throw new Error('No se pudo crear la cuenta.');
+    const label = isWealthDebt(mapped)
+      ? 'Deuda'
+      : isWealthAsset(mapped)
+        ? 'Activo'
+        : 'Cuenta';
+    void recordActivity({
+      kind: 'account',
+      title: `${label} agregada`,
+      body: `${mapped.name} · ${ledger?.name ?? 'Libro'}`,
+      icon: mapped.icon || 'creditcard.fill',
+      route: `/(tabs)/account/${mapped.id}`,
+    });
     return mapped;
   },
 
@@ -465,11 +523,26 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
 
   removeAccount: async (accountId) => {
     const ledgerId = get().activeLedgerId;
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
     const current = activeSlice(get()).accounts.find((item) => item.id === accountId);
     if (!current) throw new Error('La cuenta no existe.');
+    const label = isWealthDebt(current)
+      ? 'Deuda'
+      : isWealthAsset(current)
+        ? 'Activo'
+        : 'Cuenta';
     await deleteResource('account', accountId);
     await get().hydrate();
     set({ activeLedgerId: ledgerId });
+    void recordActivity({
+      kind: 'account',
+      title: `${label} eliminada`,
+      body: `${current.name} · ${ledger?.name ?? 'Libro'}`,
+      icon: 'trash',
+      tone: 'red',
+      sound: 'default',
+      route: '/(tabs)/cuentas',
+    });
   },
 
   addEnvelope: async (value) => {
@@ -507,6 +580,16 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       (item) => item.id === objectId(created),
     );
     if (!mapped) throw new Error('No se pudo crear el sobre.');
+    // Goal flow already notifies for the meta; skip duplicate envelope ping.
+    if (!value.goalId) {
+      void recordActivity({
+        kind: 'envelope',
+        title: 'Sobre creado',
+        body: `${mapped.name} · ${ledger?.name ?? 'Libro'}`,
+        icon: mapped.icon || 'envelope.fill',
+        route: `/(tabs)/envelope/${mapped.id}`,
+      });
+    }
     return mapped;
   },
 
@@ -551,11 +634,21 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
 
   removeEnvelope: async (envelopeId) => {
     const ledgerId = get().activeLedgerId;
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
     const current = activeSlice(get()).envelopes.find((item) => item.id === envelopeId);
     if (!current) throw new Error('El sobre no existe.');
     await deleteResource('envelope', envelopeId);
     await get().hydrate();
     set({ activeLedgerId: ledgerId });
+    void recordActivity({
+      kind: 'envelope',
+      title: 'Sobre eliminado',
+      body: `${current.name} · ${ledger?.name ?? 'Libro'}`,
+      icon: 'trash',
+      tone: 'red',
+      sound: 'default',
+      route: '/(tabs)/sobres',
+    });
   },
 
   addPlanningItem: async (value) => {
@@ -595,6 +688,14 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       (item) => item.id === objectId(created),
     );
     if (!mapped) throw new Error('No se pudo crear el ítem de planificación.');
+    const isIncomePlan = bucket === 'income';
+    void recordActivity({
+      kind: 'planning',
+      title: isIncomePlan ? 'Ingreso recurrente creado' : 'Gasto recurrente creado',
+      body: `${mapped.name} · ${money(Math.abs(value.amount))} · ${ledger?.name ?? 'Libro'}`,
+      icon: mapped.icon || (isIncomePlan ? 'arrow.down.circle.fill' : 'repeat'),
+      route: '/(tabs)/salud-financiera',
+    });
     return mapped;
   },
 }));

@@ -20,11 +20,22 @@ fs.cpSync(dist, staging, { recursive: true });
 const htaccess = `RewriteEngine On
 RewriteBase /
 RewriteRule ^index\\.html$ - [L]
+# Collaboration invite emails use /invite?token=… — map onto invite.html
+# (the invite/ folder is for recaudo /invite/[token] and would otherwise 403).
+RewriteRule ^invite/?$ /invite.html [L,QSA]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule . /index.html [L]
 `;
 fs.writeFileSync(path.join(staging, '.htaccess'), htaccess);
+
+// Directory index for /invite/ so Apache does not 403 when the folder exists.
+const inviteHtml = path.join(staging, 'invite.html');
+const inviteDir = path.join(staging, 'invite');
+if (fs.existsSync(inviteHtml)) {
+  fs.mkdirSync(inviteDir, { recursive: true });
+  fs.copyFileSync(inviteHtml, path.join(inviteDir, 'index.html'));
+}
 
 fs.mkdirSync(hostDir, { recursive: true });
 fs.rmSync(zipPath, { force: true });

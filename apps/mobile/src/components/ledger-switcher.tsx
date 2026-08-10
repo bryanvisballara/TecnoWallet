@@ -1,13 +1,20 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
+import { createAccessRequest } from '@/services/collaboration-api';
 import { useLanguageStore } from '@/store/language';
 import { useLedgerStore } from '@/store/ledger';
-import { usePlusStore, hasPaidPlan } from '@/store/plus';
+import {
+  usePlusStore,
+  hasPaidPlan,
+  isPlusRequiredError,
+  plusReasonFromError,
+  paywallPlanFromError,
+} from '@/store/plus';
 
 type Props = {
   compact?: boolean;
@@ -26,14 +33,20 @@ export function LedgerSwitcher({ compact = false }: Props) {
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [newName, setNewName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [joiningBusy, setJoiningBusy] = useState(false);
   const active = ledgers.find((item) => item.id === activeLedgerId) ?? ledgers[0];
   const activeName = active ? displayLedgerName(active.name, locale) : copy.ledger.fallback;
 
   const close = () => {
     setOpen(false);
     setCreating(false);
+    setJoining(false);
     setNewName('');
+    setJoinCode('');
+    setJoiningBusy(false);
   };
 
   const onCreate = async () => {
@@ -45,6 +58,37 @@ export function LedgerSwitcher({ compact = false }: Props) {
     }
     await createLedger(newName.trim());
     close();
+  };
+
+  const onRequestJoin = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (code.length < 6) {
+      Alert.alert('ID inválido', 'Revisa el código del libro e inténtalo de nuevo.');
+      return;
+    }
+    setJoiningBusy(true);
+    try {
+      const result = await createAccessRequest(code);
+      close();
+      Alert.alert(
+        'Solicitud enviada',
+        `Pediste unirte a "${result.workspaceName}". El dueño verá tu solicitud para aceptarla.`,
+      );
+    } catch (error) {
+      if (isPlusRequiredError(error)) {
+        close();
+        openPaywall(plusReasonFromError(error), {
+          plan: paywallPlanFromError(error),
+        });
+        return;
+      }
+      Alert.alert(
+        'No se pudo solicitar',
+        error instanceof Error ? error.message : 'Revisa el ID e inténtalo de nuevo.',
+      );
+    } finally {
+      setJoiningBusy(false);
+    }
   };
 
   return (
@@ -156,20 +200,54 @@ export function LedgerSwitcher({ compact = false }: Props) {
                   </Pressable>
                 </View>
               </View>
+            ) : joining ? (
+              <View style={styles.createBox}>
+                <Text style={[styles.joinHint, { color: theme.muted }]}>
+                  Escribe el ID del libro (ej. TW8F3K2M1Q) para solicitar ingreso.
+                </Text>
+                <TextInput
+                  autoFocus
+                  autoCapitalize="characters"
+                  value={joinCode}
+                  onChangeText={setJoinCode}
+                  placeholder="TWXXXXXXXX"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
+                  onSubmitEditing={() => void onRequestJoin()}
+                />
+                <View style={styles.createActions}>
+                  <Pressable onPress={() => setJoining(false)} disabled={joiningBusy}>
+                    <Text style={{ color: theme.muted, fontWeight: '600' }}>{copy.common.cancel}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => void onRequestJoin()} disabled={joiningBusy}>
+                    <Text style={{ color: theme.primary, fontWeight: '700' }}>
+                      {joiningBusy ? 'Enviando…' : 'Solicitar ingreso'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             ) : (
-              <ScalePressable
-                onPress={() => {
-                  if (!hasPaidPlan(plusAccess) && ledgers.length >= 1) {
-                    close();
-                    openPaywall('BOOK_LIMIT');
-                    return;
-                  }
-                  setCreating(true);
-                }}
-                style={[styles.addRow, { borderTopColor: theme.border }]}>
-                <Text style={[styles.addText, { color: theme.primary }]}>{copy.ledger.addBook}</Text>
-                <AppIcon name="person.badge.plus" color={theme.success} size={20} />
-              </ScalePressable>
+              <>
+                <ScalePressable
+                  onPress={() => {
+                    if (!hasPaidPlan(plusAccess) && ledgers.length >= 1) {
+                      close();
+                      openPaywall('BOOK_LIMIT');
+                      return;
+                    }
+                    setCreating(true);
+                  }}
+                  style={[styles.addRow, { borderTopColor: theme.border }]}>
+                  <Text style={[styles.addText, { color: theme.primary }]}>{copy.ledger.addBook}</Text>
+                  <AppIcon name="plus" color={theme.primary} size={20} />
+                </ScalePressable>
+                <ScalePressable
+                  onPress={() => setJoining(true)}
+                  style={[styles.addRow, { borderTopColor: theme.border }]}>
+                  <Text style={[styles.addText, { color: theme.text }]}>Unirse con ID</Text>
+                  <AppIcon name="person.badge.plus" color={theme.success} size={20} />
+                </ScalePressable>
+              </>
             )}
           </Pressable>
         </Pressable>
@@ -238,6 +316,7 @@ const styles = StyleSheet.create({
   },
   addText: { fontSize: 15, fontWeight: '700' },
   createBox: { padding: 14, gap: 10 },
+  joinHint: { fontSize: 13, lineHeight: 18 },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,

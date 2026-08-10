@@ -1,10 +1,11 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -14,7 +15,12 @@ import {
 import { CollaborationInvitesList } from '@/components/collaboration-invites-list';
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import {
+  acceptAccessRequest,
+  listAccessRequests,
   listCollaborationInvites,
+  rejectAccessRequest,
+  revokeCollaborationInvite,
+  type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
 import { useLedgerStore } from '@/store/ledger';
@@ -26,9 +32,27 @@ import {
   usePlusStore,
 } from '@/store/plus';
 
+async function copyText(value: string) {
+  try {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // fall through to Share
+  }
+  try {
+    await Share.share({ message: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function LedgersScreen() {
   const theme = useAppTheme();
   const params = useLocalSearchParams<{ focus?: string; tab?: string }>();
+  const shareMode = params.tab === 'share';
   const ledgers = useLedgerStore((state) => state.ledgers);
   const activeLedgerId = useLedgerStore((state) => state.activeLedgerId);
   const setActiveLedger = useLedgerStore((state) => state.setActiveLedger);
@@ -37,6 +61,7 @@ export default function LedgersScreen() {
   const inviteMember = useLedgerStore((state) => state.inviteMember);
   const removeMember = useLedgerStore((state) => state.removeMember);
   const renameLedger = useLedgerStore((state) => state.renameLedger);
+  const hydrateLedgers = useLedgerStore((state) => state.hydrate);
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
@@ -49,6 +74,7 @@ export default function LedgersScreen() {
   const [inviteName, setInviteName] = useState('');
   const [newLedgerName, setNewLedgerName] = useState('');
   const [invites, setInvites] = useState<CollaborationResourceInvite[]>([]);
+  const [accessRequests, setAccessRequests] = useState<CollaborationAccessRequest[]>([]);
 
   const selected = useMemo(
     () => ledgers.find((item) => item.id === selectedId) ?? ledgers[0],
@@ -71,6 +97,19 @@ export default function LedgersScreen() {
     }
   }, []);
 
+  const loadAccessRequests = useCallback(async (resourceId?: string) => {
+    if (!resourceId) {
+      setAccessRequests([]);
+      return;
+    }
+    try {
+      const rows = await listAccessRequests(resourceId);
+      setAccessRequests(rows);
+    } catch {
+      setAccessRequests([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (selected) setName(selected.name);
   }, [selected?.id, selected?.name]);
@@ -83,7 +122,8 @@ export default function LedgersScreen() {
 
   useEffect(() => {
     void loadInvites(selected?.id);
-  }, [selected?.id, loadInvites]);
+    void loadAccessRequests(selected?.id);
+  }, [selected?.id, loadInvites, loadAccessRequests]);
 
   const onInvite = async () => {
     if (!hasPaidPlan(plusAccess)) {
@@ -117,6 +157,61 @@ export default function LedgersScreen() {
         return;
       }
       Alert.alert('No se pudo invitar', error instanceof Error ? error.message : 'Revisa el correo.');
+    }
+  };
+
+  const onCancelInvite = async (invite: CollaborationResourceInvite) => {
+    try {
+      await revokeCollaborationInvite(invite.id);
+      await loadInvites(selected.id);
+    } catch (error) {
+      Alert.alert(
+        'No se pudo cancelar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
+  };
+
+  const onRemoveMember = async (memberId: string, memberName: string) => {
+    try {
+      await removeMember(selected.id, memberId);
+      await loadInvites(selected.id);
+    } catch (error) {
+      Alert.alert(
+        `No se pudo quitar a ${memberName}`,
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
+  };
+
+  const onAcceptRequest = async (request: CollaborationAccessRequest) => {
+    try {
+      await acceptAccessRequest(request.id);
+      await Promise.all([hydrateLedgers(), loadAccessRequests(selected.id), loadInvites(selected.id)]);
+      setSelectedId(selected.id);
+    } catch (error) {
+      if (isPlusRequiredError(error)) {
+        openPaywall(plusReasonFromError(error), {
+          plan: paywallPlanFromError(error),
+        });
+        return;
+      }
+      Alert.alert(
+        'No se pudo aceptar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
+  };
+
+  const onRejectRequest = async (request: CollaborationAccessRequest) => {
+    try {
+      await rejectAccessRequest(request.id);
+      await loadAccessRequests(selected.id);
+    } catch (error) {
+      Alert.alert(
+        'No se pudo rechazar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
     }
   };
 
@@ -176,10 +271,14 @@ export default function LedgersScreen() {
   return (
     <Screen
       title="Libros"
-      subtitle="Crea, cambia y comparte tus libros"
+      subtitle={
+        shareMode
+          ? 'Comparte este libro con otras personas'
+          : 'Crea, cambia y comparte tus libros'
+      }
       right={
         <Pressable
-          onPress={() => safeGoBack('/(tabs)/mas')}
+          onPress={() => safeGoBack(shareMode ? '/(tabs)/inicio' : '/(tabs)/mas')}
           style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}>
           <AppIcon name="arrow.left" color={theme.text} />
         </Pressable>
@@ -212,64 +311,40 @@ export default function LedgersScreen() {
         })}
       </Card>
 
-      <Card style={styles.block}>
-        <Text style={[styles.section, { color: theme.text }]}>Nuevo libro</Text>
-        <TextInput
-          value={newLedgerName}
-          onChangeText={setNewLedgerName}
-          placeholder="Ej. Viaje, Negocio, Pareja"
-          placeholderTextColor={theme.muted}
-          style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
-        />
-        <PrimaryButton onPress={() => void onCreate()}>Crear libro</PrimaryButton>
-      </Card>
+      {!shareMode ? (
+        <Card style={styles.block}>
+          <Text style={[styles.section, { color: theme.text }]}>Nuevo libro</Text>
+          <TextInput
+            value={newLedgerName}
+            onChangeText={setNewLedgerName}
+            placeholder="Ej. Viaje, Negocio, Pareja"
+            placeholderTextColor={theme.muted}
+            style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
+          />
+          <PrimaryButton onPress={() => void onCreate()}>Crear libro</PrimaryButton>
+        </Card>
+      ) : null}
 
       {selected ? (
         <>
-          <Card style={styles.block}>
-            <View style={uiStyles.between}>
-              <Text style={[styles.section, { color: theme.text }]}>Ajustes de {selected.name}</Text>
-              <Pill tone={selected.type === 'shared' ? 'blue' : 'neutral'}>
-                {selected.type === 'shared' ? 'Compartido' : 'Personal'}
-              </Pill>
-            </View>
-            <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
-            />
-            <PrimaryButton
-              onPress={async () => {
-                await renameLedger(selected.id, name);
-                Alert.alert('Nombre actualizado');
-              }}>
-              Guardar nombre
-            </PrimaryButton>
-            {selected.id !== activeLedgerId ? (
+          {selected.shareCode ? (
+            <Card style={styles.block}>
+              <Text style={[styles.section, { color: theme.text }]}>ID del libro</Text>
+              <Text style={[styles.hint, { color: theme.muted }]}>
+                Comparte este código para que otra persona solicite unirse desde la app.
+              </Text>
+              <View style={[styles.codeBox, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
+                <Text style={[styles.codeText, { color: theme.text }]}>{selected.shareCode}</Text>
+              </View>
               <PrimaryButton
                 onPress={async () => {
-                  await setActiveLedger(selected.id);
-                  safeGoBack('/(tabs)/mas');
+                  const ok = await copyText(selected.shareCode!);
+                  if (ok) Alert.alert('Listo', 'ID del libro listo para compartir.');
                 }}>
-                Usar este libro
+                Copiar / compartir ID
               </PrimaryButton>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Borrar libro ${selected.name}`}
-              onPress={onDelete}
-              style={({ pressed }) => [
-                styles.deleteButton,
-                {
-                  borderColor: theme.danger,
-                  backgroundColor: pressed ? `${theme.danger}16` : 'transparent',
-                },
-              ]}>
-              <AppIcon name="trash" color={theme.danger} size={18} />
-              <Text style={[styles.deleteLabel, { color: theme.danger }]}>Borrar libro</Text>
-            </Pressable>
-          </Card>
+            </Card>
+          ) : null}
 
           <Card style={styles.block}>
             <Text style={[styles.section, { color: theme.text }]}>Personas con acceso</Text>
@@ -288,7 +363,7 @@ export default function LedgersScreen() {
                   </Text>
                 </View>
                 {member.id !== 'me' ? (
-                  <Pressable onPress={() => void removeMember(selected.id, member.id)}>
+                  <Pressable onPress={() => void onRemoveMember(member.id, member.name)}>
                     <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>Quitar</Text>
                   </Pressable>
                 ) : (
@@ -318,7 +393,81 @@ export default function LedgersScreen() {
             <CollaborationInvitesList
               invites={invites}
               emptyLabel="Cuando invites a alguien, verás aquí si está pendiente o aceptó."
+              onCancelPending={(invite) => void onCancelInvite(invite)}
             />
+          </Card>
+
+          <Card style={styles.block}>
+            <Text style={[styles.section, { color: theme.text }]}>Solicitudes</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Personas que pidieron unirse con el ID del libro.
+            </Text>
+            {accessRequests.length === 0 ? (
+              <Text style={[styles.small, { color: theme.muted }]}>No hay solicitudes pendientes.</Text>
+            ) : (
+              accessRequests.map((request) => (
+                <View key={request.id} style={styles.memberRow}>
+                  <View style={[styles.memberAvatar, { backgroundColor: theme.primarySoft }]}>
+                    <AppIcon name="person.badge.plus" color={theme.primary} />
+                  </View>
+                  <View style={styles.copy}>
+                    <Text style={[styles.memberName, { color: theme.text }]}>{request.name}</Text>
+                    <Text style={[styles.small, { color: theme.muted }]}>{request.email}</Text>
+                  </View>
+                  <Pressable onPress={() => void onRejectRequest(request)} style={{ marginRight: 8 }}>
+                    <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>Rechazar</Text>
+                  </Pressable>
+                  <Pressable onPress={() => void onAcceptRequest(request)}>
+                    <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>Aceptar</Text>
+                  </Pressable>
+                </View>
+              ))
+            )}
+          </Card>
+
+          <Card style={styles.block}>
+            <View style={uiStyles.between}>
+              <Text style={[styles.section, { color: theme.text }]}>Ajustes de {selected.name}</Text>
+              <Pill tone={selected.type === 'shared' ? 'blue' : 'neutral'}>
+                {selected.type === 'shared' ? 'Compartido' : 'Personal'}
+              </Pill>
+            </View>
+            <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
+            />
+            <PrimaryButton
+              onPress={async () => {
+                await renameLedger(selected.id, name);
+                Alert.alert('Nombre actualizado');
+              }}>
+              Guardar nombre
+            </PrimaryButton>
+            {selected.id !== activeLedgerId ? (
+              <PrimaryButton
+                onPress={async () => {
+                  await setActiveLedger(selected.id);
+                  safeGoBack(shareMode ? '/(tabs)/inicio' : '/(tabs)/mas');
+                }}>
+                Usar este libro
+              </PrimaryButton>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Borrar libro ${selected.name}`}
+              onPress={onDelete}
+              style={({ pressed }) => [
+                styles.deleteButton,
+                {
+                  borderColor: theme.danger,
+                  backgroundColor: pressed ? `${theme.danger}16` : 'transparent',
+                },
+              ]}>
+              <AppIcon name="trash" color={theme.danger} size={18} />
+              <Text style={[styles.deleteLabel, { color: theme.danger }]}>Borrar libro</Text>
+            </Pressable>
           </Card>
         </>
       ) : null}
@@ -345,6 +494,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
   },
+  codeBox: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  codeText: { fontSize: 22, fontWeight: '800', letterSpacing: 1.4 },
   deleteButton: {
     minHeight: 46,
     borderWidth: 1,

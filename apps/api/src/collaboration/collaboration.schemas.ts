@@ -150,6 +150,55 @@ CollaborationSeatSchema.index(
   },
 );
 
+export const ACCESS_REQUEST_STATUSES = [
+  'pending',
+  'accepted',
+  'rejected',
+  'cancelled',
+] as const;
+export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number];
+
+@Schema({ timestamps: true })
+export class CollaborationAccessRequest {
+  _id!: Types.ObjectId;
+
+  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, index: true })
+  workspaceId!: Types.ObjectId;
+
+  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, index: true })
+  requesterUserId!: Types.ObjectId;
+
+  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, index: true })
+  ownerUserId!: Types.ObjectId;
+
+  @Prop({
+    required: true,
+    type: String,
+    enum: ACCESS_REQUEST_STATUSES,
+    default: 'pending',
+  })
+  status!: AccessRequestStatus;
+
+  @Prop()
+  resolvedAt?: Date;
+
+  createdAt!: Date;
+  updatedAt!: Date;
+}
+export type CollaborationAccessRequestDocument =
+  HydratedDocument<CollaborationAccessRequest>;
+export const CollaborationAccessRequestSchema = SchemaFactory.createForClass(
+  CollaborationAccessRequest,
+);
+CollaborationAccessRequestSchema.index(
+  { workspaceId: 1, requesterUserId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'pending' },
+    name: 'one_pending_access_request_per_workspace_user',
+  },
+);
+
 @Schema({ timestamps: true })
 export class Calendar {
   _id!: Types.ObjectId;

@@ -60,6 +60,8 @@ export type LedgerMeta = {
   members: LedgerMember[];
   /** ISO 4217 from Mongo workspace (source of truth). */
   baseCurrency?: string;
+  /** Short join-by-ID code for owners (e.g. TW8F3K2M1Q). */
+  shareCode?: string;
 };
 
 export const ownerSelf: LedgerMember = {

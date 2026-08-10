@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Pill, useAppTheme } from '@/components/ui';
 import type { CollaborationResourceInvite } from '@/services/collaboration-api';
@@ -12,9 +12,11 @@ const roleLabels: Record<CollaborationResourceInvite['role'], string> = {
 export function CollaborationInvitesList({
   invites,
   emptyLabel = 'Aún no hay invitaciones en este recurso.',
+  onCancelPending,
 }: {
   invites: CollaborationResourceInvite[];
   emptyLabel?: string;
+  onCancelPending?: (invite: CollaborationResourceInvite) => void;
 }) {
   const theme = useAppTheme();
 
@@ -42,9 +44,22 @@ export function CollaborationInvitesList({
                   {roleLabels[invite.role]}
                 </Text>
               </View>
-              <Pill tone={accepted ? 'green' : 'orange'}>
-                {accepted ? 'Aceptado' : 'Pendiente'}
-              </Pill>
+              {!accepted && onCancelPending ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Cancelar invitación a ${invite.email}`}
+                  onPress={() => onCancelPending(invite)}
+                  hitSlop={8}
+                  style={styles.cancelBtn}>
+                  <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
+                    Cancelar
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pill tone={accepted ? 'green' : 'orange'}>
+                  {accepted ? 'Aceptado' : 'Pendiente'}
+                </Pill>
+              )}
             </View>
           );
         })
@@ -73,4 +88,5 @@ const styles = StyleSheet.create({
   copy: { flex: 1, gap: 2, minWidth: 0 },
   email: { fontSize: 14, fontWeight: '600' },
   meta: { fontSize: 11 },
+  cancelBtn: { paddingHorizontal: 4, paddingVertical: 6 },
 });
