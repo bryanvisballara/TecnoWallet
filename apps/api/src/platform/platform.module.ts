@@ -519,9 +519,16 @@ class ResourceService {
     ) {
       throw new ForbiddenException('Private resource access denied');
     }
-    const changes = { ...dto };
-    delete changes.baseVersion;
-    Object.assign(resource, changes, { version: resource.version + 1 });
+    // Only apply defined fields. Spreading the ValidationPipe DTO includes
+    // `privacy: undefined` / etc., and Object.assign would wipe required paths
+    // so Mongoose save() fails on every edit.
+    if (dto.name !== undefined) resource.name = dto.name;
+    if (dto.privacy !== undefined) resource.privacy = dto.privacy;
+    if (dto.data !== undefined) {
+      resource.data = { ...(resource.data ?? {}), ...dto.data };
+      resource.markModified('data');
+    }
+    resource.version = (resource.version ?? 1) + 1;
     return resource.save();
   }
 

@@ -699,7 +699,9 @@ export class CalendarService {
     });
     if (!calendar) throw new NotFoundException('Calendar not found');
     await this.assertAccess(id, userId, ['owner', 'editor']);
-    Object.assign(calendar, dto);
+    if (dto.name !== undefined) calendar.name = dto.name;
+    if (dto.color !== undefined) calendar.color = dto.color;
+    if (dto.icon !== undefined) calendar.icon = dto.icon;
     return calendar.save();
   }
 
