@@ -56,6 +56,11 @@ type AuthState = {
   deleteAccount: (code: string) => Promise<void>;
   updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<{
+    accepted: boolean;
+    devResetLink?: string;
+  }>;
+  resetPasswordWithToken: (token: string, newPassword: string) => Promise<void>;
 };
 
 type AuthResponse = {
@@ -481,6 +486,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       body: JSON.stringify({
         currentPassword: current,
         newPassword: next,
+      }),
+    });
+  },
+  requestPasswordReset: async (email) => {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized.includes('@')) {
+      throw new Error('Revisa el correo electrónico.');
+    }
+    return apiRequest<{ accepted: boolean; devResetLink?: string }>(
+      '/auth/password/forgot',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email: normalized }),
+      },
+    );
+  },
+  resetPasswordWithToken: async (token, newPassword) => {
+    if (token.trim().length < 32) {
+      throw new Error('El enlace no es válido.');
+    }
+    if (newPassword.length < 8) {
+      throw new Error('La nueva contraseña debe tener al menos 8 caracteres.');
+    }
+    await apiRequest('/auth/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({
+        token: token.trim(),
+        newPassword,
       }),
     });
   },

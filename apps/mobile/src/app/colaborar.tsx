@@ -99,6 +99,10 @@ export default function CollaborationInviteRoute() {
         {error ? (
           <Text style={[styles.error, { color: theme.danger }]}>{error}</Text>
         ) : null}
+        <Text style={[styles.body, { color: theme.muted, marginTop: 8 }]}>
+          Debes iniciar sesión con el mismo correo de la invitación. Si Google
+          solo muestra otra cuenta, elige “Usar otra cuenta”.
+        </Text>
       </View>
     </Screen>
   );

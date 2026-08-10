@@ -23,6 +23,7 @@ import { LanguagePicker } from '@/components/language-picker';
 import { Card, PrimaryButton, useAppTheme } from '@/components/ui';
 import { authCopy } from '@/i18n/languages';
 import { ApiError } from '@/services/api';
+import { PENDING_COLLABORATION_INVITE_KEY } from '@/services/collaboration-api';
 import { localStorage } from '@/services/persistence';
 import { storeManualAffiliateCode } from '@/services/branch';
 import { useAuthStore } from '@/store/auth';
@@ -32,13 +33,37 @@ WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
+const GOOGLE_IOS_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
 
-/** Must match an Authorized redirect URI in the Google Cloud OAuth client. */
-const GOOGLE_REDIRECT_URI = makeRedirectUri({
-  preferLocalhost: true,
-  // Expo web on :8081; Hostinger uses the deployed origin.
-  path: Platform.OS === 'web' ? undefined : 'oauthredirect',
-});
+/**
+ * Google rejects mismatched redirect URIs with Error 400: invalid_request.
+ * - Web: page origin (https://tecnowallet.app or localhost).
+ * - iOS + iOS OAuth client: reversed client id …:/oauthredirect.
+ * - iOS + Web client only: tecnowallet://oauthredirect (enable custom URI
+ *   scheme on that Web client in Google Cloud Console).
+ */
+function googleRedirectUri() {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin;
+    }
+    return makeRedirectUri({ preferLocalhost: true });
+  }
+  if (GOOGLE_IOS_CLIENT_ID.endsWith('.apps.googleusercontent.com')) {
+    const prefix = GOOGLE_IOS_CLIENT_ID.replace(
+      /\.apps\.googleusercontent\.com$/,
+      '',
+    );
+    return `com.googleusercontent.apps.${prefix}:/oauthredirect`;
+  }
+  return makeRedirectUri({
+    scheme: 'tecnowallet',
+    path: 'oauthredirect',
+  });
+}
+
+const GOOGLE_REDIRECT_URI = googleRedirectUri();
 
 function GoogleMark() {
   return (
@@ -62,7 +87,8 @@ export default function AuthScreen() {
   const verifyEmail = useAuthStore((state) => state.verifyEmail);
   const resendVerification = useAuthStore((state) => state.resendVerification);
   const signInWithGoogle = useAuthStore((state) => state.signInWithGoogle);
-  const [mode, setMode] = useState<'login' | 'register' | 'verify'>('login');
+  const requestPasswordReset = useAuthStore((state) => state.requestPasswordReset);
+  const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -74,11 +100,24 @@ export default function AuthScreen() {
   const [googleRequest, , promptGoogle] = Google.useIdTokenAuthRequest({
     clientId: GOOGLE_WEB_CLIENT_ID || undefined,
     webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
-    iosClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+    iosClientId: GOOGLE_IOS_CLIENT_ID || GOOGLE_WEB_CLIENT_ID || undefined,
     redirectUri: GOOGLE_REDIRECT_URI,
+    // Always show the account picker so invitees can pick the invited Gmail.
+    extraParams: { prompt: 'select_account' },
   });
 
   const goHome = async () => {
+    const collaborationToken = await localStorage.get<string | null>(
+      PENDING_COLLABORATION_INVITE_KEY,
+      null,
+    );
+    if (collaborationToken) {
+      router.replace({
+        pathname: '/colaborar',
+        params: { token: collaborationToken },
+      });
+      return;
+    }
     const inviteToken = await localStorage.get<string | null>(
       'pending-recaudo-invite',
       null,
@@ -158,7 +197,27 @@ export default function AuthScreen() {
     }
   };
 
-  const submitGoogle = async () => {
+  const submitForgot = async () => {
+    setLoading(true);
+    setError('');
+    setInfo('');
+    try {
+      const result = await requestPasswordReset(email);
+      setInfo(
+        result.devResetLink
+          ? `${copy.forgotSent}\n(dev: ${result.devResetLink})`
+          : copy.forgotSent,
+      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : copy.genericError);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+    const submitGoogle = async () => {
     if (!GOOGLE_WEB_CLIENT_ID) {
       setError(
         'Google Sign-In no está configurado (falta EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID).',
@@ -193,7 +252,7 @@ export default function AuthScreen() {
       const message =
         cause instanceof ApiError
           ? cause.message === 'Invalid Google ID token'
-            ? 'Google rechazó el inicio de sesión. Revisa que el Client ID coincida en la app y en Render, y que http://127.0.0.1:8081 esté en orígenes/redirects autorizados.'
+            ? 'Google rechazó el inicio de sesión. En iOS el Client ID / redirect debe coincidir con Google Cloud (incluye tecnowallet://oauthredirect o el reversed client id).'
             : cause.message === 'Google Sign-In is not configured'
               ? 'El servidor no tiene GOOGLE_CLIENT_ID_WEB. Configúralo en Render y redespliega.'
               : cause.message
@@ -223,11 +282,13 @@ export default function AuthScreen() {
           />
           <View style={styles.heading}>
             <Text style={[styles.title, { color: theme.text }]}>
-              {mode === 'login'
-                ? copy.welcomeTitle
+              {mode === 'register'
+                ? copy.registerTitle
                 : mode === 'verify'
                   ? copy.verifyTitle
-                  : copy.registerTitle}
+                  : mode === 'forgot'
+                    ? copy.forgotTitle
+                    : copy.welcomeTitle}
             </Text>
           </View>
 
@@ -262,6 +323,35 @@ export default function AuthScreen() {
                   <Text style={[styles.forgot, { color: theme.primary }]}>
                     {loading ? copy.resending : copy.resendCode}
                   </Text>
+                </Pressable>
+              </>
+            ) : mode === 'forgot' ? (
+              <>
+                <Text style={[styles.label, { color: theme.text }]}>{copy.email}</Text>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  keyboardType="email-address"
+                  placeholder={copy.emailPlaceholder}
+                  placeholderTextColor={theme.muted}
+                  style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
+                />
+                <Text style={[styles.hint, { color: theme.muted }]}>{copy.forgotHint}</Text>
+                {info ? <Text style={[styles.info, { color: theme.primary }]}>{info}</Text> : null}
+                {error ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
+                <PrimaryButton onPress={loading ? undefined : () => void submitForgot()}>
+                  {loading ? copy.forgotSending : copy.forgotAction}
+                </PrimaryButton>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setError('');
+                    setInfo('');
+                    setMode('login');
+                  }}>
+                  <Text style={[styles.forgot, { color: theme.primary }]}>{copy.forgotBack}</Text>
                 </Pressable>
               </>
             ) : (
@@ -330,7 +420,13 @@ export default function AuthScreen() {
                       : copy.signUp}
                 </PrimaryButton>
                 {mode === 'login' ? (
-                  <Pressable accessibilityRole="button">
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setError('');
+                      setInfo('');
+                      setMode('forgot');
+                    }}>
                     <Text style={[styles.forgot, { color: theme.primary }]}>{copy.forgot}</Text>
                   </Pressable>
                 ) : null}
@@ -338,7 +434,7 @@ export default function AuthScreen() {
             )}
           </Card>
 
-          {mode !== 'verify' ? (
+          {mode !== 'verify' && mode !== 'forgot' ? (
             <>
               <View style={styles.demo}>
                 <View style={[styles.line, { backgroundColor: theme.border }]} />
@@ -426,6 +522,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   forgot: { textAlign: 'center', fontSize: 14, fontWeight: '600', paddingTop: 3 },
+  hint: { fontSize: 13, lineHeight: 19 },
   demo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   line: { flex: 1, height: StyleSheet.hairlineWidth },
   or: { fontSize: 13 },

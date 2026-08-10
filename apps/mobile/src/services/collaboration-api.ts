@@ -1,7 +1,8 @@
 import { apiRequest } from './api';
 import { localStorage, tokenStorage } from './persistence';
 
-const PENDING_INVITE_KEY = 'pending-collaboration-invite';
+export const PENDING_COLLABORATION_INVITE_KEY = 'pending-collaboration-invite';
+const PENDING_INVITE_KEY = PENDING_COLLABORATION_INVITE_KEY;
 const SEEN_ACCESS_REQUESTS_KEY = 'seen-access-request-ids';
 
 export type CollaborationInvitePreview = {

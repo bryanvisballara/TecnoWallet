@@ -39,10 +39,15 @@ import {
 } from 'class-validator';
 import { compare, hash } from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
-import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
 import { otpEmailHtml, otpEmailSubject } from './otp-email';
+import {
+  googleOnlyPasswordEmailHtml,
+  passwordResetEmailHtml,
+  passwordResetEmailSubject,
+} from './password-reset-email';
 
 export interface AuthPrincipal {
   userId: string;
@@ -85,6 +90,13 @@ export class User {
 
   @Prop()
   accountDeletionExpiresAt?: Date;
+
+  /** One-time password reset link (hashed); expires in 15 minutes. */
+  @Prop({ select: false })
+  passwordResetTokenHash?: string;
+
+  @Prop()
+  passwordResetExpiresAt?: Date;
 
   @Prop({ index: true, trim: true })
   affiliateId?: string;
@@ -270,6 +282,21 @@ class ChangePasswordDto {
   @IsString()
   @MinLength(6)
   currentPassword!: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
+}
+
+class ForgotPasswordDto {
+  @IsEmail()
+  email!: string;
+}
+
+class ResetPasswordDto {
+  @IsString()
+  @MinLength(32)
+  token!: string;
 
   @IsString()
   @MinLength(8)
@@ -774,6 +801,157 @@ export class AuthService {
     return { updated: true };
   }
 
+  /**
+   * Always returns accepted to avoid email enumeration.
+   * Sends a 15-minute reset link when the account has a password.
+   */
+  async requestPasswordReset(dto: ForgotPasswordDto) {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.users
+      .findOne({ email, active: true })
+      .select('+passwordHash');
+    if (!user) {
+      return { accepted: true as const };
+    }
+
+    if (!user.passwordHash) {
+      await this.sendPasswordResetMail({
+        to: user.email,
+        subject: 'Tu cuenta TecnoWallet usa Google',
+        html: googleOnlyPasswordEmailHtml({ name: user.name }),
+      });
+      return { accepted: true as const };
+    }
+
+    const rawToken = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          passwordResetTokenHash: this.digest(rawToken),
+          passwordResetExpiresAt: expiresAt,
+        },
+      },
+    );
+
+    const base = (
+      this.config.get<string>('APP_WEB_URL') ||
+      this.config.get<string>('APP_PUBLIC_URL') ||
+      this.config.get<string>('PUBLIC_WEB_ORIGIN') ||
+      'https://tecnowallet.app'
+    ).replace(/\/+$/, '');
+    const resetLink = `${base}/restablecer/?token=${encodeURIComponent(rawToken)}`;
+
+    await this.sendPasswordResetMail({
+      to: user.email,
+      subject: passwordResetEmailSubject(),
+      html: passwordResetEmailHtml({ resetLink, name: user.name }),
+    });
+
+    return {
+      accepted: true as const,
+      ...(this.shouldExposeDevCode() ? { devResetLink: resetLink } : {}),
+    };
+  }
+
+  async resetPasswordWithToken(dto: ResetPasswordDto) {
+    const token = dto.token.trim();
+    const newPassword = dto.newPassword;
+    if (token.length < 32) {
+      throw new BadRequestException('Invalid or expired reset link');
+    }
+    if (newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const user = await this.users
+      .findOne({
+        passwordResetTokenHash: this.digest(token),
+        active: true,
+      })
+      .select('+passwordHash +passwordResetTokenHash');
+    if (
+      !user?.passwordResetTokenHash ||
+      !user.passwordResetExpiresAt ||
+      user.passwordResetExpiresAt.getTime() < Date.now()
+    ) {
+      throw new BadRequestException(
+        'El enlace expiró o ya fue usado. Solicita uno nuevo.',
+      );
+    }
+
+    user.passwordHash = await hash(newPassword, 12);
+    user.passwordResetTokenHash = undefined;
+    user.passwordResetExpiresAt = undefined;
+    user.emailVerified = true;
+    await user.save();
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $unset: {
+          passwordResetTokenHash: 1,
+          passwordResetExpiresAt: 1,
+        },
+      },
+    );
+
+    // Force re-login on other devices after a password reset.
+    await this.refreshSessions.updateMany(
+      { userId: user._id, revokedAt: { $exists: false } },
+      { $set: { revokedAt: new Date() } },
+    );
+    await this.users.updateOne(
+      { _id: user._id },
+      { $inc: { sessionVersion: 1 } },
+    );
+
+    return { reset: true as const };
+  }
+
+  private async sendPasswordResetMail(input: {
+    to: string;
+    subject: string;
+    html: string;
+  }) {
+    const apiKey = this.config.get<string>('BREVO_API_KEY');
+    if (!apiKey?.trim()) {
+      if (this.config.get('NODE_ENV', 'development') === 'production') {
+        throw new ServiceUnavailableException(
+          'Email provider unavailable for password reset',
+        );
+      }
+      return false;
+    }
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: {
+          email: this.config.get<string>(
+            'BREVO_SENDER_EMAIL',
+            'contact@tecnowallet.app',
+          ),
+          name: this.config.get<string>('BREVO_SENDER_NAME', 'TecnoWallet'),
+        },
+        to: [{ email: input.to }],
+        subject: input.subject,
+        htmlContent: input.html,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new ServiceUnavailableException(
+        `Password reset email could not be sent${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+      );
+    }
+    return true;
+  }
+
   private async issueTokens(
     user: User,
     options: { replaceSession: boolean },
@@ -983,6 +1161,18 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ) {
     return this.auth.changePassword(user.userId, dto);
+  }
+
+  @Public()
+  @Post('password/forgot')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.auth.requestPasswordReset(dto);
+  }
+
+  @Public()
+  @Post('password/reset')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPasswordWithToken(dto);
   }
 
   @ApiBearerAuth()

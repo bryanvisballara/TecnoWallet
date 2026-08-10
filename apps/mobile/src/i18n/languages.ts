@@ -64,6 +64,20 @@ type AuthCopy = {
   signingIn: string;
   creating: string;
   forgot: string;
+  forgotTitle: string;
+  forgotHint: string;
+  forgotAction: string;
+  forgotSending: string;
+  forgotSent: string;
+  forgotBack: string;
+  resetTitle: string;
+  resetHint: string;
+  resetPassword: string;
+  resetConfirm: string;
+  resetAction: string;
+  resetSaving: string;
+  resetDone: string;
+  resetInvalid: string;
   or: string;
   google: string;
   noAccount: string;
@@ -120,6 +134,20 @@ const authEn: AuthCopy = {
   signingIn: 'Signing in…',
   creating: 'Creating account…',
   forgot: 'Forgot your password?',
+  forgotTitle: 'Reset password',
+  forgotHint: 'Enter your email and we will send a reset link that expires in 15 minutes.',
+  forgotAction: 'Send reset link',
+  forgotSending: 'Sending…',
+  forgotSent: 'If that email is registered, we sent a link. Check your inbox.',
+  forgotBack: 'Back to sign in',
+  resetTitle: 'Choose a new password',
+  resetHint: 'This link expires in 15 minutes.',
+  resetPassword: 'New password',
+  resetConfirm: 'Confirm password',
+  resetAction: 'Save password',
+  resetSaving: 'Saving…',
+  resetDone: 'Password updated. You can sign in now.',
+  resetInvalid: 'This reset link is invalid or expired.',
   or: 'or',
   google: 'Sign in with Google',
   noAccount: "Don't have an account?",
@@ -473,6 +501,22 @@ export const authCopy: Record<Locale, AuthCopy> = {
     signingIn: 'Entrando…',
     creating: 'Creando cuenta…',
     forgot: '¿Olvidaste tu contraseña?',
+    forgotTitle: 'Restablecer contraseña',
+    forgotHint:
+      'Escribe tu correo y te enviaremos un enlace que caduca en 15 minutos.',
+    forgotAction: 'Enviar enlace',
+    forgotSending: 'Enviando…',
+    forgotSent:
+      'Si ese correo está registrado, te enviamos un enlace. Revisa tu bandeja.',
+    forgotBack: 'Volver a iniciar sesión',
+    resetTitle: 'Elige una nueva contraseña',
+    resetHint: 'Este enlace caduca en 15 minutos.',
+    resetPassword: 'Nueva contraseña',
+    resetConfirm: 'Confirmar contraseña',
+    resetAction: 'Guardar contraseña',
+    resetSaving: 'Guardando…',
+    resetDone: 'Contraseña actualizada. Ya puedes iniciar sesión.',
+    resetInvalid: 'Este enlace no es válido o ya expiró.',
     or: 'o',
     google: 'Inicia sesión con Google',
     noAccount: '¿Aún no tienes cuenta?',
