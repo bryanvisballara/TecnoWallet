@@ -7,7 +7,9 @@ import {
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -21,6 +23,13 @@ import { currencies, currencyLabel } from '@/lib/currencies';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import { usePlusStore, hasPaidPlan } from '@/store/plus';
+import {
+  appearanceLabel,
+  usePreferencesStore,
+  weekStartsOnLabel,
+  type AppearanceMode,
+} from '@/store/preferences';
 
 export default function MoreScreen() {
   const theme = useAppTheme();
@@ -33,10 +42,20 @@ export default function MoreScreen() {
   const deleteAccount = useAuthStore((state) => state.deleteAccount);
   const locale = useLanguageStore((state) => state.locale);
   const setLocale = useLanguageStore((state) => state.setLocale);
+  const hapticsEnabled = usePreferencesStore((state) => state.hapticsEnabled);
+  const setHapticsEnabled = usePreferencesStore((state) => state.setHapticsEnabled);
+  const appearance = usePreferencesStore((state) => state.appearance);
+  const setAppearance = usePreferencesStore((state) => state.setAppearance);
+  const remindersEnabled = usePreferencesStore((state) => state.remindersEnabled);
+  const biometricsLockEnabled = usePreferencesStore((state) => state.biometricsLockEnabled);
+  const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
+  const plusAccess = usePlusStore((state) => state.access);
+  const openPaywall = usePlusStore((state) => state.openPaywall);
   const setLedgerCurrency = useLedgerStore((state) => state.setLedgerCurrency);
   const { ledger } = useActiveLedger();
   const activeCurrency = (ledger?.baseCurrency || 'COP').toUpperCase();
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [currencyQuery, setCurrencyQuery] = useState('');
   const [savingCurrency, setSavingCurrency] = useState(false);
@@ -66,27 +85,74 @@ export default function MoreScreen() {
       setLanguageOpen(true);
       return;
     }
+    if (slug === 'apariencia') {
+      setAppearanceOpen(true);
+      return;
+    }
+    if (slug === 'sonido') {
+      return;
+    }
+    if (slug === 'upgrade-plus') {
+      if (hasPaidPlan(plusAccess)) return;
+      openPaywall('UPGRADE', { plan: 'plus' });
+      return;
+    }
+    if (slug === 'upgrade-business') {
+      if (plusAccess === 'business') return;
+      openPaywall('UPGRADE', { plan: 'business' });
+      return;
+    }
     if (slug === 'divisa') {
       setCurrencyQuery('');
       setCurrencyOpen(true);
       return;
     }
     if (slug === 'bancos') {
-      router.push('/bank-accounts');
       return;
     }
     if (slug === 'datos') {
-      router.push('/export');
+      router.push('/(tabs)/export');
+      return;
+    }
+    if (slug === 'afiliados') {
+      router.push('/(tabs)/afiliados');
       return;
     }
     if (slug === 'familia') {
-      router.push('/ledgers');
+      router.push('/(tabs)/ledgers');
       return;
     }
-    router.push({ pathname: '/feature/[slug]', params: { slug } });
+    router.push({ pathname: '/(tabs)/feature/[slug]', params: { slug } });
   };
 
   const resolveItem = (slug: string, fallbackSubtitle: string, fallbackBadge?: string) => {
+    if (slug === 'upgrade-plus') {
+      if (hasPaidPlan(plusAccess)) {
+        return {
+          subtitle:
+            plusAccess === 'business'
+              ? 'Incluido en Business'
+              : 'Suscripción activa',
+          badge: 'Activo' as string | undefined,
+        };
+      }
+      return {
+        subtitle: fallbackSubtitle,
+        badge: 'Upgrade' as string | undefined,
+      };
+    }
+    if (slug === 'upgrade-business') {
+      if (plusAccess === 'business') {
+        return {
+          subtitle: 'Suscripción activa',
+          badge: 'Activo' as string | undefined,
+        };
+      }
+      return {
+        subtitle: fallbackSubtitle,
+        badge: hasPaidPlan(plusAccess) ? 'Upgrade' : 'Business',
+      };
+    }
     if (slug === 'divisa') {
       return {
         subtitle: `${currencyLabel(activeCurrency)} · libro ${ledger?.name ?? 'activo'}`,
@@ -95,15 +161,32 @@ export default function MoreScreen() {
     }
     if (slug === 'bancos') {
       return {
-        subtitle: 'Belvo · confirma gastos nuevos',
-        badge: undefined as string | undefined,
+        subtitle: 'Próximamente',
+        badge: 'Pronto' as string | undefined,
       };
-    }
-    if (slug === 'backup') {
-      return { subtitle: 'Sin copias aún', badge: fallbackBadge };
     }
     if (slug === 'presupuesto-ia') {
       return { subtitle: 'Sin sugerencias aún', badge: undefined as string | undefined };
+    }
+    if (slug === 'recordatorios') {
+      return {
+        subtitle: remindersEnabled ? 'Pagos, metas y calendario' : 'Avisos desactivados',
+        badge: remindersEnabled ? 'Activo' : 'Off',
+      };
+    }
+    if (slug === 'seguridad') {
+      return {
+        subtitle: biometricsLockEnabled
+          ? 'Pide desbloqueo al abrir'
+          : 'Pedir desbloqueo al abrir',
+        badge: biometricsLockEnabled ? 'Activo' : 'Off',
+      };
+    }
+    if (slug === 'ajustes') {
+      return {
+        subtitle: `Semana · ${weekStartsOnLabel(weekStartsOn)}`,
+        badge: undefined as string | undefined,
+      };
     }
     return { subtitle: fallbackSubtitle, badge: fallbackBadge };
   };
@@ -203,7 +286,7 @@ export default function MoreScreen() {
       <ScalePressable
         accessibilityRole="button"
         accessibilityLabel="Ver perfil"
-        onPress={() => router.push('/profile')}>
+        onPress={() => router.push('/(tabs)/profile')}>
         <Card style={styles.profile}>
           <Image
             source={avatarSource}
@@ -228,17 +311,49 @@ export default function MoreScreen() {
             {group.items.map((item, index) => {
               const resolved = resolveItem(item.slug, item.subtitle, item.badge);
               const subtitle =
-                item.slug === 'idioma' ? language.nativeLabel : resolved.subtitle;
+                item.slug === 'idioma'
+                  ? language.nativeLabel
+                  : item.slug === 'apariencia'
+                    ? appearanceLabel(appearance)
+                    : item.slug === 'sonido'
+                      ? hapticsEnabled
+                        ? 'Activado'
+                        : 'Desactivado'
+                      : resolved.subtitle;
               const badge =
                 item.slug === 'idioma'
                   ? language.code.toUpperCase()
                   : item.slug === 'divisa'
                     ? activeCurrency
                     : resolved.badge;
+              const title =
+                item.slug === 'upgrade-plus' && hasPaidPlan(plusAccess)
+                  ? 'TecnoWallet+'
+                  : item.slug === 'upgrade-business' && plusAccess === 'business'
+                    ? 'TecnoWallet Business'
+                    : item.title;
+              const upgradeActive =
+                (item.slug === 'upgrade-plus' && hasPaidPlan(plusAccess)) ||
+                (item.slug === 'upgrade-business' && plusAccess === 'business');
+              const badgeTone =
+                item.slug === 'upgrade-plus' || item.slug === 'upgrade-business'
+                  ? upgradeActive
+                    ? 'green'
+                    : 'blue'
+                  : item.slug === 'recordatorios' || item.slug === 'seguridad'
+                    ? resolved.badge === 'Activo'
+                      ? 'green'
+                      : 'neutral'
+                    : (item.badgeTone ?? 'neutral');
               const iconColor = item.color ?? theme.primary;
+              const isToggle = item.slug === 'sonido';
+              const isComingSoon = item.slug === 'bancos';
               return (
                 <View key={item.slug}>
-                  <ScalePressable haptic={false} onPress={() => openItem(item.slug)}>
+                  <ScalePressable
+                    haptic={false}
+                    disabled={isToggle || upgradeActive || isComingSoon}
+                    onPress={() => openItem(item.slug)}>
                     <View
                       style={[
                         styles.menuRow,
@@ -251,16 +366,29 @@ export default function MoreScreen() {
                         <AppIcon name={item.icon} color={iconColor} />
                       </View>
                       <View style={styles.copy}>
-                        <Text style={[styles.menuTitle, { color: theme.text }]}>{item.title}</Text>
+                        <Text style={[styles.menuTitle, { color: theme.text }]}>{title}</Text>
                         <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
                           {subtitle}
                         </Text>
                       </View>
-                      {badge ? <Pill tone={item.badgeTone ?? 'neutral'}>{badge}</Pill> : null}
-                      <AppIcon name="chevron" color={theme.muted} size={15} />
+                      {isToggle ? (
+                        <Switch
+                          value={hapticsEnabled}
+                          onValueChange={(value) => void setHapticsEnabled(value)}
+                          trackColor={{ false: theme.border, true: theme.primary }}
+                          thumbColor="#FFFFFF"
+                        />
+                      ) : (
+                        <>
+                          {badge ? <Pill tone={badgeTone}>{badge}</Pill> : null}
+                          {upgradeActive || isComingSoon ? null : (
+                            <AppIcon name="chevron" color={theme.muted} size={15} />
+                          )}
+                        </>
+                      )}
                     </View>
                   </ScalePressable>
-                  {item.slug === 'transferir' ? (
+                  {item.slug === 'contacto' ? (
                     <ScalePressable
                       haptic={false}
                       disabled={deleting}
@@ -307,26 +435,73 @@ export default function MoreScreen() {
       <Modal visible={languageOpen} transparent animationType="fade" onRequestClose={() => setLanguageOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setLanguageOpen(false)}>
           <Pressable
-            style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            style={[styles.sheet, styles.languageSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
             <Text style={[styles.sheetTitle, { color: theme.text }]}>Idioma</Text>
-            {languages.map((item) => {
-              const selected = item.code === locale;
+            <ScrollView
+              style={styles.languageList}
+              contentContainerStyle={styles.languageListContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              {languages.map((item) => {
+                const selected = item.code === locale;
+                return (
+                  <ScalePressable
+                    key={item.code}
+                    onPress={async () => {
+                      await setLocale(item.code);
+                      setLanguageOpen(false);
+                    }}
+                    style={[
+                      styles.languageRow,
+                      { backgroundColor: selected ? theme.primarySoft : theme.surfaceSecondary },
+                    ]}>
+                    <Text style={styles.flag}>{item.flag}</Text>
+                    <View style={styles.copy}>
+                      <Text style={[styles.menuTitle, { color: theme.text }]}>{item.nativeLabel}</Text>
+                      <Text style={[styles.small, { color: theme.muted }]}>{item.label}</Text>
+                    </View>
+                    {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
+                  </ScalePressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={appearanceOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAppearanceOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setAppearanceOpen(false)}>
+          <Pressable
+            style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            onPress={(event) => event.stopPropagation()}>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>Apariencia</Text>
+            {(
+              [
+                { id: 'system' as AppearanceMode, title: 'Automático', hint: 'Sigue el sistema' },
+                { id: 'light' as AppearanceMode, title: 'Claro', hint: 'Siempre modo claro' },
+                { id: 'dark' as AppearanceMode, title: 'Oscuro', hint: 'Siempre modo oscuro' },
+              ] as const
+            ).map((item) => {
+              const selected = appearance === item.id;
               return (
                 <ScalePressable
-                  key={item.code}
+                  key={item.id}
                   onPress={async () => {
-                    await setLocale(item.code);
-                    setLanguageOpen(false);
+                    await setAppearance(item.id);
+                    setAppearanceOpen(false);
                   }}
                   style={[
                     styles.languageRow,
                     { backgroundColor: selected ? theme.primarySoft : theme.surfaceSecondary },
                   ]}>
-                  <Text style={styles.flag}>{item.flag}</Text>
                   <View style={styles.copy}>
-                    <Text style={[styles.menuTitle, { color: theme.text }]}>{item.nativeLabel}</Text>
-                    <Text style={[styles.small, { color: theme.muted }]}>{item.label}</Text>
+                    <Text style={[styles.menuTitle, { color: theme.text }]}>{item.title}</Text>
+                    <Text style={[styles.small, { color: theme.muted }]}>{item.hint}</Text>
                   </View>
                   {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
                 </ScalePressable>
@@ -553,6 +728,9 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 10,
   },
+  languageSheet: { maxHeight: '78%' },
+  languageList: { maxHeight: 420 },
+  languageListContent: { gap: 10, paddingBottom: 4 },
   sheetTitle: { fontSize: 20, fontWeight: '700', marginBottom: 4 },
   languageRow: {
     minHeight: 58,

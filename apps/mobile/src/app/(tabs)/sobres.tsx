@@ -50,6 +50,7 @@ export default function EnvelopesScreen() {
   const showNoBudgetBanner = expenseBudget <= 0 && !hideNoBudgetBanner;
 
   useEffect(() => {
+    if (!ledger?.id) return;
     let active = true;
     void localStorage
       .get(`sobres-no-budget-banner:${ledger.id}`, false)
@@ -59,12 +60,17 @@ export default function EnvelopesScreen() {
     return () => {
       active = false;
     };
-  }, [ledger.id]);
+  }, [ledger?.id]);
 
   const dismissNoBudgetBanner = () => {
+    if (!ledger?.id) return;
     setHideNoBudgetBanner(true);
     void localStorage.set(`sobres-no-budget-banner:${ledger.id}`, true);
   };
+
+  if (!ledger) {
+    return <Screen withTabBar title="Sobres" />;
+  }
 
   return (
     <Screen withTabBar title="Sobres" subtitle={`Presupuesto · ${ledger.name}`}>
@@ -273,7 +279,7 @@ function EnvelopeSection({
               key={envelope.id}
               accessibilityRole="button"
               accessibilityLabel={`${envelope.name}, ${money(amountValue)} ${amountLabel}`}
-              onPress={() => router.push({ pathname: '/envelope/[id]', params: { id: envelope.id } })}>
+              onPress={() => router.push({ pathname: '/(tabs)/envelope/[id]', params: { id: envelope.id } })}>
               <Card style={styles.envelopeCard} delay={index * 35}>
                 <View style={styles.envelopeTop}>
                   <View style={[styles.envelopeIcon, { backgroundColor: `${envelope.color}1A` }]}>

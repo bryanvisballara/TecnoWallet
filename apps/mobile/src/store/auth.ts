@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { Alert, Platform } from 'react-native';
 
 import {
   apiRequest,
@@ -6,12 +7,19 @@ import {
   ensureAuthSession,
   setSessionExpiredHandler,
 } from '@/services/api';
+import { clearBranchIdentity } from '@/services/branch';
+import { claimPendingCollaborationInvite } from '@/services/collaboration-api';
 import {
   localStorage,
   refreshTokenStorage,
   tokenStorage,
 } from '@/services/persistence';
+import {
+  configurePurchases,
+  resetPurchases,
+} from '@/services/purchases';
 import { useLedgerStore } from '@/store/ledger';
+import { usePlusStore } from '@/store/plus';
 
 export type UserProfile = {
   name: string;
@@ -108,6 +116,9 @@ async function persistAuthSession(
     localStorage.set('auth-user-id', String(auth.user.id)),
     writeProfile(profile),
   ]);
+  await configurePurchases(String(auth.user.id)).catch(() => undefined);
+  await claimPendingCollaborationInvite().catch(() => undefined);
+  await usePlusStore.getState().hydrate();
   // Product data lives in Mongo. Reload books (and dependents) after auth.
   if (options?.freshAccount) {
     await useLedgerStore.getState().resetToDefaultHogar();
@@ -127,6 +138,9 @@ async function persistAuthSession(
 
 async function clearLocalSession() {
   bumpAuthEpoch();
+  await clearBranchIdentity().catch(() => undefined);
+  await resetPurchases().catch(() => undefined);
+  usePlusStore.getState().reset();
   await Promise.all([
     tokenStorage.clear(),
     refreshTokenStorage.clear(),
@@ -170,6 +184,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           hydrated: true,
         });
         set({ authenticated: false, demo: false });
+        const message =
+          'Iniciaste sesión en otro dispositivo. Esta sesión se cerró por seguridad.';
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.alert(message);
+        } else {
+          Alert.alert('Sesión cerrada', message);
+        }
       })();
     });
 

@@ -69,7 +69,7 @@ function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
       accessibilityRole="button"
       accessibilityLabel={`Abrir recaudo ${recaudo.title}`}
       onPress={() =>
-        router.push({ pathname: '/recaudo/[id]', params: { id: recaudo.id } })
+        router.push({ pathname: '/(tabs)/recaudo/[id]', params: { id: recaudo.id } })
       }>
       <Card style={styles.card}>
         <View style={styles.cardTop}>

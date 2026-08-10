@@ -74,7 +74,20 @@ export const useBankStore = create<BankState>((set, get) => ({
       ]);
       set({ connections, pending, loading: false });
     } catch (error) {
-      set({ loading: false, error: messageFrom(error) });
+      const message = messageFrom(error);
+      const notDeployed =
+        /Cannot GET \/api\/v1\/bank/i.test(message) ||
+        (error instanceof Error &&
+          'status' in error &&
+          Number((error as { status?: number }).status) === 404);
+      set({
+        connections: [],
+        pending: [],
+        loading: false,
+        error: notDeployed
+          ? 'La API de bancos aún no está desplegada en Render. Espera el deploy o vuelve a intentar en unos minutos.'
+          : message,
+      });
     }
   },
 

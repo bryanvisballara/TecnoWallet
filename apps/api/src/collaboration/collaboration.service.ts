@@ -1,0 +1,852 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import {
+  Membership,
+  User,
+  Workspace,
+  type AuthPrincipal,
+} from '../auth/auth.module';
+import {
+  EntitlementService,
+  PaymentRequiredException,
+} from '../billing/entitlement.service';
+import {
+  AcceptCollaborationInviteDto,
+  CreateCalendarDto,
+  CreateCalendarItemDto,
+  CreateCollaborationInviteDto,
+  ListCalendarsQueryDto,
+  UpdateCalendarItemDto,
+  UpdateCalendarDto,
+} from './collaboration.dto';
+import {
+  Calendar,
+  CalendarMembership,
+  CalendarItemRecord,
+  CollaborationInvite,
+  CollaborationSeat,
+  type CollaborationResourceRef,
+  type CollaborationSeatDocument,
+} from './collaboration.schemas';
+import { createHash, randomBytes } from 'node:crypto';
+
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface InviteMailDispatch {
+  to: string;
+  inviteUrl: string;
+  resourceType: 'workspace' | 'calendar';
+  resourceName: string;
+}
+
+export interface CreatedCollaborationInvite {
+  response: {
+    id: Types.ObjectId;
+    email: string;
+    resourceType: 'workspace' | 'calendar';
+    resourceId: Types.ObjectId;
+    role: 'member' | 'editor' | 'viewer';
+    status: 'pending';
+    expiresAt: Date;
+    inviteUrl?: string;
+  };
+  /**
+   * The controller deliberately strips this field. An integration layer may
+   * pass it directly to Brevo without ever persisting or logging the token.
+   */
+  mailDispatch: InviteMailDispatch;
+}
+
+@Injectable()
+export class CollaborationService {
+  constructor(
+    @InjectModel(CollaborationInvite.name)
+    private readonly invites: Model<CollaborationInvite>,
+    @InjectModel(CollaborationSeat.name)
+    private readonly seats: Model<CollaborationSeat>,
+    @InjectModel(Calendar.name)
+    private readonly calendars: Model<Calendar>,
+    @InjectModel(CalendarMembership.name)
+    private readonly calendarMemberships: Model<CalendarMembership>,
+    @InjectModel(User.name)
+    private readonly users: Model<User>,
+    @InjectModel(Workspace.name)
+    private readonly workspaces: Model<Workspace>,
+    @InjectModel(Membership.name)
+    private readonly memberships: Model<Membership>,
+    private readonly entitlements: EntitlementService,
+    private readonly config: ConfigService,
+  ) {}
+
+  async createInvite(
+    dto: CreateCollaborationInviteDto,
+    principal: AuthPrincipal,
+  ): Promise<CreatedCollaborationInvite> {
+    await this.assertSharingPlus(principal.userId, 'invite');
+
+    const email = dto.email.trim().toLowerCase();
+    if (email === principal.email.trim().toLowerCase()) {
+      throw new BadRequestException('You cannot sponsor yourself');
+    }
+    this.assertRoleForResource(dto.resourceType, dto.role);
+    const resourceName = await this.assertCanInvite(
+      dto.resourceType,
+      dto.resourceId,
+      principal.userId,
+    );
+
+    const invitee = await this.users
+      .findOne({ email, active: true })
+      .select('_id email')
+      .lean();
+    await this.assertNoExistingAccess(
+      dto.resourceType,
+      dto.resourceId,
+      invitee?._id,
+    );
+
+    const resource: CollaborationResourceRef = {
+      resourceType: dto.resourceType,
+      resourceId: new Types.ObjectId(dto.resourceId),
+      role: dto.role,
+    };
+    await this.reserveSeat(principal.userId, email, invitee?._id, resource);
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+    let invite: CollaborationInvite;
+    try {
+      invite = await this.invites.create({
+        tokenHash: this.digest(rawToken),
+        email,
+        inviteeUserId: invitee?._id,
+        sponsorUserId: new Types.ObjectId(principal.userId),
+        resourceType: dto.resourceType,
+        resourceId: new Types.ObjectId(dto.resourceId),
+        role: dto.role,
+        status: 'pending',
+        expiresAt,
+      });
+    } catch (error) {
+      if (this.isDuplicateKey(error)) {
+        throw new ConflictException('A pending invite already exists');
+      }
+      throw error;
+    }
+
+    const inviteUrl = this.buildInviteUrl(rawToken);
+    return {
+      response: {
+        id: invite._id,
+        email,
+        resourceType: invite.resourceType,
+        resourceId: invite.resourceId,
+        role: invite.role,
+        status: 'pending',
+        expiresAt,
+        ...(this.isNonProduction() ? { inviteUrl } : {}),
+      },
+      mailDispatch: {
+        to: email,
+        inviteUrl,
+        resourceType: dto.resourceType,
+        resourceName,
+      },
+    };
+  }
+
+  async lookupInvite(rawToken: string) {
+    const invite = await this.findPendingInvite(rawToken);
+    if (invite.expiresAt.getTime() <= Date.now()) {
+      await this.expireInvite(invite);
+      throw new NotFoundException('Invite is invalid or expired');
+    }
+    const [sponsor, resourceName] = await Promise.all([
+      this.users.findById(invite.sponsorUserId).select('name').lean(),
+      this.resourceName(invite.resourceType, invite.resourceId.toString()),
+    ]);
+    return {
+      resourceType: invite.resourceType,
+      resourceName,
+      role: invite.role,
+      sponsorName: sponsor?.name ?? 'TecnoWallet user',
+      emailHint: this.maskEmail(invite.email),
+      expiresAt: invite.expiresAt,
+    };
+  }
+
+  async acceptInvite(
+    dto: AcceptCollaborationInviteDto,
+    principal: AuthPrincipal,
+  ) {
+    const invite = await this.findPendingInvite(dto.token);
+    if (invite.expiresAt.getTime() <= Date.now()) {
+      await this.expireInvite(invite);
+      throw new BadRequestException('Invite has expired');
+    }
+    if (invite.email !== principal.email.trim().toLowerCase()) {
+      throw new ForbiddenException(
+        'This invite belongs to a different email address',
+      );
+    }
+    if (!(await this.entitlements.isPlus(invite.sponsorUserId.toString()))) {
+      throw this.paymentRequired(
+        'SHARING_REQUIRED',
+        'The sponsor no longer has Plus',
+      );
+    }
+
+    const userId = new Types.ObjectId(principal.userId);
+    const seat = await this.seats.findOne({
+      sponsorUserId: invite.sponsorUserId,
+      $or: [{ collaboratorUserId: userId }, { email: invite.email }],
+      status: { $in: ['pending', 'active'] },
+    });
+    if (!seat) {
+      throw new ConflictException('The sponsored seat is no longer available');
+    }
+
+    if (invite.resourceType === 'workspace') {
+      await this.memberships.updateOne(
+        { workspaceId: invite.resourceId, userId },
+        { $setOnInsert: { role: 'member' } },
+        { upsert: true },
+      );
+    } else {
+      await this.calendarMemberships.updateOne(
+        { calendarId: invite.resourceId, userId },
+        {
+          $set: {
+            role: invite.role,
+            sponsorUserId: invite.sponsorUserId,
+          },
+        },
+        { upsert: true },
+      );
+    }
+
+    const acceptedAt = new Date();
+    const accepted = await this.invites.findOneAndUpdate(
+      { _id: invite._id, status: 'pending' },
+      {
+        $set: {
+          status: 'accepted',
+          acceptedAt,
+          inviteeUserId: userId,
+        },
+      },
+      { new: true },
+    );
+    if (!accepted) throw new ConflictException('Invite was already used');
+
+    seat.collaboratorUserId = userId;
+    seat.email = invite.email;
+    seat.status = 'active';
+    await seat.save();
+    return {
+      accepted: true,
+      resourceType: invite.resourceType,
+      resourceId: invite.resourceId,
+      role: invite.resourceType === 'workspace' ? 'member' : invite.role,
+    };
+  }
+
+  async listSeats(sponsorUserId: string) {
+    await this.assertSharingPlus(sponsorUserId, 'list_seats');
+    return this.seats
+      .find({ sponsorUserId, status: { $in: ['pending', 'active'] } })
+      .sort({ slot: 1 })
+      .lean();
+  }
+
+  async revokeSeat(seatId: string, sponsorUserId: string) {
+    const seat = await this.seats.findOne({
+      _id: seatId,
+      sponsorUserId,
+      status: { $in: ['pending', 'active'] },
+    });
+    if (!seat) throw new NotFoundException('Collaboration seat not found');
+
+    const workspaceIds = seat.resources
+      .filter((item) => item.resourceType === 'workspace')
+      .map((item) => item.resourceId);
+    const calendarIds = seat.resources
+      .filter((item) => item.resourceType === 'calendar')
+      .map((item) => item.resourceId);
+
+    if (seat.collaboratorUserId && workspaceIds.length) {
+      await this.memberships.deleteMany({
+        workspaceId: { $in: workspaceIds },
+        userId: seat.collaboratorUserId,
+        role: 'member',
+      });
+    }
+    if (seat.collaboratorUserId && calendarIds.length) {
+      await this.calendarMemberships.deleteMany({
+        calendarId: { $in: calendarIds },
+        userId: seat.collaboratorUserId,
+        sponsorUserId: seat.sponsorUserId,
+      });
+    }
+    await this.invites.updateMany(
+      {
+        sponsorUserId: seat.sponsorUserId,
+        email: seat.email,
+        status: 'pending',
+      },
+      { $set: { status: 'revoked' } },
+    );
+    seat.status = 'revoked';
+    seat.resources = [];
+    seat.slot = undefined;
+    await seat.save();
+    return { revoked: true };
+  }
+
+  private async reserveSeat(
+    sponsorUserId: string,
+    email: string,
+    collaboratorUserId: Types.ObjectId | undefined,
+    resource: CollaborationResourceRef,
+  ): Promise<CollaborationSeatDocument> {
+    const seatLimit =
+      (await this.entitlements.collaboratorSeatLimit(sponsorUserId)) || 5;
+    const identity = collaboratorUserId
+      ? { $or: [{ collaboratorUserId }, { email }] }
+      : { email };
+    let seat = await this.seats.findOne({ sponsorUserId, ...identity });
+    if (seat && seat.status !== 'revoked') {
+      await this.seats.updateOne(
+        { _id: seat._id },
+        { $addToSet: { resources: resource } },
+      );
+      seat = await this.seats.findById(seat._id);
+      if (!seat) throw new ConflictException('Seat changed concurrently');
+      return seat;
+    }
+
+    for (let slot = 1; slot <= seatLimit; slot += 1) {
+      try {
+        if (seat) {
+          const reactivated = await this.seats.findOneAndUpdate(
+            { _id: seat._id, status: 'revoked' },
+            {
+              $set: {
+                status: 'pending',
+                slot,
+                email,
+                ...(collaboratorUserId ? { collaboratorUserId } : {}),
+                resources: [resource],
+              },
+            },
+            { new: true },
+          );
+          if (reactivated) return reactivated;
+        } else {
+          return await this.seats.create({
+            sponsorUserId: new Types.ObjectId(sponsorUserId),
+            collaboratorUserId,
+            email,
+            slot,
+            status: 'pending',
+            resources: [resource],
+          });
+        }
+      } catch (error) {
+        if (!this.isDuplicateKey(error)) throw error;
+        const concurrentlyCreated = await this.seats.findOne({
+          sponsorUserId,
+          ...identity,
+          status: { $ne: 'revoked' },
+        });
+        if (concurrentlyCreated) {
+          await this.seats.updateOne(
+            { _id: concurrentlyCreated._id },
+            { $addToSet: { resources: resource } },
+          );
+          return concurrentlyCreated;
+        }
+      }
+    }
+    const status = await this.entitlements.statusFor(sponsorUserId);
+    throw this.paymentRequired(
+      'SEAT_LIMIT',
+      `A ${status.isBusiness ? 'Business' : 'Plus'} owner can sponsor at most ${seatLimit} collaborators`,
+      undefined,
+      {
+        seatLimit,
+        ...(status.isBusiness ? {} : { upgradeTo: 'business' as const }),
+      },
+    );
+  }
+
+  private async assertCanInvite(
+    resourceType: 'workspace' | 'calendar',
+    resourceId: string,
+    sponsorUserId: string,
+  ): Promise<string> {
+    if (resourceType === 'workspace') {
+      const [workspace, membership] = await Promise.all([
+        this.workspaces
+          .findOne({ _id: resourceId, deletedAt: { $exists: false } })
+          .lean(),
+        this.memberships
+          .findOne({
+            workspaceId: resourceId,
+            userId: sponsorUserId,
+            role: { $in: ['owner', 'admin'] },
+          })
+          .lean(),
+      ]);
+      if (!workspace) throw new NotFoundException('Workspace not found');
+      if (!membership) {
+        throw new ForbiddenException('Only workspace owners/admins can invite');
+      }
+      return workspace.name;
+    }
+    const calendar = await this.calendars
+      .findOne({ _id: resourceId, deletedAt: { $exists: false } })
+      .lean();
+    if (!calendar) throw new NotFoundException('Calendar not found');
+    if (calendar.ownerId.toString() !== sponsorUserId) {
+      throw new ForbiddenException('Only the calendar owner can invite');
+    }
+    return calendar.name;
+  }
+
+  private async assertNoExistingAccess(
+    resourceType: 'workspace' | 'calendar',
+    resourceId: string,
+    inviteeUserId?: Types.ObjectId,
+  ) {
+    if (!inviteeUserId) return;
+    const existing =
+      resourceType === 'workspace'
+        ? await this.memberships.exists({
+            workspaceId: resourceId,
+            userId: inviteeUserId,
+          })
+        : await this.calendarMemberships.exists({
+            calendarId: resourceId,
+            userId: inviteeUserId,
+          });
+    if (existing) throw new ConflictException('User already has access');
+  }
+
+  private assertRoleForResource(
+    resourceType: 'workspace' | 'calendar',
+    role: 'member' | 'editor' | 'viewer',
+  ) {
+    if (resourceType === 'workspace' && role !== 'member') {
+      throw new BadRequestException('Workspace invites must use member role');
+    }
+    if (resourceType === 'calendar' && role === 'member') {
+      throw new BadRequestException(
+        'Calendar invites must use editor or viewer role',
+      );
+    }
+  }
+
+  private findPendingInvite(rawToken: string) {
+    return this.invites
+      .findOne({ tokenHash: this.digest(rawToken), status: 'pending' })
+      .select('+tokenHash')
+      .orFail(() => new NotFoundException('Invite is invalid or expired'));
+  }
+
+  private async expireInvite(invite: CollaborationInvite) {
+    await this.invites.updateOne(
+      { _id: invite._id, status: 'pending' },
+      { $set: { status: 'expired' } },
+    );
+    await this.seats.updateOne(
+      {
+        sponsorUserId: invite.sponsorUserId,
+        email: invite.email,
+        status: 'pending',
+      },
+      {
+        $pull: {
+          resources: {
+            resourceType: invite.resourceType,
+            resourceId: invite.resourceId,
+          },
+        },
+      },
+    );
+    const seat = await this.seats.findOne({
+      sponsorUserId: invite.sponsorUserId,
+      email: invite.email,
+      status: 'pending',
+    });
+    if (seat && seat.resources.length === 0) {
+      seat.status = 'revoked';
+      seat.slot = undefined;
+      await seat.save();
+    }
+  }
+
+  private async resourceName(
+    resourceType: 'workspace' | 'calendar',
+    resourceId: string,
+  ) {
+    const resource =
+      resourceType === 'workspace'
+        ? await this.workspaces.findById(resourceId).select('name').lean()
+        : await this.calendars.findById(resourceId).select('name').lean();
+    return resource?.name ?? 'Shared resource';
+  }
+
+  private buildInviteUrl(token: string): string {
+    const base = (
+      this.config.get<string>('APP_WEB_URL') ||
+      this.config.get<string>('APP_PUBLIC_URL') ||
+      'https://tecnowallet.app'
+    ).replace(/\/+$/, '');
+    return `${base}/invite?token=${encodeURIComponent(token)}`;
+  }
+
+  private isNonProduction() {
+    return this.config.get<string>('NODE_ENV', 'development') !== 'production';
+  }
+
+  private digest(token: string) {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private maskEmail(email: string) {
+    const [local, domain] = email.split('@');
+    return `${local.slice(0, 2)}${'*'.repeat(Math.max(local.length - 2, 1))}@${domain}`;
+  }
+
+  private isDuplicateKey(error: unknown): error is { code: number } {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 11000
+    );
+  }
+
+  private paymentRequired(
+    code: 'SEAT_LIMIT' | 'SHARING_REQUIRED',
+    message: string,
+    action?: string,
+    extra?: { seatLimit?: number; upgradeTo?: 'business' },
+  ) {
+    return new PaymentRequiredException({
+      statusCode: 402,
+      error: 'Payment Required',
+      message,
+      code,
+      reason: {
+        feature: 'collaboration',
+        code,
+        ...(action ? { action } : {}),
+        ...(extra?.seatLimit !== undefined
+          ? { seatLimit: extra.seatLimit }
+          : {}),
+        ...(extra?.upgradeTo ? { upgradeTo: extra.upgradeTo } : {}),
+      },
+    });
+  }
+
+  private async assertSharingPlus(userId: string, action: string) {
+    if (await this.entitlements.isPlus(userId)) return;
+    throw this.paymentRequired(
+      'SHARING_REQUIRED',
+      'TecnoWallet Plus is required to sponsor collaborators',
+      action,
+    );
+  }
+}
+
+@Injectable()
+export class CalendarService {
+  constructor(
+    @InjectModel(Calendar.name)
+    private readonly calendars: Model<Calendar>,
+    @InjectModel(CalendarMembership.name)
+    private readonly memberships: Model<CalendarMembership>,
+    @InjectModel(CalendarItemRecord.name)
+    private readonly items: Model<CalendarItemRecord>,
+    @InjectModel(Membership.name)
+    private readonly workspaceMemberships: Model<Membership>,
+    @InjectModel(CollaborationSeat.name)
+    private readonly seats: Model<CollaborationSeat>,
+    @InjectModel(User.name)
+    private readonly users: Model<User>,
+    private readonly entitlements: EntitlementService,
+  ) {}
+
+  async create(dto: CreateCalendarDto, userId: string) {
+    const workspaceRole = await this.workspaceMemberships.findOne({
+      workspaceId: dto.workspaceId,
+      userId,
+      role: { $in: ['owner', 'admin'] },
+    });
+    if (!workspaceRole) {
+      throw new ForbiddenException(
+        'Only workspace owners/admins can create calendars',
+      );
+    }
+    const calendar = await this.calendars.create({
+      workspaceId: new Types.ObjectId(dto.workspaceId),
+      ownerId: new Types.ObjectId(userId),
+      name: dto.name.trim(),
+      color: dto.color,
+      icon: dto.icon,
+      migrationSourceId: dto.migrationSourceId,
+    });
+    await this.memberships.create({
+      calendarId: calendar._id,
+      userId: new Types.ObjectId(userId),
+      role: 'owner',
+    });
+    return calendar;
+  }
+
+  async list(query: ListCalendarsQueryDto, userId: string) {
+    const memberships = await this.memberships.find({ userId }).lean();
+    const allowedIds: Types.ObjectId[] = [];
+    for (const membership of memberships) {
+      if (!membership.sponsorUserId) {
+        allowedIds.push(membership.calendarId);
+        continue;
+      }
+      if (
+        (await this.entitlements.isPlus(membership.sponsorUserId.toString())) &&
+        (await this.seats.exists({
+          sponsorUserId: membership.sponsorUserId,
+          collaboratorUserId: userId,
+          status: 'active',
+          resources: {
+            $elemMatch: {
+              resourceType: 'calendar',
+              resourceId: membership.calendarId,
+            },
+          },
+        }))
+      ) {
+        allowedIds.push(membership.calendarId);
+      }
+    }
+    return this.calendars
+      .find({
+        _id: { $in: allowedIds },
+        deletedAt: { $exists: false },
+        ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
+      })
+      .sort({ updatedAt: -1 })
+      .lean();
+  }
+
+  async update(id: string, dto: UpdateCalendarDto, userId: string) {
+    const calendar = await this.calendars.findOne({
+      _id: id,
+      deletedAt: { $exists: false },
+    });
+    if (!calendar) throw new NotFoundException('Calendar not found');
+    await this.assertAccess(id, userId, ['owner', 'editor']);
+    Object.assign(calendar, dto);
+    return calendar.save();
+  }
+
+  async remove(id: string, userId: string) {
+    const calendar = await this.calendars.findOne({
+      _id: id,
+      deletedAt: { $exists: false },
+    });
+    if (!calendar) throw new NotFoundException('Calendar not found');
+    await this.assertAccess(id, userId, ['owner']);
+    calendar.deletedAt = new Date();
+    await calendar.save();
+    await this.items.updateMany(
+      { calendarId: id, deletedAt: { $exists: false } },
+      { $set: { deletedAt: new Date() } },
+    );
+    return { deleted: true, id };
+  }
+
+  async members(id: string, userId: string) {
+    await this.assertAccess(id, userId, ['owner', 'editor', 'viewer']);
+    const memberships = await this.memberships.find({ calendarId: id }).lean();
+    const userIds = memberships.map((membership) => membership.userId);
+    const users = await this.usersForMemberships(userIds);
+    return memberships.map((membership) => ({
+      id: membership._id,
+      userId: membership.userId,
+      role: membership.role,
+      name: users.get(membership.userId.toString())?.name,
+      email: users.get(membership.userId.toString())?.email,
+      sponsored: Boolean(membership.sponsorUserId),
+    }));
+  }
+
+  async removeMember(
+    calendarId: string,
+    memberUserId: string,
+    ownerId: string,
+  ) {
+    await this.assertAccess(calendarId, ownerId, ['owner']);
+    const membership = await this.memberships.findOne({
+      calendarId,
+      userId: memberUserId,
+      role: { $ne: 'owner' },
+    });
+    if (!membership) throw new NotFoundException('Calendar member not found');
+    await membership.deleteOne();
+    if (membership.sponsorUserId) {
+      const seat = await this.seats.findOne({
+        sponsorUserId: membership.sponsorUserId,
+        collaboratorUserId: memberUserId,
+        status: { $in: ['active', 'pending'] },
+      });
+      if (seat) {
+        seat.resources = seat.resources.filter(
+          (resource) =>
+            !(
+              resource.resourceType === 'calendar' &&
+              resource.resourceId.toString() === calendarId
+            ),
+        );
+        if (seat.resources.length === 0) {
+          seat.status = 'revoked';
+          seat.slot = undefined;
+        }
+        await seat.save();
+      }
+    }
+    return { removed: true };
+  }
+
+  async listItems(calendarId: string, userId: string) {
+    await this.assertAccess(calendarId, userId, ['owner', 'editor', 'viewer']);
+    return this.items
+      .find({ calendarId, deletedAt: { $exists: false } })
+      .sort({ 'data.date': 1, createdAt: 1 })
+      .lean();
+  }
+
+  async createItem(dto: CreateCalendarItemDto, userId: string) {
+    await this.assertAccess(dto.calendarId, userId, ['owner', 'editor']);
+    this.validateItemData(dto.data);
+    return this.items.create({
+      ...(dto.id ? { _id: new Types.ObjectId(dto.id) } : {}),
+      calendarId: new Types.ObjectId(dto.calendarId),
+      ownerId: new Types.ObjectId(userId),
+      data: dto.data,
+    });
+  }
+
+  async updateItem(id: string, dto: UpdateCalendarItemDto, userId: string) {
+    const item = await this.items.findOne({
+      _id: id,
+      deletedAt: { $exists: false },
+    });
+    if (!item) throw new NotFoundException('Calendar item not found');
+    await this.assertAccess(item.calendarId.toString(), userId, [
+      'owner',
+      'editor',
+    ]);
+    this.validateItemData(dto.data);
+    item.data = dto.data;
+    return item.save();
+  }
+
+  async removeItem(id: string, userId: string) {
+    const item = await this.items.findOne({
+      _id: id,
+      deletedAt: { $exists: false },
+    });
+    if (!item) throw new NotFoundException('Calendar item not found');
+    await this.assertAccess(item.calendarId.toString(), userId, [
+      'owner',
+      'editor',
+    ]);
+    item.deletedAt = new Date();
+    await item.save();
+    return { deleted: true, id };
+  }
+
+  private validateItemData(data: Record<string, unknown>) {
+    if (
+      typeof data.title !== 'string' ||
+      !data.title.trim() ||
+      data.title.length > 200
+    ) {
+      throw new BadRequestException('Calendar item title is required');
+    }
+    if (
+      typeof data.date !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(data.date)
+    ) {
+      throw new BadRequestException('Calendar item date must be YYYY-MM-DD');
+    }
+    if (
+      !['event', 'task', 'birthday'].includes(String(data.type)) ||
+      typeof data.allDay !== 'boolean'
+    ) {
+      throw new BadRequestException('Invalid calendar item type');
+    }
+  }
+
+  private async usersForMemberships(userIds: Types.ObjectId[]) {
+    const users = await this.users
+      .find({ _id: { $in: userIds } })
+      .select('name email')
+      .lean();
+    return new Map(users.map((user) => [user._id.toString(), user]));
+  }
+
+  async assertAccess(
+    calendarId: string,
+    userId: string,
+    roles: Array<'owner' | 'editor' | 'viewer'>,
+  ) {
+    const membership = await this.memberships.findOne({
+      calendarId,
+      userId,
+      role: { $in: roles },
+    });
+    if (!membership) throw new ForbiddenException('Calendar access denied');
+    if (!membership.sponsorUserId) return membership;
+
+    const [sponsorIsPlus, activeSeat] = await Promise.all([
+      this.entitlements.isPlus(membership.sponsorUserId.toString()),
+      this.seats.exists({
+        sponsorUserId: membership.sponsorUserId,
+        collaboratorUserId: userId,
+        status: 'active',
+        resources: {
+          $elemMatch: {
+            resourceType: 'calendar',
+            resourceId: membership.calendarId,
+          },
+        },
+      }),
+    ]);
+    if (!sponsorIsPlus || !activeSeat) {
+      throw this.suspendedAccess();
+    }
+    return membership;
+  }
+
+  private suspendedAccess() {
+    return new PaymentRequiredException({
+      statusCode: 402,
+      error: 'Payment Required',
+      message: 'Sponsored calendar access is suspended',
+      code: 'SHARING_REQUIRED',
+      reason: { feature: 'collaboration', action: 'calendar_access' },
+    });
+  }
+}

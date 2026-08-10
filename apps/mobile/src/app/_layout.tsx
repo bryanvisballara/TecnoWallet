@@ -8,8 +8,19 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '@/polyfills/web-dom-props';
 import '@/global.css';
+import { AffiliateWelcomeModal } from '@/components/affiliate-welcome-modal';
+import { AppLockGate } from '@/components/app-lock-gate';
+import { PlusPaywallModal } from '@/components/plus-paywall-modal';
 import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ensureAuthSession, flushOfflineQueue } from '@/services/api';
+import {
+  claimPendingAffiliate,
+  initBranchAttribution,
+  setBranchIdentity,
+} from '@/services/branch';
+import { localStorage } from '@/services/persistence';
+import { configurePurchases } from '@/services/purchases';
 import { configureActivityNotifications } from '@/services/push-notifications';
 import { useAuthStore } from '@/store/auth';
 import { useFinanceStore } from '@/store/finance';
@@ -18,6 +29,8 @@ import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
 import { useGoalsStore } from '@/store/goals';
 import { useNotificationsStore } from '@/store/notifications';
+import { usePreferencesStore } from '@/store/preferences';
+import { usePlusStore } from '@/store/plus';
 import { useRecaudosStore } from '@/store/recaudos';
 
 void SplashScreen.preventAutoHideAsync();
@@ -34,11 +47,14 @@ export default function RootLayout() {
   const hydrateLedger = useLedgerStore((state) => state.hydrate);
   const hydrateCalendar = useCalendarStore((state) => state.hydrate);
   const hydrateLanguage = useLanguageStore((state) => state.hydrate);
+  const hydratePreferences = usePreferencesStore((state) => state.hydrate);
+  const hydratePlus = usePlusStore((state) => state.hydrate);
   const hydrateNotifications = useNotificationsStore((state) => state.hydrate);
   const hydrateGoals = useGoalsStore((state) => state.hydrate);
   const hydrateRecaudos = useRecaudosStore((state) => state.hydrate);
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
-  const palette = Colors.light;
+  const scheme = useColorScheme();
+  const palette = Colors[scheme === 'dark' ? 'dark' : 'light'];
 
   useEffect(() => {
     void (async () => {
@@ -46,17 +62,29 @@ export default function RootLayout() {
       await hydrateAuth();
       const isAuthed = useAuthStore.getState().authenticated;
       if (isAuthed) {
+        const userId = await localStorage.get('auth-user-id', '');
+        if (userId) {
+          await configurePurchases(userId).catch(() => undefined);
+        }
         await hydrateLedger();
         await Promise.all([
+          hydratePlus(),
           hydrateCalendar(),
           hydrateFinance(),
           hydrateLanguage(),
+          hydratePreferences(),
           hydrateNotifications(),
           hydrateGoals(),
           hydrateRecaudos(),
         ]);
       } else {
-        await Promise.all([hydrateLanguage(), hydrateNotifications(), hydrateFinance()]);
+        usePlusStore.getState().reset();
+        await Promise.all([
+          hydrateLanguage(),
+          hydratePreferences(),
+          hydrateNotifications(),
+          hydrateFinance(),
+        ]);
         // Mark empty product stores so the UI does not wait forever.
         useLedgerStore.setState({ hydrated: true, ledgers: [], activeLedgerId: '' });
         useRecaudosStore.setState({ hydrated: true, recaudos: [] });
@@ -70,6 +98,8 @@ export default function RootLayout() {
     hydrateCalendar,
     hydrateFinance,
     hydrateLanguage,
+    hydratePreferences,
+    hydratePlus,
     hydrateNotifications,
     hydrateGoals,
     hydrateRecaudos,
@@ -80,7 +110,21 @@ export default function RootLayout() {
   }, [hydrated]);
 
   useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    try {
+      cleanup = initBranchAttribution();
+    } catch {
+      // Branch requires a custom native build; web and Expo Go keep working.
+    }
+    return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
     if (hydrated && authenticated) {
+      void localStorage.get('auth-user-id', '').then((userId) => {
+        if (userId) void setBranchIdentity(userId).catch(() => undefined);
+      });
+      void claimPendingAffiliate().catch(() => undefined);
       void configureActivityNotifications();
       void refreshRecaudos();
     }
@@ -151,23 +195,12 @@ export default function RootLayout() {
                 name="add-planning-item"
                 options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
               />
-              <Stack.Screen
-                name="export"
-                options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
-              />
-              <Stack.Screen name="profile" />
-              <Stack.Screen name="notifications" />
-              <Stack.Screen name="ledgers" />
-              <Stack.Screen name="calendars" />
-              <Stack.Screen name="feature/[slug]" />
-              <Stack.Screen name="envelope/[id]" />
-              <Stack.Screen name="account/[id]" />
-              <Stack.Screen name="cashflow/[type]" />
-              <Stack.Screen name="goal/[id]" />
               <Stack.Screen name="invite/[token]" />
-              <Stack.Screen name="patrimonio" />
-              <Stack.Screen name="bank-accounts" />
+              <Stack.Screen name="r/[code]" />
             </Stack>
+            <PlusPaywallModal />
+            <AffiliateWelcomeModal />
+            <AppLockGate />
           </ThemeProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

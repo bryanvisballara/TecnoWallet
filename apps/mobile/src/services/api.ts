@@ -12,6 +12,14 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly reason?: string,
+    readonly reasonDetails?: {
+      feature?: string;
+      action?: string;
+      code?: string;
+      upgradeTo?: string;
+      seatLimit?: number;
+    },
   ) {
     super(message);
   }
@@ -52,11 +60,26 @@ async function errorFromResponse(response: Response) {
     const body = (await response.json()) as {
       message?: string | string[];
       code?: string;
+      reason?:
+        | string
+        | {
+            feature?: string;
+            action?: string;
+            code?: string;
+            upgradeTo?: string;
+            seatLimit?: number;
+          };
     };
     const message = Array.isArray(body.message)
       ? body.message.join('. ')
       : body.message || fallback;
-    return new ApiError(message, response.status, body.code);
+    const details =
+      typeof body.reason === 'object' && body.reason ? body.reason : undefined;
+    const reason =
+      typeof body.reason === 'string'
+        ? body.reason
+        : details?.code ?? details?.feature ?? details?.action;
+    return new ApiError(message, response.status, body.code, reason, details);
   } catch {
     return new ApiError(fallback, response.status);
   }

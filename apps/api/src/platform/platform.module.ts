@@ -46,6 +46,13 @@ import {
   Workspace,
 } from '../auth/auth.module';
 import type { AuthPrincipal } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
+import {
+  EntitlementService,
+  PaymentRequiredException,
+} from '../billing/entitlement.service';
+import { CollaborationModule } from '../collaboration/collaboration.module';
+import { CollaborationService } from '../collaboration/collaboration.service';
 import {
   CreateTransactionDto,
   LedgerService,
@@ -55,7 +62,6 @@ import {
 import { BrevoMailer } from '../mail/brevo';
 import { inviteEmailHtml, inviteEmailSubject } from '../mail/invite-email';
 import { MailModule } from '../mail/mail.module';
-import { ConfigService } from '@nestjs/config';
 
 const resourceKinds = [
   'category',
@@ -123,6 +129,16 @@ FinanceResourceSchema.index(
   { collation: { locale: 'en', strength: 2 } },
 );
 FinanceResourceSchema.index({ name: 'text', 'data.description': 'text' });
+FinanceResourceSchema.index(
+  { workspaceId: 1, kind: 1, 'data.kind': 1, 'data.freeQuotaSlot': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      kind: 'envelope',
+      'data.freeQuotaSlot': { $type: 'number' },
+    },
+  },
+);
 
 @Schema({ timestamps: true })
 class IdempotencyRecord {
@@ -273,11 +289,31 @@ class WorkspaceAccessService {
   constructor(
     @InjectModel(Membership.name)
     private readonly memberships: Model<Membership>,
+    @InjectModel(Workspace.name)
+    private readonly workspaces: Model<Workspace>,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   async assertMember(workspaceId: string, userId: string): Promise<void> {
-    const member = await this.memberships.exists({ workspaceId, userId });
+    const member = await this.memberships
+      .findOne({ workspaceId, userId })
+      .select('role')
+      .lean();
     if (!member) throw new ForbiddenException('Workspace access denied');
+    if (member.role === 'owner') return;
+    const workspace = await this.workspaces
+      .findOne({ _id: workspaceId, deletedAt: { $exists: false } })
+      .select('ownerId')
+      .lean();
+    if (!workspace) throw new NotFoundException('Workspace not found');
+    if (!(await this.entitlements.isPlus(workspace.ownerId.toString()))) {
+      throw new PaymentRequiredException({
+        statusCode: 402,
+        code: 'PLUS_REQUIRED',
+        message: 'The workspace sponsor needs TecnoWallet Plus',
+        reason: 'SHARING_REQUIRED',
+      });
+    }
   }
 }
 
@@ -286,8 +322,11 @@ class ResourceService {
   constructor(
     @InjectModel(FinanceResource.name)
     private readonly resources: Model<FinanceResource>,
+    @InjectModel(Workspace.name)
+    private readonly workspaces: Model<Workspace>,
     private readonly access: WorkspaceAccessService,
     private readonly ocr: OcrProvider,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   assertKind(kind: string): asserts kind is ResourceKind {
@@ -300,11 +339,126 @@ class ResourceService {
     this.assertKind(kind);
     await this.access.assertMember(dto.workspaceId, principal.userId);
     this.validatePayload(kind, dto.data);
+    if (kind === 'envelope') {
+      return this.createEnvelopeWithPlanLimit(dto, principal);
+    }
     return this.resources.create({
       ...dto,
       kind,
       ownerId: principal.userId,
     });
+  }
+
+  private async createEnvelopeWithPlanLimit(
+    dto: ResourceDto,
+    principal: AuthPrincipal,
+  ) {
+    const envelopeKind = dto.data.kind;
+    if (!['income', 'expense', 'savings'].includes(String(envelopeKind))) {
+      throw new BadRequestException(
+        'Envelope kind must be income, expense, or savings',
+      );
+    }
+    const workspace = await this.workspaces
+      .findOne({ _id: dto.workspaceId, deletedAt: { $exists: false } })
+      .select('ownerId')
+      .lean();
+    if (!workspace) throw new NotFoundException('Workspace not found');
+
+    const ownerId = workspace.ownerId.toString();
+    const ownerIsPlus = await this.entitlements.isPlus(ownerId);
+    const requesterIsOwner = ownerId === principal.userId;
+    if (!requesterIsOwner) {
+      if (!ownerIsPlus) {
+        throw new PaymentRequiredException({
+          statusCode: 402,
+          code: 'PLUS_REQUIRED',
+          message: 'The workspace owner needs TecnoWallet Plus',
+          reason: 'SHARING_REQUIRED',
+        });
+      }
+      return this.resources.create({
+        ...dto,
+        kind: 'envelope',
+        ownerId: principal.userId,
+      });
+    }
+    if (ownerIsPlus || envelopeKind === 'savings') {
+      return this.resources.create({
+        ...dto,
+        kind: 'envelope',
+        ownerId: principal.userId,
+      });
+    }
+
+    const quotaKind = String(envelopeKind);
+    const existing = await this.resources
+      .find({
+        workspaceId: dto.workspaceId,
+        kind: 'envelope',
+        'data.kind': quotaKind,
+        deletedAt: { $exists: false },
+      })
+      .sort({ createdAt: 1, _id: 1 })
+      .limit(6);
+    if (existing.length >= 5) {
+      throw this.envelopeLimit();
+    }
+
+    const occupied = new Set<number>();
+    for (const item of existing) {
+      const slot = Number(item.data.freeQuotaSlot);
+      if (Number.isInteger(slot) && slot >= 1 && slot <= 5) {
+        occupied.add(slot);
+      }
+    }
+    for (const item of existing) {
+      if (Number.isInteger(Number(item.data.freeQuotaSlot))) continue;
+      const slot = [1, 2, 3, 4, 5].find((value) => !occupied.has(value));
+      if (!slot) throw this.envelopeLimit();
+      try {
+        await this.resources.updateOne(
+          { _id: item._id, 'data.freeQuotaSlot': { $exists: false } },
+          { $set: { 'data.freeQuotaSlot': slot } },
+        );
+        occupied.add(slot);
+      } catch (error) {
+        if (!this.isDuplicateKey(error)) throw error;
+      }
+    }
+
+    for (const slot of [1, 2, 3, 4, 5]) {
+      if (occupied.has(slot)) continue;
+      try {
+        return await this.resources.create({
+          ...dto,
+          data: { ...dto.data, freeQuotaSlot: slot },
+          kind: 'envelope',
+          ownerId: principal.userId,
+        });
+      } catch (error) {
+        if (!this.isDuplicateKey(error)) throw error;
+      }
+    }
+    throw this.envelopeLimit();
+  }
+
+  private envelopeLimit() {
+    return new PaymentRequiredException({
+      statusCode: 402,
+      code: 'PLUS_REQUIRED',
+      message: 'Free includes up to 5 envelopes of each type',
+      reason: 'ENVELOPE_LIMIT',
+    });
+  }
+
+  private isDuplicateKey(error: unknown) {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: number }).code === 11000
+    );
   }
 
   async list(
@@ -512,16 +666,27 @@ class WorkspaceController {
     private readonly memberships: Model<Membership>,
     @InjectModel(User.name) private readonly users: Model<User>,
     private readonly mailer: BrevoMailer,
-    private readonly config: ConfigService,
+    private readonly entitlements: EntitlementService,
+    private readonly collaboration: CollaborationService,
+    private readonly access: WorkspaceAccessService,
   ) {}
 
   @Get()
   async list(@CurrentUser() user: AuthPrincipal) {
     const memberships = await this.memberships.find({ userId: user.userId });
-    return this.workspaces.find({
+    const workspaces = await this.workspaces.find({
       _id: { $in: memberships.map((member) => member.workspaceId) },
       deletedAt: { $exists: false },
     });
+    const visible = await Promise.all(
+      workspaces.map(async (workspace) => {
+        if (workspace.ownerId.toString() === user.userId) return workspace;
+        return (await this.entitlements.isPlus(workspace.ownerId.toString()))
+          ? workspace
+          : null;
+      }),
+    );
+    return visible.filter(Boolean);
   }
 
   @Post()
@@ -529,14 +694,42 @@ class WorkspaceController {
     @Body() dto: CreateWorkspaceDto,
     @CurrentUser() user: AuthPrincipal,
   ) {
-    const workspace = await this.workspaces.create({
-      name: dto.name.trim(),
-      type: dto.type,
-      baseCurrency: dto.baseCurrency.toUpperCase(),
-      ownerId: user.userId,
-      color: dto.color?.trim() || '#F5C518',
-      icon: dto.icon?.trim() || 'wallet.pass.fill',
-    });
+    const isPlus = await this.entitlements.isPlus(user.userId);
+    if (!isPlus) {
+      const owned = await this.workspaces.countDocuments({
+        ownerId: user.userId,
+        deletedAt: { $exists: false },
+      });
+      if (owned >= 1) {
+        await this.entitlements.assertPlus(user.userId, {
+          feature: 'BOOK_LIMIT',
+        });
+      }
+    }
+    let workspace: Workspace;
+    try {
+      workspace = await this.workspaces.create({
+        name: dto.name.trim(),
+        type: dto.type,
+        baseCurrency: dto.baseCurrency.toUpperCase(),
+        ownerId: user.userId,
+        color: dto.color?.trim() || '#F5C518',
+        icon: dto.icon?.trim() || 'wallet.pass.fill',
+        ...(isPlus ? {} : { freeSlot: 1 }),
+      });
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code?: number }).code === 11000
+      ) {
+        await this.entitlements.assertPlus(user.userId, {
+          feature: 'BOOK_LIMIT',
+        });
+      }
+      throw error;
+    }
     await this.memberships.create({
       workspaceId: workspace._id,
       userId: user.userId,
@@ -601,6 +794,7 @@ class WorkspaceController {
     });
     if (!workspace) throw new NotFoundException('Workspace not found');
     workspace.deletedAt = new Date();
+    workspace.freeSlot = undefined;
     await workspace.save();
     return { deleted: true, id: workspaceId };
   }
@@ -610,11 +804,7 @@ class WorkspaceController {
     @Param('id') workspaceId: string,
     @CurrentUser() user: AuthPrincipal,
   ) {
-    const requester = await this.memberships.findOne({
-      workspaceId,
-      userId: user.userId,
-    });
-    if (!requester) throw new ForbiddenException('Workspace access denied');
+    await this.access.assertMember(workspaceId, user.userId);
     const memberships = await this.memberships.find({ workspaceId });
     const users = await this.users.find({
       _id: { $in: memberships.map((member) => member.userId) },
@@ -636,84 +826,40 @@ class WorkspaceController {
     @Body() dto: AddMemberDto,
     @CurrentUser() user: AuthPrincipal,
   ) {
-    const requester = await this.memberships.findOne({
-      workspaceId,
-      userId: user.userId,
-      role: { $in: ['owner', 'admin'] },
-    });
-    if (!requester) throw new ForbiddenException('Admin access required');
-    const workspace = await this.workspaces.findOne({
-      _id: workspaceId,
-      deletedAt: { $exists: false },
-    });
-    if (!workspace) throw new NotFoundException('Workspace not found');
+    const created = await this.collaboration.createInvite(
+      {
+        resourceType: 'workspace',
+        resourceId: workspaceId,
+        email: dto.email,
+        role: 'member',
+      },
+      user,
+    );
     const inviter = await this.users.findById(user.userId).lean();
     const inviterName =
       typeof inviter?.name === 'string' && inviter.name.trim()
         ? inviter.name.trim()
         : user.email.split('@')[0];
-    const appBase = (
-      this.config.get<string>('APP_PUBLIC_URL') ||
-      this.config.get<string>('RECAUDO_INVITE_BASE_URL') ||
-      'https://tecnowallet.app'
-    )
-      .replace(/\/invite\/?$/, '')
-      .replace(/\/+$/, '');
-    const roleLabel =
-      dto.role === 'admin'
-        ? 'admin'
-        : dto.role === 'viewer'
-          ? 'solo lectura'
-          : 'miembro';
-
     const invited = await this.users.findOne({
       email: dto.email.toLowerCase(),
       active: true,
     });
-    if (!invited) {
-      const payload = {
-        kind: 'workspace' as const,
-        resourceName: workspace.name,
-        acceptLink: `${appBase}/auth`,
-        inviterName,
-        roleLabel,
-        pendingSignup: true,
-      };
-      const delivery = await this.mailer.sendHtml({
-        to: dto.email.toLowerCase(),
-        subject: inviteEmailSubject(payload),
-        htmlContent: inviteEmailHtml(payload),
-      });
-      return {
-        pendingSignup: true,
-        email: dto.email.toLowerCase(),
-        delivered: delivery.delivered,
-      };
-    }
-    await this.workspaces.updateOne(
-      { _id: workspaceId, deletedAt: { $exists: false } },
-      { $set: { type: 'shared' } },
-    );
-    const membership = await this.memberships.findOneAndUpdate(
-      { workspaceId, userId: invited._id },
-      { $set: { role: dto.role } },
-      { upsert: true, new: true },
-    );
     const payload = {
       kind: 'workspace' as const,
-      resourceName: workspace.name,
-      acceptLink: `${appBase}/`,
+      resourceName: created.mailDispatch.resourceName,
+      acceptLink: created.mailDispatch.inviteUrl,
       inviterName,
-      roleLabel,
+      roleLabel: 'miembro',
+      pendingSignup: !invited,
     };
     const delivery = await this.mailer.sendHtml({
-      to: invited.email,
+      to: created.mailDispatch.to,
       subject: inviteEmailSubject(payload),
       htmlContent: inviteEmailHtml(payload),
     });
     return {
-      ...membership.toObject(),
-      pendingSignup: false,
+      ...created.response,
+      pendingSignup: !invited,
       delivered: delivery.delivered,
     };
   }
@@ -1096,6 +1242,8 @@ function escapeRegex(value: string): string {
 @Module({
   imports: [
     AuthModule,
+    BillingModule,
+    CollaborationModule,
     MailModule,
     MongooseModule.forFeature([
       { name: FinanceResource.name, schema: FinanceResourceSchema },

@@ -1,0 +1,131 @@
+import { apiRequest } from './api';
+
+export type AffiliatePublic = {
+  affiliateId: string;
+  code: string;
+  name: string;
+  commissionPercent?: number;
+  revenueShareMonths?: number;
+  branchUrl?: string;
+  clickId?: string;
+};
+
+export type AffiliateTier = {
+  id: 'partner' | 'creator' | 'ambassador';
+  label: string;
+  commissionPercent: number;
+  rangeLabel: string;
+  activePaidCount: number;
+};
+
+export type AffiliatePartnerStats = {
+  clicks: number;
+  downloads: number;
+  signups: number;
+  plusConversions: number;
+  conversionRate: number;
+  revenueGeneratedMinor: number;
+  commissionTotalMinor: number;
+  commissionPaidMinor: number;
+  commissionPendingMinor: number;
+  currency: string;
+};
+
+export type AffiliateReferredUser = {
+  userId: string;
+  label: string;
+  attributedAt: string;
+  plan: string;
+  status: string;
+  commissionMinor: number;
+  currency: string;
+};
+
+export type AffiliatePartnerDashboard =
+  | { enrolled: false }
+  | {
+      enrolled: true;
+      affiliate: AffiliatePublic;
+      shareUrl: string;
+      tier: AffiliateTier;
+      stats: AffiliatePartnerStats;
+      referred: AffiliateReferredUser[];
+    };
+
+type AffiliateEnvelope = {
+  affiliate?: AffiliatePublic | null;
+  attribution?: { code?: string } | null;
+  branchUrl?: string;
+  clickId?: string;
+  shareUrl?: string;
+  enrolled?: boolean;
+  created?: boolean;
+};
+
+function unwrapAffiliate(result: AffiliateEnvelope): AffiliatePublic {
+  if (!result.affiliate) {
+    throw new Error('No encontramos este código de recomendación.');
+  }
+  return {
+    ...result.affiliate,
+    branchUrl: result.branchUrl ?? result.affiliate.branchUrl,
+    clickId: result.clickId,
+  };
+}
+
+export async function getAffiliateCode(code: string) {
+  const result = await apiRequest<AffiliateEnvelope>(
+    `/affiliate/code/${encodeURIComponent(code.trim().toUpperCase())}`,
+  );
+  return unwrapAffiliate(result);
+}
+
+export async function recordAffiliateClick(input: {
+  code: string;
+  campaign?: string;
+  branchClickId?: string;
+}) {
+  const result = await apiRequest<AffiliateEnvelope>('/affiliate/click', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return unwrapAffiliate(result);
+}
+
+export async function claimAffiliate(input: {
+  code: string;
+  clickId?: string;
+  branchClickId?: string;
+  source: 'branch' | 'manual' | 'web';
+}) {
+  const result = await apiRequest<AffiliateEnvelope>('/affiliate/claim', {
+    method: 'POST',
+    body: JSON.stringify({
+      code: input.code,
+      clickId: input.clickId,
+      branchClickId: input.branchClickId,
+    }),
+  });
+  return unwrapAffiliate(result);
+}
+
+export async function getMyAffiliate() {
+  const result = await apiRequest<AffiliateEnvelope>('/affiliate/me');
+  return result.affiliate ? unwrapAffiliate(result) : null;
+}
+
+export async function enrollAffiliatePartner(code?: string) {
+  return apiRequest<{
+    enrolled: true;
+    created: boolean;
+    affiliate: AffiliatePublic;
+    shareUrl: string;
+  }>('/affiliate/partner/enroll', {
+    method: 'POST',
+    body: JSON.stringify(code ? { code } : {}),
+  });
+}
+
+export async function getAffiliatePartnerDashboard() {
+  return apiRequest<AffiliatePartnerDashboard>('/affiliate/partner/dashboard');
+}

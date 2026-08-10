@@ -19,5 +19,13 @@ if (!fs.existsSync(mainJs)) {
   process.exit(1);
 }
 
+if (process.env.RUN_FREEMIUM_MIGRATIONS !== 'false') {
+  execSync('node ./scripts/migrate-freemium.cjs', {
+    cwd: apiRoot,
+    stdio: 'inherit',
+    env: process.env,
+  });
+}
+
 // Loading main.js starts Nest (bootstrap runs at module scope).
 require(mainJs);

@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
@@ -143,7 +144,7 @@ export default function AddTransactionScreen() {
         ledgerName: ledger.name,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      safeGoBack('/(tabs)/movimientos');
     } catch {
       Alert.alert('No se pudo guardar', 'El movimiento se restauró. Inténtalo de nuevo.');
     } finally {
@@ -152,9 +153,9 @@ export default function AddTransactionScreen() {
   };
 
   return (
-    <SheetScreen>
+    <SheetScreen fallback="/(tabs)/movimientos">
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.header}><Pressable onPress={() => router.back()}><Text style={[styles.cancel, { color: theme.primary }]}>Cancelar</Text></Pressable><Text style={[styles.headerTitle, { color: theme.text }]}>Nuevo · {ledger.name}</Text><View style={styles.headerSpacer} /></View>
+        <View style={styles.header}><Pressable onPress={() => safeGoBack('/(tabs)/movimientos')}><Text style={[styles.cancel, { color: theme.primary }]}>Cancelar</Text></Pressable><Text style={[styles.headerTitle, { color: theme.text }]}>Nuevo · {ledger.name}</Text><View style={styles.headerSpacer} /></View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.segmented, { backgroundColor: theme.surfaceSecondary }]}>
             {([['expense', 'Gasto'], ['income', 'Ingreso']] as const).map(([value, label]) => (

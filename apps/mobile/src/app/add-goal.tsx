@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -132,7 +133,7 @@ export default function AddGoalScreen() {
       }
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      safeGoBack('/(tabs)/metas');
     } catch {
       Alert.alert('No se pudo crear', 'Inténtalo de nuevo.');
     } finally {
@@ -141,12 +142,12 @@ export default function AddGoalScreen() {
   };
 
   return (
-    <SheetScreen>
+    <SheetScreen fallback="/(tabs)/metas">
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => router.back()} style={styles.close}>
+          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/metas')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />

@@ -25,13 +25,7 @@ import {
   SchemaFactory,
 } from '@nestjs/mongoose';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import {
-  IsEmail,
-  IsString,
-  Length,
-  Matches,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsString, Length, Matches, MinLength } from 'class-validator';
 import { compare, hash } from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
@@ -77,8 +71,21 @@ export class User {
   @Prop()
   accountDeletionExpiresAt?: Date;
 
+  @Prop({ index: true, trim: true })
+  affiliateId?: string;
+
+  @Prop({ index: true, trim: true, uppercase: true })
+  affiliateCode?: string;
+
   @Prop({ default: true })
   active!: boolean;
+
+  /**
+   * Bumped on each full sign-in so only one device keeps a valid access token.
+   * Embedded in access JWTs as `sv` and checked by AccessTokenGuard.
+   */
+  @Prop({ default: 0 })
+  sessionVersion!: number;
 }
 export const UserSchema = SchemaFactory.createForClass(User);
 
@@ -125,10 +132,23 @@ export class Workspace {
   @Prop({ trim: true, default: 'house.fill' })
   icon?: string;
 
+  /** Atomic Free-plan ownership slot; Plus-created books omit it. */
+  @Prop({ min: 1, max: 1 })
+  freeSlot?: number;
+
   @Prop({ index: true })
   deletedAt?: Date;
 }
 export const WorkspaceSchema = SchemaFactory.createForClass(Workspace);
+WorkspaceSchema.index(
+  { ownerId: 1, freeSlot: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      freeSlot: { $type: 'number' },
+    },
+  },
+);
 
 @Schema({ timestamps: true })
 export class Membership {
@@ -216,6 +236,7 @@ export class AccessTokenGuard implements CanActivate {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly reflector: Reflector,
+    @InjectModel(User.name) private readonly users: Model<User>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -238,11 +259,32 @@ export class AccessTokenGuard implements CanActivate {
         sub: string;
         email: string;
         kind: string;
+        sv?: number;
       }>(token, { secret: this.config.getOrThrow('JWT_ACCESS_SECRET') });
       if (payload.kind !== 'access') throw new Error('Wrong token kind');
+
+      const user = await this.users
+        .findById(payload.sub)
+        .select('active sessionVersion email')
+        .lean();
+      if (!user?.active) {
+        throw new UnauthorizedException({
+          message: 'User is inactive',
+          reason: 'SESSION_SUPERSEDED',
+        });
+      }
+      const currentVersion = user.sessionVersion ?? 0;
+      if (typeof payload.sv !== 'number' || payload.sv !== currentVersion) {
+        throw new UnauthorizedException({
+          message: 'Sesión cerrada: iniciaste sesión en otro dispositivo',
+          reason: 'SESSION_SUPERSEDED',
+        });
+      }
+
       request.user = { userId: payload.sub, email: payload.email };
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid or expired access token');
     }
   }
@@ -286,6 +328,7 @@ export class AuthService {
         baseCurrency: 'COP',
         color: '#F5C518',
         icon: 'house.fill',
+        freeSlot: 1,
       });
       await this.memberships.create({
         workspaceId: workspace._id,
@@ -322,7 +365,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid verification code');
     }
     if (user.emailVerified) {
-      return this.issueTokens(user);
+      return this.issueTokens(user, { replaceSession: true });
     }
     if (
       !user.emailVerificationCodeHash ||
@@ -347,7 +390,7 @@ export class AuthService {
       },
     );
     user.emailVerified = true;
-    return this.issueTokens(user);
+    return this.issueTokens(user, { replaceSession: true });
   }
 
   async resendVerification(dto: ResendVerificationDto) {
@@ -383,7 +426,7 @@ export class AuthService {
         'Verify your email before signing in. Check your inbox for the 6-digit code.',
       );
     }
-    return this.issueTokens(user);
+    return this.issueTokens(user, { replaceSession: true });
   }
 
   async loginWithGoogle(dto: GoogleLoginDto) {
@@ -437,6 +480,7 @@ export class AuthService {
         baseCurrency: 'COP',
         color: '#F5C518',
         icon: 'house.fill',
+        freeSlot: 1,
       });
       await this.memberships.create({
         workspaceId: workspace._id,
@@ -450,7 +494,7 @@ export class AuthService {
       await user.save();
     }
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, { replaceSession: true });
   }
 
   async refresh(rawToken: string) {
@@ -472,12 +516,16 @@ export class AuthService {
       revokedAt: { $exists: false },
       expiresAt: { $gt: new Date() },
     });
-    if (!session) throw new UnauthorizedException('Refresh token was revoked');
+    if (!session) {
+      throw new UnauthorizedException({
+        message: 'Sesión cerrada: iniciaste sesión en otro dispositivo',
+        reason: 'SESSION_SUPERSEDED',
+      });
+    }
     const user = await this.users.findById(payload.sub);
     if (!user?.active) throw new UnauthorizedException('User is inactive');
-    // Sliding renewal: mint a new pair without revoking the previous refresh first.
-    // This avoids logging users out when multiple tabs/devices refresh concurrently.
-    const tokens = await this.issueTokens(user);
+    // Same device only: renew without bumping sessionVersion / kicking others.
+    const tokens = await this.issueTokens(user, { replaceSession: false });
     session.revokedAt = new Date();
     await session.save();
     return tokens;
@@ -576,10 +624,36 @@ export class AuthService {
     return { deleted: true };
   }
 
-  private async issueTokens(user: User) {
+  private async issueTokens(
+    user: User,
+    options: { replaceSession: boolean },
+  ) {
+    let sessionVersion = user.sessionVersion ?? 0;
+    if (options.replaceSession) {
+      const now = new Date();
+      await this.refreshSessions.updateMany(
+        { userId: user._id, revokedAt: { $exists: false } },
+        { $set: { revokedAt: now } },
+      );
+      const updated = await this.users
+        .findByIdAndUpdate(
+          user._id,
+          { $inc: { sessionVersion: 1 } },
+          { new: true },
+        )
+        .select('sessionVersion');
+      sessionVersion = updated?.sessionVersion ?? sessionVersion + 1;
+      user.sessionVersion = sessionVersion;
+    }
+
     const tokenId = randomUUID();
     const accessToken = await this.jwt.signAsync(
-      { sub: user._id.toString(), email: user.email, kind: 'access' },
+      {
+        sub: user._id.toString(),
+        email: user.email,
+        kind: 'access',
+        sv: sessionVersion,
+      },
       {
         secret: this.config.getOrThrow('JWT_ACCESS_SECRET'),
         expiresIn: this.config.get('JWT_ACCESS_TTL', '30d'),

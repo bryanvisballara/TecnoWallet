@@ -36,7 +36,7 @@ export default function RecaudoInviteScreen() {
       await localStorage.remove('pending-recaudo-invite');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(tabs)/recaudos');
-      router.push(`/recaudo/${recaudo.id}` as never);
+      router.push(`/(tabs)/recaudo/${recaudo.id}` as never);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo aceptar la invitación.');
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

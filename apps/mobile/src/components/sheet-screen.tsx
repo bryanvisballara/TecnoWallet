@@ -1,17 +1,19 @@
-import { router } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import type { PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { Href } from 'expo-router';
 
 import { useAppTheme } from '@/components/ui';
 
 type Props = PropsWithChildren<{
   /** Alto de la hoja (0–1). Por defecto 75%. */
   heightRatio?: number;
+  fallback?: Href;
 }>;
 
-export function SheetScreen({ children, heightRatio = 0.75 }: Props) {
+export function SheetScreen({ children, heightRatio = 0.75, fallback = '/(tabs)/inicio' }: Props) {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -23,7 +25,7 @@ export function SheetScreen({ children, heightRatio = 0.75 }: Props) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Cerrar"
-          onPress={() => router.back()}
+          onPress={() => safeGoBack(fallback)}
           style={[styles.backdrop, { backgroundColor: '#0B1D3A66' }]}
         />
       </Animated.View>

@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -104,7 +105,7 @@ export default function AddPlanningItemScreen() {
         bucket: cashflow === 'income' ? 'income' : bucket,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      safeGoBack('/(tabs)/salud-financiera');
     } catch {
       Alert.alert('No se pudo guardar', 'Inténtalo de nuevo.');
     } finally {
@@ -113,12 +114,12 @@ export default function AddPlanningItemScreen() {
   };
 
   return (
-    <SheetScreen heightRatio={0.72}>
+    <SheetScreen heightRatio={0.72} fallback="/(tabs)/salud-financiera">
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => router.back()} style={styles.close}>
+          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/salud-financiera')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />

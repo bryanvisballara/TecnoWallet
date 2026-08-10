@@ -44,6 +44,12 @@
         }
       ],
       [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Permite que TecnoWallet use Face ID para proteger tus finanzas."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "TecnoWallet necesita acceso a tus fotos para adjuntar recibos.",

@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { buildWeeklySpend, DonutChart, WeeklyBars } from '@/components/charts';
@@ -13,6 +13,7 @@ import { useActiveCalendar } from '@/store/calendar';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { buildNotificationFeed, unreadCount, useNotificationsStore } from '@/store/notifications';
 import { usePeriodStore } from '@/store/period';
+import { usePreferencesStore } from '@/store/preferences';
 
 const movementFilters = ['Todos', 'Gastos', 'Ingresos', 'Recurrentes'] as const;
 type MovementFilter = (typeof movementFilters)[number];
@@ -30,9 +31,15 @@ export default function DashboardScreen() {
   const month = usePeriodStore((state) => state.month);
   const monthLabel = usePeriodStore((state) => state.label);
   const isCurrentMonth = usePeriodStore((state) => state.isCurrentMonth);
-  const [hidden, setHidden] = useState(false);
+  const hideBalances = usePreferencesStore((state) => state.hideBalances);
+  const setHideBalances = usePreferencesStore((state) => state.setHideBalances);
+  const [hidden, setHidden] = useState(hideBalances);
   const [movementFilter, setMovementFilter] = useState<MovementFilter>('Todos');
   const value = (amount: number, compact = false) => (hidden ? '••••••' : money(amount, compact));
+
+  useEffect(() => {
+    setHidden(hideBalances);
+  }, [hideBalances]);
   const goalRatio = summary.goal > 0 ? summary.goalCurrent / summary.goal : 0;
   const period = useMemo(() => ({ year, month }), [year, month]);
   const monthTransactions = useMemo(
@@ -46,6 +53,7 @@ export default function DashboardScreen() {
   const liquidezTotal = cashflow.remaining;
 
   const notificationBadge = useMemo(() => {
+    if (!profile?.name) return 0;
     const feed = buildNotificationFeed({
       calendarItems,
       ledgers,
@@ -53,7 +61,7 @@ export default function DashboardScreen() {
       selfName: profile.name,
     });
     return unreadCount(feed, readIds, dismissedIds);
-  }, [calendarItems, ledgers, snapshots, profile.name, readIds, dismissedIds]);
+  }, [calendarItems, ledgers, snapshots, profile?.name, readIds, dismissedIds]);
 
   const budget = useMemo(() => {
     const expenseEnvelopes = envelopes.filter((item) => item.kind === 'expense');
@@ -119,6 +127,10 @@ export default function DashboardScreen() {
     [monthTransactions, movementFilter],
   );
 
+  if (!profile || !ledger) {
+    return <Screen withTabBar title="Cargando…" />;
+  }
+
   return (
     <Screen
       withTabBar
@@ -130,16 +142,16 @@ export default function DashboardScreen() {
             icon="person.badge.plus"
             label={`Invitar a ${ledger.name}`}
             onPress={() =>
-              router.push({ pathname: '/ledgers', params: { focus: ledger.id } })
+              router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id } })
             }
           />
           <IconButton
             icon="bell"
             label="Notificaciones"
             badge={notificationBadge}
-            onPress={() => router.push('/notifications')}
+            onPress={() => router.push('/(tabs)/notifications')}
           />
-          <IconButton icon="person.crop.circle" label="Perfil" onPress={() => router.push('/profile')} />
+          <IconButton icon="person.crop.circle" label="Perfil" onPress={() => router.push('/(tabs)/profile')} />
         </View>
       }>
       <MonthSwitcher />
@@ -156,7 +168,13 @@ export default function DashboardScreen() {
             accessibilityRole="button"
             accessibilityLabel="Mostrar u ocultar saldos"
             hitSlop={12}
-            onPress={() => setHidden((prev) => !prev)}>
+            onPress={() => {
+              setHidden((prev) => {
+                const next = !prev;
+                void setHideBalances(next);
+                return next;
+              });
+            }}>
             <AppIcon name={hidden ? 'eye.slash.fill' : 'eye.fill'} color="#FFFFFF" size={19} />
           </Pressable>
         </View>
@@ -178,7 +196,7 @@ export default function DashboardScreen() {
             accessibilityRole="button"
             accessibilityLabel="Ver detalle de ingresos"
             style={styles.metricPress}
-            onPress={() => router.push({ pathname: '/cashflow/[type]', params: { type: 'ingresos' } })}>
+            onPress={() => router.push({ pathname: '/(tabs)/cashflow/[type]', params: { type: 'ingresos' } })}>
             <Card style={styles.metric} delay={40}>
               <View style={[styles.metricIcon, { backgroundColor: theme.successSoft }]}>
                 <AppIcon name="arrow.down.circle.fill" color={theme.success} />
@@ -193,7 +211,7 @@ export default function DashboardScreen() {
             accessibilityRole="button"
             accessibilityLabel="Ver detalle de gastos"
             style={styles.metricPress}
-            onPress={() => router.push({ pathname: '/cashflow/[type]', params: { type: 'gastos' } })}>
+            onPress={() => router.push({ pathname: '/(tabs)/cashflow/[type]', params: { type: 'gastos' } })}>
             <Card style={styles.metric} delay={80}>
               <View style={[styles.metricIcon, { backgroundColor: '#FDECEC' }]}>
                 <AppIcon name="arrow.up.circle.fill" color={theme.danger} />
@@ -265,7 +283,7 @@ export default function DashboardScreen() {
         <ScalePressable
           accessibilityRole="button"
           accessibilityLabel="Ver detalle de la meta de agosto"
-          onPress={() => router.push({ pathname: '/goal/[id]', params: { id: 'agosto' } })}>
+          onPress={() => router.push({ pathname: '/(tabs)/goal/[id]', params: { id: 'agosto' } })}>
           <Card>
             <View style={uiStyles.between}>
               <View>
@@ -408,7 +426,7 @@ export default function DashboardScreen() {
           <ScalePressable
             key={bill.name}
             style={[styles.upcomingCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-            onPress={() => router.push('/feature/facturas')}>
+            onPress={() => router.push('/(tabs)/salud-financiera')}>
             <View style={[styles.billDot, { backgroundColor: bill.color }]} />
             <Text style={[styles.rowTitle, { color: theme.text }]}>{bill.name}</Text>
             <Text style={[styles.billAmount, { color: theme.text }]}>{value(bill.amount)}</Text>

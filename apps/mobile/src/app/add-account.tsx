@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -157,7 +158,7 @@ export default function AddAccountScreen() {
           lastFour: nextLastFour,
         });
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.back();
+        safeGoBack('/(tabs)/mis-cuentas');
         return;
       }
       const account = await addAccount({
@@ -169,7 +170,7 @@ export default function AddAccountScreen() {
         lastFour: nextLastFour,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: '/account/[id]', params: { id: account.id } });
+      router.replace({ pathname: '/(tabs)/account/[id]', params: { id: account.id } });
     } catch {
       Alert.alert(
         isEditing ? 'No se pudo guardar' : 'No se pudo crear',
@@ -181,12 +182,12 @@ export default function AddAccountScreen() {
   };
 
   return (
-    <SheetScreen>
+    <SheetScreen fallback="/(tabs)/mis-cuentas">
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => router.back()} style={styles.close}>
+          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/mis-cuentas')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />

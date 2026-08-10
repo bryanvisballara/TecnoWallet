@@ -1,13 +1,28 @@
+---
+description: Localhost Expo web debe reflejar cada cambio de UI
+alwaysApply: true
+---
+
 # Localhost debe reflejar cada cambio
 
-Cuando el usuario pida un cambio de UI/frontend y pruebe en `localhost` (Expo web, suele ser `:8081`):
+Cuando el usuario pida un cambio de UI/frontend y pruebe en `localhost` / `127.0.0.1:8081`:
 
 1. Aplica el cambio en el código.
-2. Si el hot reload no basta o el usuario dice que no lo ve, **reinicia Metro** en ese puerto con caché limpia:
+2. Ejecuta shells de Expo **sin sandbox** (`required_permissions: ["all"]`).
+3. Si Metro no está arriba, arráncalo con:
 
 ```bash
-lsof -tiTCP:8081 -sTCP:LISTEN | xargs kill 2>/dev/null
-cd /Users/usuario/Desktop/Negocios/Programacion/TecnoWallet && corepack yarn workspace tecnowallet-mobile web --host localhost --clear
+bash /Users/usuario/Desktop/Negocios/Programacion/TecnoWallet/scripts/dev-web.sh
 ```
 
-3. No asumas que el navegador ya muestra el cambio; fuerza refresh o reinicio del bundler.
+4. Tras editar UI con el servidor ya corriendo, fuerza reload de clientes:
+
+```bash
+node /Users/usuario/Desktop/Negocios/Programacion/TecnoWallet/scripts/reload-web.mjs
+```
+
+   (`dev-web-sync.mjs` también hace poll+reload automático; el comando de arriba es el respaldo inmediato.)
+
+5. URL preferida: `http://127.0.0.1:8081` (IPv4). Si el usuario tiene la pestaña abierta, un hard refresh (`Cmd+Shift+R`) basta tras el reload.
+6. En desarrollo `web.output` es `single` (SPA). Hostinger sigue con `EXPO_WEB_OUTPUT=static` vía `yarn export:host`.
+7. No digas que el cambio ya se ve hasta reiniciar/reload o ver el rebuild en el log.

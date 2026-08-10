@@ -282,11 +282,11 @@ export function formatHour(value?: number) {
   return `${h12}:${`${minutes}`.padStart(2, '0')} ${suffix}`;
 }
 
-export function buildMonthMatrix(anchor: Date) {
+export function buildMonthMatrix(anchor: Date, weekStartsOn: 0 | 1 = 0) {
   const year = anchor.getFullYear();
   const month = anchor.getMonth();
   const first = new Date(year, month, 1);
-  const startOffset = first.getDay(); // Sunday = 0
+  const startOffset = (first.getDay() - weekStartsOn + 7) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: Array<{ date: Date; inMonth: boolean; key: string }> = [];
 
@@ -300,4 +300,10 @@ export function buildMonthMatrix(anchor: Date) {
     });
   }
   return cells;
+}
+
+export function weekDayLabels(weekStartsOn: 0 | 1 = 0) {
+  const labels = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+  if (weekStartsOn === 0) return labels;
+  return [...labels.slice(1), labels[0]];
 }

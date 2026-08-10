@@ -43,7 +43,27 @@ const springSnap = { damping: 16, stiffness: 280, mass: 0.65 };
 const FINANCE_ROUTE = 'cuentas';
 const MENU_WIDTH = 220;
 const VISIBLE_TABS = ['inicio', 'sobres', 'cuentas', 'recaudos', 'calendario', 'mas'] as const;
-const FINANCE_SCREENS = new Set(['cuentas', 'mis-cuentas', 'salud-financiera', 'metas']);
+const FINANCE_SCREENS = new Set([
+  'cuentas',
+  'mis-cuentas',
+  'salud-financiera',
+  'metas',
+  'account/[id]',
+  'patrimonio',
+  'goal/[id]',
+]);
+const RECAUDOS_SCREENS = new Set(['recaudos', 'recaudo/[id]']);
+const MAS_SCREENS = new Set([
+  'mas',
+  'bank-accounts',
+  'feature/[slug]',
+  'ledgers',
+  'export',
+  'afiliados',
+]);
+const INICIO_SCREENS = new Set(['inicio', 'notifications', 'cashflow/[type]', 'movimientos', 'profile']);
+const SOBRES_SCREENS = new Set(['sobres', 'envelope/[id]']);
+const CALENDARIO_SCREENS = new Set(['calendario', 'calendars']);
 
 const financeOptions = [
   { key: 'cuentas', title: 'Cuentas', icon: 'creditcard.fill', route: 'mis-cuentas' },
@@ -69,7 +89,19 @@ export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBa
     (VISIBLE_TABS as readonly string[]).includes(route.name),
   );
   const currentRouteName = state.routes[state.index]?.name ?? 'inicio';
-  const highlightedName = FINANCE_SCREENS.has(currentRouteName) ? FINANCE_ROUTE : currentRouteName;
+  const highlightedName = FINANCE_SCREENS.has(currentRouteName)
+    ? FINANCE_ROUTE
+    : RECAUDOS_SCREENS.has(currentRouteName)
+      ? 'recaudos'
+      : MAS_SCREENS.has(currentRouteName)
+        ? 'mas'
+        : SOBRES_SCREENS.has(currentRouteName)
+          ? 'sobres'
+          : CALENDARIO_SCREENS.has(currentRouteName)
+            ? 'calendario'
+            : INICIO_SCREENS.has(currentRouteName)
+              ? 'inicio'
+              : currentRouteName;
   const highlightedVisibleIndex = Math.max(
     0,
     visibleRoutes.findIndex((route) => route.name === highlightedName),

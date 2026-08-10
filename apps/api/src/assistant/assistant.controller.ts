@@ -2,6 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsString, Length, MaxLength } from 'class-validator';
 import { CurrentUser, type AuthPrincipal } from '../auth/auth.module';
+import { EntitlementService } from '../billing/entitlement.service';
 import { AssistantService } from './assistant.service';
 
 class AskDto {
@@ -18,10 +19,16 @@ class AskDto {
 @ApiBearerAuth()
 @Controller('assistant')
 export class AssistantController {
-  constructor(private readonly assistant: AssistantService) {}
+  constructor(
+    private readonly assistant: AssistantService,
+    private readonly entitlements: EntitlementService,
+  ) {}
 
   @Post('ask')
-  ask(@Body() body: AskDto, @CurrentUser() user: AuthPrincipal) {
+  async ask(@Body() body: AskDto, @CurrentUser() user: AuthPrincipal) {
+    await this.entitlements.assertPlus(user.userId, {
+      feature: 'AI_REQUIRED',
+    });
     return this.assistant.ask({
       workspaceId: body.workspaceId,
       userId: user.userId,

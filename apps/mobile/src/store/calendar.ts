@@ -6,9 +6,20 @@ import {
   type CalendarItemType,
 } from '@/data/calendar';
 import { apiRequest } from '@/services/api';
-import { objectId } from '@/services/ledgers-api';
+import {
+  createCalendar as createCalendarApi,
+  createCalendarItem,
+  deleteCalendarItem,
+  inviteCalendarMember,
+  listCalendarItems,
+  listCalendarMembers,
+  listCalendars,
+  removeCalendarMember,
+  updateCalendar,
+  updateCalendarItem,
+  type ApiCalendar,
+} from '@/services/calendar-api';
 import { localStorage } from '@/services/persistence';
-import { useAuthStore } from '@/store/auth';
 import { useLedgerStore } from '@/store/ledger';
 
 export type CalendarMemberRole = 'owner' | 'editor' | 'viewer';
@@ -85,42 +96,49 @@ type SettingResource = {
   version?: number;
 };
 
-let settingResourceId: string | null = null;
-
 function workspaceId() {
   return useLedgerStore.getState().activeLedgerId;
 }
 
-function sanitize(state: PersistedCalendarState): PersistedCalendarState {
-  return {
-    calendars: state.calendars,
-    activeCalendarId: state.activeCalendarId,
-    items: state.items,
-  };
+function clientObjectId() {
+  const timestamp = Math.floor(Date.now() / 1000)
+    .toString(16)
+    .padStart(8, '0');
+  const random = Array.from({ length: 16 }, () =>
+    Math.floor(Math.random() * 16).toString(16),
+  ).join('');
+  return `${timestamp}${random}`.slice(0, 24);
+}
+
+function deterministicObjectId(value: string) {
+  let a = 0x811c9dc5;
+  let b = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    a = Math.imul(a ^ code, 0x01000193);
+    b = Math.imul(b ^ code, 0x85ebca6b);
+  }
+  const seed = `${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0)
+    .toString(16)
+    .padStart(8, '0')}`;
+  return `${seed}${seed.slice(0, 8)}`.slice(0, 24);
 }
 
 async function persist(state: PersistedCalendarState) {
   const demo = await localStorage.get('demo-session', false);
   const ws = workspaceId();
   if (demo || !ws) return;
-  const payload = sanitize(state);
-  if (settingResourceId) {
-    await apiRequest(`/resources/setting/${settingResourceId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ data: payload }),
-    });
-    return;
-  }
-  const created = await apiRequest<SettingResource>('/resources/setting', {
-    method: 'POST',
-    body: JSON.stringify({
-      workspaceId: ws,
-      name: SETTING_NAME,
-      privacy: 'workspace',
-      data: payload,
-    }),
-  });
-  settingResourceId = objectId(created);
+  await localStorage.set(`calendar-active-${ws}`, state.activeCalendarId);
+}
+
+function calendarBook(calendar: ApiCalendar, members: CalendarMember[] = []): CalendarBook {
+  return {
+    id: calendar._id,
+    name: calendar.name,
+    color: calendar.color,
+    icon: calendar.icon,
+    members,
+  };
 }
 
 export const useCalendarStore = create<CalendarState>((set, get) => ({
@@ -157,32 +175,105 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         `/resources/setting?workspaceId=${encodeURIComponent(ws)}&limit=50`,
       );
       const found = settings.find((item) => item.name === SETTING_NAME);
-      if (!found) {
-        const initial = {
-          calendars: defaultCalendars,
-          activeCalendarId: 'personal',
-          items: [] as CalendarItem[],
-        };
-        settingResourceId = null;
-        await persist(initial);
-        set({ ...initial, hydrated: true });
-        return;
-      }
-      settingResourceId = objectId(found);
-      const data = (found.data ?? {}) as Partial<PersistedCalendarState>;
-      const calendars =
+      const data = (found?.data ?? {}) as Partial<PersistedCalendarState>;
+      const legacyCalendars =
         Array.isArray(data.calendars) && data.calendars.length
           ? data.calendars
           : defaultCalendars;
-      const activeCalendarId = calendars.some(
-        (item) => item.id === data.activeCalendarId,
-      )
-        ? (data.activeCalendarId as string)
-        : calendars[0].id;
-      const items = (Array.isArray(data.items) ? data.items : []).map((item) => ({
+      const legacyItems = (Array.isArray(data.items) ? data.items : []).map((item) => ({
         ...item,
-        calendarId: item.calendarId ?? activeCalendarId,
+        calendarId: item.calendarId ?? data.activeCalendarId ?? 'personal',
       }));
+
+      let remoteCalendars = await listCalendars(ws);
+      if (
+        remoteCalendars.length === 0 ||
+        remoteCalendars.some((calendar) => calendar.migrationSourceId)
+      ) {
+        for (const legacy of legacyCalendars) {
+          if (
+            remoteCalendars.some(
+              (calendar) => calendar.migrationSourceId === legacy.id,
+            )
+          ) {
+            continue;
+          }
+          try {
+            const created = await createCalendarApi({
+              workspaceId: ws,
+              name: legacy.name,
+              color: legacy.color,
+              icon: legacy.icon,
+              migrationSourceId: legacy.id,
+            });
+            remoteCalendars = [...remoteCalendars, created];
+          } catch {
+            // A shared-workspace collaborator cannot migrate owner metadata.
+          }
+        }
+      }
+
+      const legacyToRemote = new Map(
+        remoteCalendars
+          .filter((calendar) => calendar.migrationSourceId)
+          .map((calendar) => [calendar.migrationSourceId as string, calendar._id]),
+      );
+      let items = (
+        await Promise.all(
+          remoteCalendars.map((calendar) =>
+            listCalendarItems(calendar._id).catch(() => []),
+          ),
+        )
+      ).flat();
+      const existingIds = new Set(items.map((item) => item.id));
+      for (const legacy of legacyItems) {
+        const calendarId = legacyToRemote.get(
+          legacy.calendarId ?? data.activeCalendarId ?? 'personal',
+        );
+        if (!calendarId) continue;
+        const id = deterministicObjectId(`${ws}:${legacy.id}`);
+        if (existingIds.has(id)) continue;
+        try {
+          const migrated = await createCalendarItem({
+            ...legacy,
+            id,
+            calendarId,
+          });
+          items = [...items, migrated];
+          existingIds.add(id);
+        } catch {
+          // Duplicate retries are harmless; the next hydration reads MongoDB.
+        }
+      }
+
+      const calendars = await Promise.all(
+        remoteCalendars.map(async (calendar) => {
+          const members = await listCalendarMembers(calendar._id).catch(() => []);
+          return calendarBook(
+            calendar,
+            members.map((member) => ({
+              id: member.userId,
+              name: member.name ?? member.email?.split('@')[0] ?? 'Miembro',
+              email: member.email ?? '',
+              role: member.role,
+            })),
+          );
+        }),
+      );
+      const savedActive = await localStorage.get(
+        `calendar-active-${ws}`,
+        '',
+      );
+      const migratedActive = legacyToRemote.get(
+        data.activeCalendarId ?? 'personal',
+      );
+      const activeCalendarId = calendars.some(
+        (calendar) => calendar.id === savedActive,
+      )
+        ? savedActive
+        : calendars.some((calendar) => calendar.id === migratedActive)
+          ? (migratedActive as string)
+          : calendars[0]?.id ?? '';
       set({ calendars, activeCalendarId, items, hydrated: true });
     } catch {
       set({ hydrated: true });
@@ -201,14 +292,25 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   },
 
   createCalendar: async (name, color) => {
-    const id = `cal-book-${Date.now()}`;
-    const calendar: CalendarBook = {
-      id,
+    const ws = workspaceId();
+    if (!ws) throw new Error('Selecciona un libro primero.');
+    const created = await createCalendarApi({
+      workspaceId: ws,
       name: name.trim() || 'Nuevo calendario',
       color: color ?? COLORS[get().calendars.length % COLORS.length],
       icon: 'calendar',
-      members: [{ ...ownerSelf }],
-    };
+    });
+    const members = await listCalendarMembers(created._id).catch(() => []);
+    const calendar = calendarBook(
+      created,
+      members.map((member) => ({
+        id: member.userId,
+        name: member.name ?? member.email?.split('@')[0] ?? 'Miembro',
+        email: member.email ?? '',
+        role: member.role,
+      })),
+    );
+    const id = calendar.id;
     const next = {
       calendars: [...get().calendars, calendar],
       activeCalendarId: id,
@@ -231,63 +333,23 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       items: get().items,
     };
     set({ calendars });
+    await updateCalendar(id, { name: trimmed });
     await persist(next);
   },
 
   inviteMember: async (calendarId, email, role, name) => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes('@')) throw new Error('Correo inválido.');
-    const calendar = get().calendars.find((item) => item.id === calendarId);
-    if (!calendar) throw new Error('Calendario no encontrado.');
-    const calendars = get().calendars.map((item) => {
-      if (item.id !== calendarId) return item;
-      if (item.members.some((member) => member.email === trimmed)) {
-        return {
-          ...item,
-          members: item.members.map((member) =>
-            member.email === trimmed
-              ? { ...member, role, name: name?.trim() || member.name }
-              : member,
-          ),
-        };
-      }
-      return {
-        ...item,
-        members: [
-          ...item.members,
-          {
-            id: `cm-${Date.now()}`,
-            name: name?.trim() || trimmed.split('@')[0],
-            email: trimmed,
-            role,
-          },
-        ],
-      };
-    });
-    const next = {
-      calendars,
-      activeCalendarId: get().activeCalendarId,
-      items: get().items,
-    };
-    set({ calendars });
-    await persist(next);
-    if (!useAuthStore.getState().demo) {
-      const profile = useAuthStore.getState().profile;
-      await apiRequest('/mail/invites', {
-        method: 'POST',
-        body: JSON.stringify({
-          kind: 'calendar',
-          to: trimmed,
-          resourceName: calendar.name,
-          inviterName: profile.name,
-          roleLabel: role === 'editor' ? 'editor' : 'solo lectura',
-        }),
-      });
-    }
+    await inviteCalendarMember({ calendarId, email: trimmed, role });
   },
 
   removeMember: async (calendarId, memberId) => {
     if (memberId === 'me') return;
+    const member = get()
+      .calendars.find((calendar) => calendar.id === calendarId)
+      ?.members.find((item) => item.id === memberId);
+    if (!member) return;
+    await removeCalendarMember(calendarId, member.id);
     const calendars = get().calendars.map((calendar) => {
       if (calendar.id !== calendarId) return calendar;
       return {
@@ -308,41 +370,32 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     const calendarId = item.calendarId ?? get().activeCalendarId;
     const nextItem: CalendarItem = {
       ...item,
-      id: item.id ?? `cal-${Date.now()}`,
+      id: item.id ?? clientObjectId(),
       calendarId,
     };
     const items = [nextItem, ...get().items];
     set({ items });
-    void persist({
-      calendars: get().calendars,
-      activeCalendarId: get().activeCalendarId,
-      items,
+    void createCalendarItem(nextItem).catch(() => {
+      set({ items: get().items.filter((current) => current.id !== nextItem.id) });
     });
     return nextItem.id;
   },
 
   toggleTask: (id) => {
+    let changed: CalendarItem | undefined;
     const items = get().items.map((item) =>
       item.id === id && item.type === 'task'
-        ? { ...item, completed: !item.completed }
+        ? (changed = { ...item, completed: !item.completed })
         : item,
     );
     set({ items });
-    void persist({
-      calendars: get().calendars,
-      activeCalendarId: get().activeCalendarId,
-      items,
-    });
+    if (changed) void updateCalendarItem(changed);
   },
 
   removeItem: (id) => {
     const items = get().items.filter((item) => item.id !== id);
     set({ items });
-    void persist({
-      calendars: get().calendars,
-      activeCalendarId: get().activeCalendarId,
-      items,
-    });
+    void deleteCalendarItem(id);
     void import('@/services/push-notifications').then(({ cancelCalendarReminder }) =>
       cancelCalendarReminder(id),
     );

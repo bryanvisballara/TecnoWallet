@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { useCalendarStore } from '@/store/calendar';
@@ -11,6 +12,7 @@ type Props = {
 
 export function CalendarSwitcher({ compact = false }: Props) {
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
   const calendars = useCalendarStore((state) => state.calendars);
   const activeCalendarId = useCalendarStore((state) => state.activeCalendarId);
   const setActiveCalendar = useCalendarStore((state) => state.setActiveCalendar);
@@ -37,8 +39,15 @@ export function CalendarSwitcher({ compact = false }: Props) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Calendario activo ${active?.name}. Cambiar calendario`}
+        accessibilityHint="Abre la lista de calendarios"
         onPress={() => setOpen(true)}
-        style={styles.trigger}>
+        style={({ pressed }) => [
+          styles.trigger,
+          compact && styles.triggerCompactPad,
+          {
+            backgroundColor: pressed ? theme.surfaceSecondary : `${theme.surfaceSecondary}99`,
+          },
+        ]}>
         <Text
           numberOfLines={1}
           style={[
@@ -47,11 +56,13 @@ export function CalendarSwitcher({ compact = false }: Props) {
           ]}>
           {active?.name ?? 'Calendario'}
         </Text>
-        <AppIcon name="chevron.down" color={theme.muted} size={compact ? 12 : 14} />
+        <AppIcon name="chevron.down" color={theme.muted} size={compact ? 12 : 13} />
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
-        <Pressable style={styles.backdrop} onPress={close}>
+        <Pressable
+          style={[styles.backdrop, { paddingTop: Math.max(insets.top, 12) + 52 }]}
+          onPress={close}>
           <Pressable
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
@@ -95,7 +106,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
                     onPress={() => {
                       close();
                       router.push({
-                        pathname: '/calendars',
+                        pathname: '/(tabs)/calendars',
                         params: { focus: calendar.id, tab: 'share' },
                       });
                     }}
@@ -106,7 +117,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
                     accessibilityLabel={`Ajustes de ${calendar.name}`}
                     onPress={() => {
                       close();
-                      router.push({ pathname: '/calendars', params: { focus: calendar.id } });
+                      router.push({ pathname: '/(tabs)/calendars', params: { focus: calendar.id } });
                     }}
                     style={styles.iconBtn}>
                     <AppIcon name="gearshape.fill" color={theme.muted} size={18} />
@@ -158,14 +169,26 @@ export function CalendarSwitcher({ compact = false }: Props) {
 }
 
 const styles = StyleSheet.create({
-  trigger: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 220 },
+  trigger: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 260,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  triggerCompactPad: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
   triggerTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
   triggerCompact: { fontSize: 15, fontWeight: '700' },
   backdrop: {
     flex: 1,
     backgroundColor: '#0B1D3A55',
     justifyContent: 'flex-start',
-    paddingTop: 88,
     paddingHorizontal: 16,
   },
   sheet: {

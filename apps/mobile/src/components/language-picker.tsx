@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { languages } from '@/i18n/languages';
@@ -35,33 +35,39 @@ export function LanguagePicker({ label }: { label: string }) {
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
             <Text style={[styles.title, { color: theme.text }]}>{label}</Text>
-            {languages.map((language) => {
-              const selected = language.code === locale;
-              return (
-                <ScalePressable
-                  key={language.code}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={async () => {
-                    await setLocale(language.code);
-                    setOpen(false);
-                  }}
-                  style={[
-                    styles.option,
-                    {
-                      backgroundColor: selected ? theme.primarySoft : theme.surfaceSecondary,
-                      borderColor: selected ? theme.primary : theme.border,
-                    },
-                  ]}>
-                  <Text style={styles.flag}>{language.flag}</Text>
-                  <View style={styles.copy}>
-                    <Text style={[styles.native, { color: theme.text }]}>{language.nativeLabel}</Text>
-                    <Text style={[styles.meta, { color: theme.muted }]}>{language.label}</Text>
-                  </View>
-                  {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
-                </ScalePressable>
-              );
-            })}
+            <ScrollView
+              style={styles.list}
+              contentContainerStyle={styles.listContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              {languages.map((language) => {
+                const selected = language.code === locale;
+                return (
+                  <ScalePressable
+                    key={language.code}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={async () => {
+                      await setLocale(language.code);
+                      setOpen(false);
+                    }}
+                    style={[
+                      styles.option,
+                      {
+                        backgroundColor: selected ? theme.primarySoft : theme.surfaceSecondary,
+                        borderColor: selected ? theme.primary : theme.border,
+                      },
+                    ]}>
+                    <Text style={styles.flag}>{language.flag}</Text>
+                    <View style={styles.copy}>
+                      <Text style={[styles.native, { color: theme.text }]}>{language.nativeLabel}</Text>
+                      <Text style={[styles.meta, { color: theme.muted }]}>{language.label}</Text>
+                    </View>
+                    {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
+                  </ScalePressable>
+                );
+              })}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -91,7 +97,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: 18,
     gap: 10,
+    maxHeight: '78%',
   },
+  list: { maxHeight: 420 },
+  listContent: { gap: 10, paddingBottom: 4 },
   title: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
   option: {
     minHeight: 60,

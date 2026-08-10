@@ -8,7 +8,7 @@ const schema = Joi.object({
   MONGODB_URI: Joi.string().uri().required(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
-  // Persistent sessions: long-lived access + refresh (logout is explicit only).
+  // Long-lived access + refresh; a new login bumps sessionVersion and kicks other devices.
   JWT_ACCESS_TTL: Joi.string().default('30d'),
   JWT_REFRESH_TTL: Joi.string().default('3650d'),
   CORS_ORIGINS: Joi.string().default('http://localhost:3000'),
@@ -42,6 +42,21 @@ const schema = Joi.object({
   OPENAI_API_KEY: Joi.string().optional().allow(''),
   OPENAI_MODEL_FAST: Joi.string().default('gpt-4o-mini'),
   OPENAI_MODEL_COMPLEX: Joi.string().default('gpt-4o'),
+  REVENUECAT_SECRET_API_KEY: Joi.string().optional().allow(''),
+  REVENUECAT_WEBHOOK_AUTH: Joi.string().optional().allow(''),
+  REVENUECAT_ENTITLEMENT_ID: Joi.string().default('plus'),
+  REVENUECAT_BUSINESS_ENTITLEMENT_ID: Joi.string().default('business'),
+  PLUS_ENFORCEMENT_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  RUN_FREEMIUM_MIGRATIONS: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(true),
+  BRANCH_SECRET: Joi.string().optional().allow(''),
+  BRANCH_DEFAULT_DOMAIN: Joi.string().default('tecnowallet.app.link'),
+  PUBLIC_WEB_ORIGIN: Joi.string().uri().default('https://tecnowallet.app'),
 });
 
 export function validateEnvironment(config: Record<string, unknown>) {

@@ -21,14 +21,14 @@ import {
   toDateKey,
   typeIcons,
   typeLabels,
+  weekDayLabels,
   type CalendarItem,
   type CalendarItemType,
 } from '@/data/calendar';
 import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
+import { usePreferencesStore, weekStartsOnJsDay } from '@/store/preferences';
 import { useTabBarStore } from '@/store/tab-bar';
-
-const weekDays = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
 export default function CalendarScreen() {
   const theme = useAppTheme();
@@ -36,6 +36,9 @@ export default function CalendarScreen() {
   const { items, calendar, activeCalendarId } = useActiveCalendar();
   const toggleTask = useCalendarStore((state) => state.toggleTask);
   const onScrollOffset = useTabBarStore((state) => state.onScrollOffset);
+  const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
+  const weekStartJs = weekStartsOnJsDay(weekStartsOn);
+  const weekDays = useMemo(() => weekDayLabels(weekStartJs), [weekStartJs]);
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => toDateKey(today), [today]);
   const [anchor, setAnchor] = useState(
@@ -54,7 +57,7 @@ export default function CalendarScreen() {
     return list;
   }, [anchor]);
 
-  const matrix = useMemo(() => buildMonthMatrix(anchor), [anchor]);
+  const matrix = useMemo(() => buildMonthMatrix(anchor, weekStartJs), [anchor, weekStartJs]);
   const selectedDate = useMemo(() => parseDateKey(selectedKey), [selectedKey]);
   const dayItems = useMemo(
     () => items.filter((item) => item.date === selectedKey).sort((a, b) => (a.startHour ?? -1) - (b.startHour ?? -1)),
@@ -109,7 +112,7 @@ export default function CalendarScreen() {
           accessibilityLabel={`Invitar a ${calendar?.name ?? 'calendario'}`}
           onPress={() =>
             router.push({
-              pathname: '/calendars',
+              pathname: '/(tabs)/calendars',
               params: { focus: activeCalendarId, tab: 'share' },
             })
           }
@@ -154,6 +157,16 @@ export default function CalendarScreen() {
           onScrollOffset(y, y - lastOffset);
           setLastOffset(y);
         }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={view === 'month' ? 'Ver día' : 'Ver mes'}
+          onPress={() => setView(view === 'month' ? 'day' : 'month')}
+          style={styles.viewToggle}>
+          <Text style={{ color: theme.primary, fontWeight: '600' }}>
+            {view === 'month' ? 'Ver día' : 'Ver mes'}
+          </Text>
+        </Pressable>
+
         {view === 'month' ? (
           <View style={[styles.monthCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.weekRow}>
@@ -221,11 +234,6 @@ export default function CalendarScreen() {
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             {view === 'month' ? 'Del día seleccionado' : 'Agenda del día'}
           </Text>
-          <Pressable onPress={() => setView(view === 'month' ? 'day' : 'month')}>
-            <Text style={{ color: theme.primary, fontWeight: '600' }}>
-              {view === 'month' ? 'Ver día' : 'Ver mes'}
-            </Text>
-          </Pressable>
         </View>
 
         {dayItems.length === 0 ? (
@@ -385,14 +393,14 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
     paddingHorizontal: 18,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingBottom: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 12,
   },
-  headerCopy: { flex: 1, minWidth: 0, gap: 2 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 8 },
   monthButton: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   monthTitle: { fontSize: 26, fontWeight: '700', letterSpacing: -0.8 },
   subtitle: { fontSize: 13, marginTop: 2 },
@@ -438,7 +446,13 @@ const styles = StyleSheet.create({
   chip: { borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 },
   chipText: { color: '#FFFFFF', fontSize: 8, fontWeight: '700' },
   more: { fontSize: 9, textAlign: 'center' },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  viewToggle: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingRight: 12,
+    marginBottom: 4,
+  },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   sectionTitle: { fontSize: 18, fontWeight: '700' },
   empty: {
     borderRadius: 18,

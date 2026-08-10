@@ -2,8 +2,11 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AssistantModule } from './assistant/assistant.module';
+import { AffiliateModule } from './affiliate/affiliate.module';
 import { AuthModule } from './auth/auth.module';
 import { BankModule } from './bank/bank.module';
+import { BillingModule } from './billing/billing.module';
+import { CollaborationModule } from './collaboration/collaboration.module';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
@@ -27,6 +30,9 @@ import { RecaudosModule } from './recaudos/recaudos.module';
       }),
     }),
     AuthModule,
+    BillingModule,
+    AffiliateModule,
+    CollaborationModule,
     PlatformModule,
     AssistantModule,
     BankModule,

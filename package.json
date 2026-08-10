@@ -16,6 +16,8 @@
     "start": "yarn workspace api start:prod",
     "dev:api": "yarn workspace api start:dev",
     "dev:mobile": "yarn workspace tecnowallet-mobile start",
+    "dev:web": "bash ./scripts/dev-web.sh",
+    "reload:web": "node ./scripts/reload-web.mjs",
     "export:host": "yarn workspace tecnowallet-mobile export:web && node ./scripts/pack-hostinger.js",
     "lint": "yarn workspace api lint && yarn workspace tecnowallet-mobile lint",
     "test": "yarn workspace api test --runInBand",

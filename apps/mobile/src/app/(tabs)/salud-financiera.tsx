@@ -20,7 +20,7 @@ function AccountRow({ account }: { account: Account }) {
     <ScalePressable
       accessibilityRole="button"
       accessibilityLabel={`Ver detalle de ${account.name}`}
-      onPress={() => router.push({ pathname: '/account/[id]', params: { id: account.id } })}>
+      onPress={() => router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } })}>
       <Card>
         <View style={[uiStyles.row, uiStyles.gap12]}>
           <View style={[styles.accountIcon, { backgroundColor: `${account.color}1A` }]}>

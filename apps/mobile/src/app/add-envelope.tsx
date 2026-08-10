@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -16,6 +17,12 @@ import {
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import {
+  isPlusRequiredError,
+  plusReasonFromError,
+  paywallPlanFromError,
+  usePlusStore,
+} from '@/store/plus';
 
 const incomeColors = [
   '#12B76A',
@@ -78,6 +85,8 @@ export default function AddEnvelopeScreen() {
   const { ledger, envelopes } = useActiveLedger();
   const addEnvelope = useLedgerStore((state) => state.addEnvelope);
   const updateEnvelope = useLedgerStore((state) => state.updateEnvelope);
+  const plusAccess = usePlusStore((state) => state.access);
+  const openPaywall = usePlusStore((state) => state.openPaywall);
   const params = useLocalSearchParams<{ kind?: string; id?: string }>();
   const editing = envelopes.find((item) => item.id === params.id);
   const kind =
@@ -112,7 +121,7 @@ export default function AddEnvelopeScreen() {
       Alert.alert(
         'Solo desde Metas/Ahorros',
         'Los sobres de ahorros se crean al armar una meta en Finanzas → Metas/Ahorros.',
-        [{ text: 'Entendido', onPress: () => router.back() }],
+        [{ text: 'Entendido', onPress: () => safeGoBack('/(tabs)/sobres') }],
       );
     }
   }, [isEditing, kind]);
@@ -154,6 +163,15 @@ export default function AddEnvelopeScreen() {
       Alert.alert('Monto inválido', 'Indica un presupuesto o meta válido.');
       return;
     }
+    if (
+      !isEditing &&
+      plusAccess === 'free' &&
+      (kind === 'income' || kind === 'expense') &&
+      envelopes.filter((item) => item.kind === kind).length >= 5
+    ) {
+      openPaywall('ENVELOPE_LIMIT');
+      return;
+    }
     setSaving(true);
     try {
       if (editing) {
@@ -166,7 +184,7 @@ export default function AddEnvelopeScreen() {
           rule: rule.trim(),
         });
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.back();
+        safeGoBack('/(tabs)/sobres');
         return;
       }
       const envelope = await addEnvelope({
@@ -179,11 +197,17 @@ export default function AddEnvelopeScreen() {
         rule: rule.trim(),
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: '/envelope/[id]', params: { id: envelope.id } });
-    } catch {
+      router.replace({ pathname: '/(tabs)/envelope/[id]', params: { id: envelope.id } });
+    } catch (error) {
+      if (isPlusRequiredError(error)) {
+        openPaywall(plusReasonFromError(error), {
+          plan: paywallPlanFromError(error),
+        });
+        return;
+      }
       Alert.alert(
         isEditing ? 'No se pudo guardar' : 'No se pudo crear',
-        'Inténtalo de nuevo.',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
       );
     } finally {
       setSaving(false);
@@ -191,10 +215,10 @@ export default function AddEnvelopeScreen() {
   };
 
   return (
-    <SheetScreen>
+    <SheetScreen fallback="/(tabs)/sobres">
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => router.back()} style={styles.close}>
+          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/sobres')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />

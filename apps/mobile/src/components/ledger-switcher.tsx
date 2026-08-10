@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { useLedgerStore } from '@/store/ledger';
+import { usePlusStore, hasPaidPlan } from '@/store/plus';
 
 type Props = {
   compact?: boolean;
@@ -11,10 +13,13 @@ type Props = {
 
 export function LedgerSwitcher({ compact = false }: Props) {
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
   const ledgers = useLedgerStore((state) => state.ledgers);
   const activeLedgerId = useLedgerStore((state) => state.activeLedgerId);
   const setActiveLedger = useLedgerStore((state) => state.setActiveLedger);
   const createLedger = useLedgerStore((state) => state.createLedger);
+  const plusAccess = usePlusStore((state) => state.access);
+  const openPaywall = usePlusStore((state) => state.openPaywall);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -28,6 +33,11 @@ export function LedgerSwitcher({ compact = false }: Props) {
 
   const onCreate = async () => {
     if (!newName.trim()) return;
+    if (!hasPaidPlan(plusAccess) && ledgers.length >= 1) {
+      close();
+      openPaywall('BOOK_LIMIT');
+      return;
+    }
     await createLedger(newName.trim());
     close();
   };
@@ -37,8 +47,15 @@ export function LedgerSwitcher({ compact = false }: Props) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Libro activo ${active?.name}. Cambiar libro`}
+        accessibilityHint="Abre la lista de libros"
         onPress={() => setOpen(true)}
-        style={styles.trigger}>
+        style={({ pressed }) => [
+          styles.trigger,
+          compact && styles.triggerCompactPad,
+          {
+            backgroundColor: pressed ? theme.surfaceSecondary : `${theme.surfaceSecondary}99`,
+          },
+        ]}>
         <Text
           numberOfLines={1}
           style={[
@@ -47,11 +64,13 @@ export function LedgerSwitcher({ compact = false }: Props) {
           ]}>
           {active?.name ?? 'Libro'}
         </Text>
-        <AppIcon name="chevron.down" color={theme.muted} size={compact ? 12 : 14} />
+        <AppIcon name="chevron.down" color={theme.muted} size={compact ? 12 : 13} />
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
-        <Pressable style={styles.backdrop} onPress={close}>
+        <Pressable
+          style={[styles.backdrop, { paddingTop: Math.max(insets.top, 12) + 52 }]}
+          onPress={close}>
           <Pressable
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
@@ -89,7 +108,11 @@ export function LedgerSwitcher({ compact = false }: Props) {
                     accessibilityLabel={`Compartir ${ledger.name}`}
                     onPress={() => {
                       close();
-                      router.push({ pathname: '/ledgers', params: { focus: ledger.id, tab: 'share' } });
+                      if (!hasPaidPlan(plusAccess)) {
+                        openPaywall('SHARING_REQUIRED');
+                        return;
+                      }
+                      router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id, tab: 'share' } });
                     }}
                     style={styles.iconBtn}>
                     <AppIcon name="person.2.fill" color={theme.muted} size={18} />
@@ -98,7 +121,7 @@ export function LedgerSwitcher({ compact = false }: Props) {
                     accessibilityLabel={`Ajustes de ${ledger.name}`}
                     onPress={() => {
                       close();
-                      router.push({ pathname: '/ledgers', params: { focus: ledger.id } });
+                      router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id } });
                     }}
                     style={styles.iconBtn}>
                     <AppIcon name="gearshape.fill" color={theme.muted} size={18} />
@@ -129,7 +152,14 @@ export function LedgerSwitcher({ compact = false }: Props) {
               </View>
             ) : (
               <ScalePressable
-                onPress={() => setCreating(true)}
+                onPress={() => {
+                  if (!hasPaidPlan(plusAccess) && ledgers.length >= 1) {
+                    close();
+                    openPaywall('BOOK_LIMIT');
+                    return;
+                  }
+                  setCreating(true);
+                }}
                 style={[styles.addRow, { borderTopColor: theme.border }]}>
                 <Text style={[styles.addText, { color: theme.primary }]}>+ Añadir Libro</Text>
                 <AppIcon name="person.badge.plus" color={theme.success} size={20} />
@@ -143,14 +173,26 @@ export function LedgerSwitcher({ compact = false }: Props) {
 }
 
 const styles = StyleSheet.create({
-  trigger: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 220 },
-  triggerTitle: { fontSize: 28, fontWeight: '700', letterSpacing: -0.8 },
+  trigger: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 240,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  triggerCompactPad: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  triggerTitle: { fontSize: 20, fontWeight: '700', letterSpacing: -0.5 },
   triggerCompact: { fontSize: 15, fontWeight: '700' },
   backdrop: {
     flex: 1,
     backgroundColor: '#0B1D3A55',
     justifyContent: 'flex-start',
-    paddingTop: 88,
     paddingHorizontal: 16,
   },
   sheet: {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { apiRequest, mutateOffline } from "@/services/api";
+import { tokenStorage } from "@/services/persistence";
 import { scheduleRecaudoReminder } from "@/services/push-notifications";
 import { useAuthStore } from "@/store/auth";
 
@@ -427,17 +428,25 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
 
   hydrate: async () => {
     set({ hydrated: true });
-    if (!useAuthStore.getState().demo) {
+    const auth = useAuthStore.getState();
+    const hasToken = Boolean(await tokenStorage.get());
+    if (auth.demo || auth.authenticated || hasToken) {
       await get().refresh();
     }
   },
 
   refresh: async () => {
-    if (useAuthStore.getState().demo) {
+    const auth = useAuthStore.getState();
+    if (auth.demo) {
       if (!get().recaudos.length) {
         const recaudos = seedRecaudos();
         set({ recaudos });
       }
+      return;
+    }
+    const hasToken = Boolean(await tokenStorage.get());
+    if (!auth.authenticated && !hasToken) {
+      set({ recaudos: [], loading: false, error: undefined });
       return;
     }
     set({ loading: true, error: undefined });

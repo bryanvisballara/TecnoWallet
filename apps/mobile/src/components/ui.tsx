@@ -22,7 +22,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
+import { safeGoBack } from '@/lib/navigation';
+import { usePreferencesStore } from '@/store/preferences';
 import { useTabBarStore } from '@/store/tab-bar';
+import type { Href } from 'expo-router';
 
 export type AppIconName = string;
 
@@ -35,7 +38,7 @@ const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
   'leaf.fill': 'leaf', 'gamecontroller.fill': 'game-controller', 'car.fill': 'car',
   'heart.fill': 'heart', airplane: 'airplane', 'doc.text.fill': 'document-text',
   repeat: 'repeat', target: 'flag', calendar: 'calendar', 'chart.bar.fill': 'bar-chart',
-  sparkles: 'sparkles', 'person.2.fill': 'people', 'person.badge.plus': 'person-add', 'trophy.fill': 'trophy',
+  sparkles: 'sparkles', 'star.fill': 'star', 'person.2.fill': 'people', 'person.badge.plus': 'person-add', 'trophy.fill': 'trophy',
   'gearshape.fill': 'settings', 'lock.shield.fill': 'shield-checkmark',
   'arrow.up.arrow.down.circle.fill': 'swap-vertical', 'line.3.horizontal.decrease': 'options',
   magnifyingglass: 'search', plus: 'add', chevron: 'chevron-forward', 'chevron.down': 'chevron-down',
@@ -75,13 +78,16 @@ const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
   'pawprint.fill': 'paw',
   'ticket.fill': 'ticket',
   'phone.fill': 'call',
+  'envelope.fill': 'mail',
+  'logo.whatsapp': 'logo-whatsapp',
 };
 
 export function AppIcon({ name, size = 20, color }: { name: AppIconName; size?: number; color: ColorValue }) {
-  if (process.env.EXPO_OS === 'ios') {
+  const ion = fallback[name];
+  if (process.env.EXPO_OS === 'ios' && ion !== 'logo-whatsapp') {
     return <SymbolView name={name as never} size={size} tintColor={color} type="hierarchical" />;
   }
-  return <Ionicons name={fallback[name] ?? 'ellipse'} size={size} color={color} />;
+  return <Ionicons name={ion ?? 'ellipse'} size={size} color={color} />;
 }
 
 export function useAppTheme() {
@@ -89,7 +95,7 @@ export function useAppTheme() {
   return Colors[scheme === 'dark' ? 'dark' : 'light'];
 }
 
-export function Screen({ children, title, subtitle, right, refreshing, onRefresh, withTabBar = false, floating }: PropsWithChildren<{
+export function Screen({ children, title, subtitle, right, refreshing, onRefresh, withTabBar = true, floating }: PropsWithChildren<{
   title?: ReactNode; subtitle?: string; right?: ReactNode; refreshing?: boolean; onRefresh?: () => void; withTabBar?: boolean; floating?: ReactNode;
 }>) {
   const theme = useAppTheme();
@@ -186,7 +192,9 @@ export function ScalePressable({ children, onPress, style, haptic = true, ...pro
         props.onPressOut?.(event);
       }}
       onPress={(event) => {
-        if (haptic) void Haptics.selectionAsync();
+        if (haptic && usePreferencesStore.getState().hapticsEnabled) {
+          void Haptics.selectionAsync();
+        }
         onPress?.(event);
       }}>
       {children}
@@ -220,6 +228,27 @@ export function IconButton({
         </View>
       ) : null}
     </ScalePressable>
+  );
+}
+
+/** Safe back control — never fires unhandled GO_BACK. */
+export function BackIconButton({
+  fallback = '/(tabs)/inicio',
+  icon = 'arrow.left',
+}: {
+  fallback?: Href;
+  icon?: string;
+}) {
+  const theme = useAppTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Volver"
+      hitSlop={16}
+      onPress={() => safeGoBack(fallback)}
+      style={[styles.iconButton, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
+      <AppIcon name={icon} color={theme.text} size={20} />
+    </Pressable>
   );
 }
 
@@ -325,7 +354,7 @@ const styles = StyleSheet.create({
   progressTrack: { height: 8, borderRadius: 8, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 8 },
   pill: {
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     minHeight: 24,
     paddingHorizontal: 10,
     paddingVertical: 0,

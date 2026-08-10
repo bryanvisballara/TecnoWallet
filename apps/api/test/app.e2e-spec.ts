@@ -94,6 +94,40 @@ describe('health and auth (e2e)', () => {
     expect(registered.body.accessToken).toEqual(expect.any(String));
   });
 
+  it('keeps only the latest device session', async () => {
+    const credentials = {
+      email: 'single-device@example.com',
+      password: 'strong-password',
+      name: 'Single Device',
+    };
+    await registerVerified(app.getHttpServer(), credentials);
+
+    const deviceA = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: credentials.email, password: credentials.password })
+      .expect(201);
+
+    const deviceB = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: credentials.email, password: credentials.password })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/workspaces')
+      .set({ Authorization: `Bearer ${deviceA.body.accessToken}` })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: deviceA.body.refreshToken })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/workspaces')
+      .set({ Authorization: `Bearer ${deviceB.body.accessToken}` })
+      .expect(200);
+  });
+
   it('enforces Recaudo roles, invitations, plans, and idempotent contributions', async () => {
     const organizer = await registerVerified(app.getHttpServer(), {
       email: 'organizer@example.com',

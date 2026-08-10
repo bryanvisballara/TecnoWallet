@@ -102,6 +102,10 @@ export default function MetasScreen() {
 
   const completedCount = goals.filter((item) => item.completed).length;
 
+  if (!ledger) {
+    return <Screen withTabBar title="Metas/Ahorros" />;
+  }
+
   return (
     <Screen
       withTabBar

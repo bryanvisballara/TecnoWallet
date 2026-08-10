@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -194,7 +195,7 @@ export default function AddRecaudoScreen() {
       } else {
         router.replace('/(tabs)/recaudos');
       }
-      router.push({ pathname: '/recaudo/[id]', params: { id: recaudo.id } });
+      router.push({ pathname: '/(tabs)/recaudo/[id]', params: { id: recaudo.id } });
     } catch (error) {
       Alert.alert(
         'No se pudo crear',
@@ -206,12 +207,12 @@ export default function AddRecaudoScreen() {
   };
 
   return (
-    <SheetScreen heightRatio={0.75}>
+    <SheetScreen heightRatio={0.75} fallback="/(tabs)/recaudos">
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => router.back()} style={styles.close}>
+          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/recaudos')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />

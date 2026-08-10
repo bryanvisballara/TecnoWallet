@@ -45,6 +45,10 @@ export default function TransactionsScreen() {
   const isEmptyBook = monthTransactions.length === 0;
   const noFilterResults = !isEmptyBook && visible.length === 0;
 
+  if (!ledger) {
+    return <Screen withTabBar title="Movimientos" subtitle="Cargando…" />;
+  }
+
   return (
     <Screen
       withTabBar

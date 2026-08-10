@@ -13,7 +13,24 @@ async function notificationsModule() {
   return import("expo-notifications");
 }
 
+async function remindersMasterEnabled() {
+  return (await localStorage.get("prefs-reminders", true)) !== false;
+}
+
+async function reminderKindEnabled(kind: ActivityKind) {
+  if (!(await remindersMasterEnabled())) return false;
+  if (kind === "calendar") {
+    return (await localStorage.get("prefs-reminder-calendar", true)) !== false;
+  }
+  if (kind === "recaudo") {
+    return (await localStorage.get("prefs-reminder-payments", true)) !== false;
+  }
+  // income/expense activity pings follow the payments preference.
+  return (await localStorage.get("prefs-reminder-payments", true)) !== false;
+}
+
 export async function configureActivityNotifications(): Promise<boolean> {
+  if (!(await remindersMasterEnabled())) return false;
   const Notifications = await notificationsModule();
   if (!Notifications) return false;
 
@@ -54,6 +71,7 @@ async function sendActivityNotification(input: {
   data?: Record<string, string>;
 }) {
   try {
+    if (!(await reminderKindEnabled(input.kind))) return;
     const enabled = await configureActivityNotifications();
     if (!enabled) return;
     const Notifications = await notificationsModule();
@@ -143,6 +161,7 @@ export async function scheduleCalendarReminder(input: {
   reminder?: string;
 }) {
   try {
+    if (!(await reminderKindEnabled("calendar"))) return false;
     const Notifications = await notificationsModule();
     if (!Notifications) return false;
     const storageKey = `calendar-reminder:${input.itemId}`;
@@ -199,6 +218,7 @@ export async function scheduleRecaudoReminder(input: {
     const storageKey = `recaudo-reminder:${input.recaudoId}`;
     await cancelStoredNotifications(storageKey);
     if (!input.enabled) return true;
+    if (!(await reminderKindEnabled("recaudo"))) return false;
     if (!(await configureActivityNotifications())) return false;
 
     const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(input.time);
@@ -211,7 +231,7 @@ export async function scheduleRecaudoReminder(input: {
       sound: "default" as const,
       data: {
         kind: "recaudo",
-        route: `/recaudo/${input.recaudoId}`,
+        route: `/(tabs)/recaudo/${input.recaudoId}`,
         recaudoId: input.recaudoId,
       },
     };

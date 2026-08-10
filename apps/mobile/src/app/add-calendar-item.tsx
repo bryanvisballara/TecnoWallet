@@ -2,6 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
+import { safeGoBack } from '@/lib/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   Alert,
@@ -92,6 +93,7 @@ export default function AddCalendarItemScreen() {
   const [color, setColor] = useState<string>(calendarColors[initialType]);
   const [reminder, setReminder] = useState<string>(calendarReminderOptions[2]);
   const [customReminderTime, setCustomReminderTime] = useState('13:50');
+  const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [list, setList] = useState(type === 'task' ? 'Mis tareas' : 'Mi calendario');
   const [repeat, setRepeat] = useState<string>(calendarRepeatOptions[0]);
   const [assigneeName, setAssigneeName] = useState(profile.name);
@@ -121,14 +123,13 @@ export default function AddCalendarItemScreen() {
 
   const pickRepeat = () => pickOption('Repetición', calendarRepeatOptions, setRepeat);
   const pickList = () => pickOption('Lista', calendarListOptions, setList);
-  const pickReminder = () =>
-    pickOption('Recordatorio PUSH', calendarReminderOptions, (value) => {
-      if (value === CALENDAR_REMINDER_CUSTOM) {
-        setReminder(CALENDAR_REMINDER_CUSTOM);
-        return;
-      }
-      setReminder(value);
-    });
+  const pickReminder = () => setShowReminderPicker((open) => !open);
+  const selectReminder = (value: string) => {
+    setReminder(value);
+    if (value !== CALENDAR_REMINDER_CUSTOM && !value.startsWith('A las ')) {
+      setShowReminderPicker(false);
+    }
+  };
   const pickAssignee = () => {
     Alert.alert('Persona', undefined, [
       ...people.map((person) => ({
@@ -283,14 +284,14 @@ export default function AddCalendarItemScreen() {
       );
     }
 
-    router.back();
+    safeGoBack('/(tabs)/calendario');
   };
 
   return (
-    <SheetScreen>
+    <SheetScreen fallback="/(tabs)/calendario">
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => router.back()} style={styles.close}>
+          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/calendario')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
@@ -455,31 +456,91 @@ export default function AddCalendarItemScreen() {
               </Text>
               <Text style={[styles.rowHint, { color: theme.muted }]}>
                 {timed
-                  ? `Si empieza a las ${normalizeHhmm(startTime) ?? startTime}, el push puede ser relativo o a una hora fija.`
-                  : 'Define cuándo quieres el aviso push.'}
+                  ? `Si empieza a las ${normalizeHhmm(startTime) ?? startTime}, elige minutos antes o una hora fija.`
+                  : 'Toca para elegir cuándo quieres el aviso push.'}
               </Text>
             </View>
-            <AppIcon name="chevron" color={theme.muted} size={14} />
+            <AppIcon
+              name={showReminderPicker ? 'chevron.down' : 'chevron'}
+              color={theme.muted}
+              size={14}
+            />
           </Row>
 
-          {reminderIsCustom ? (
-            <Row icon="bell.badge">
-              <View style={styles.flex}>
-                <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>
-                  Hora del push (HH:mm)
-                </Text>
-                <TextInput
-                  value={customReminderTime}
-                  onChangeText={setCustomReminderTime}
-                  placeholder="13:50"
-                  placeholderTextColor={theme.muted}
-                  keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={[styles.timeInput, { color: theme.text, borderColor: theme.border, marginTop: 6 }]}
-                />
+          {showReminderPicker ? (
+            <View
+              style={[
+                styles.reminderPicker,
+                {
+                  borderColor: theme.border,
+                  backgroundColor: theme.surfaceSecondary,
+                },
+              ]}
+            >
+              <Text style={[styles.reminderPickerTitle, { color: theme.muted }]}>
+                ¿Cuándo avisar?
+              </Text>
+              <View style={styles.reminderChips}>
+                {calendarReminderOptions.map((option) => {
+                  const selected =
+                    option === reminder ||
+                    (option === CALENDAR_REMINDER_CUSTOM && reminderIsCustom);
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => selectReminder(option)}
+                      style={[
+                        styles.reminderChip,
+                        {
+                          borderColor: selected ? theme.primary : theme.border,
+                          backgroundColor: selected
+                            ? theme.primarySoft
+                            : theme.surface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: selected ? theme.primary : theme.text,
+                          fontSize: 12,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {option === CALENDAR_REMINDER_CUSTOM
+                          ? 'Hora fija…'
+                          : option}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-            </Row>
+              {reminderIsCustom ? (
+                <View style={styles.customReminderBlock}>
+                  <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>
+                    Hora fija del push (HH:mm)
+                  </Text>
+                  <TextInput
+                    value={customReminderTime}
+                    onChangeText={setCustomReminderTime}
+                    placeholder="13:50"
+                    placeholderTextColor={theme.muted}
+                    keyboardType={
+                      Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'
+                    }
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[
+                      styles.timeInput,
+                      {
+                        color: theme.text,
+                        borderColor: theme.border,
+                        marginTop: 6,
+                      },
+                    ]}
+                  />
+                </View>
+              ) : null}
+            </View>
           ) : null}
 
           <Row icon="paintbrush.fill">
@@ -705,4 +766,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   attachName: { flex: 1, fontSize: 13, fontWeight: '600' },
+  reminderPicker: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
+  reminderPickerTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  reminderChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  reminderChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  customReminderBlock: { gap: 4, marginTop: 2 },
 });

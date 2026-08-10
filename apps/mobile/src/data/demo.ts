@@ -98,30 +98,40 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
     title: 'Datos y utilidades',
     items: [
       { slug: 'divisa', title: 'Divisa', subtitle: 'Moneda del libro activo', icon: 'banknote.fill', color: '#12B76A' },
-      { slug: 'bancos', title: 'Cuentas bancarias', subtitle: 'Conecta con Belvo', icon: 'building.columns.fill', color: '#0878F9' },
+      { slug: 'idioma', title: 'Idioma', subtitle: 'Español', icon: 'globe', color: '#F79009' },
+      { slug: 'bancos', title: 'Cuentas bancarias', subtitle: 'Próximamente', icon: 'building.columns.fill', color: '#0878F9', badge: 'Pronto', badgeTone: 'neutral' },
       { slug: 'datos', title: 'Exportar', subtitle: 'Descarga tus movimientos en CSV', icon: 'square.and.arrow.up', color: '#F79009' },
-      { slug: 'backup', title: 'Copias de seguridad', subtitle: 'Sin copias aún', icon: 'externaldrive.fill', color: '#7F56D9', badge: 'Inactivo', badgeTone: 'orange' },
-      { slug: 'actividad', title: 'Actividad en vivo', subtitle: 'Widgets y Live Activities', icon: 'flame.fill', color: '#0878F9' },
+      { slug: 'sonido', title: 'Sonido y haptics', subtitle: 'Feedback al tocar y registrar', icon: 'speaker.wave.2.fill', color: '#06AED4' },
+      { slug: 'apariencia', title: 'Apariencia', subtitle: 'Automático · sistema', icon: 'paintbrush.fill', color: '#EE46BC' },
     ],
   },
   {
     title: 'TecnoWallet+',
     items: [
+      {
+        slug: 'upgrade-plus',
+        title: 'Pasarme a TecnoWallet+',
+        subtitle: 'Libros, sobres, IA y 5 colaboradores',
+        icon: 'star.fill',
+        color: '#F5C518',
+      },
+      {
+        slug: 'upgrade-business',
+        title: 'Pasarme a TecnoWallet Business',
+        subtitle: 'Todo Plus + hasta 10 colaboradores',
+        icon: 'briefcase.fill',
+        color: '#0878F9',
+      },
       { slug: 'asistente', title: 'Asistente IA', subtitle: 'Pregunta sobre tus finanzas', icon: 'sparkles', color: '#7F56D9' },
-      { slug: 'presupuesto-ia', title: 'Presupuesto inteligente', subtitle: 'Sin sugerencias aún', icon: 'chart.pie.fill', color: '#0878F9' },
-      { slug: 'familia', title: 'Libros de contabilidad', subtitle: 'Crear, cambiar y compartir', icon: 'wallet.pass.fill', color: '#F04438' },
     ],
   },
   {
     title: 'Preferencias',
     items: [
-      { slug: 'idioma', title: 'Idioma', subtitle: 'Español', icon: 'globe', color: '#F79009' },
-      { slug: 'tema', title: 'Tema', subtitle: 'Automático · sistema', icon: 'paintbrush.fill', color: '#EE46BC' },
-      { slug: 'sync', title: 'Sincronización en la nube', subtitle: 'Mantén tus datos al día', icon: 'icloud.and.arrow.up', color: '#12B76A', badge: 'Desactivado', badgeTone: 'neutral' },
-      { slug: 'recordatorios', title: 'Recordatorios', subtitle: 'Pagos, metas y límites', icon: 'bell', color: '#F79009' },
-      { slug: 'seguridad', title: 'Bloqueo de privacidad', subtitle: 'Face ID y ocultar saldos', icon: 'lock.fill', color: '#7F56D9' },
-      { slug: 'sonido', title: 'Sonido y haptics', subtitle: 'Feedback al registrar gastos', icon: 'speaker.wave.2.fill', color: '#06AED4' },
-      { slug: 'ajustes', title: 'Más ajustes', subtitle: 'Moneda, semana y apariencia', icon: 'gearshape.fill', color: '#0878F9' },
+      { slug: 'recordatorios', title: 'Recordatorios', subtitle: 'Pagos, metas y calendario', icon: 'bell', color: '#F79009' },
+      { slug: 'seguridad', title: 'Face ID / Biometría', subtitle: 'Pedir desbloqueo al abrir', icon: 'faceid', color: '#7F56D9' },
+      { slug: 'afiliados', title: 'Afiliados', subtitle: 'Tu enlace, código y comisiones', icon: 'gift.fill', color: '#12B76A' },
+      { slug: 'ajustes', title: 'Más ajustes', subtitle: 'Semana y opciones avanzadas', icon: 'gearshape.fill', color: '#0878F9' },
     ],
   },
   {
@@ -129,8 +139,7 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
     items: [
       { slug: 'valorar', title: 'Valorar TecnoWallet', subtitle: 'Ayúdanos con tu opinión', icon: 'hand.thumbsup.fill', color: '#F79009' },
       { slug: 'faq', title: 'Preguntas frecuentes', subtitle: 'Guías y respuestas rápidas', icon: 'questionmark.circle.fill', color: '#EE46BC' },
-      { slug: 'contacto', title: 'Contáctanos', subtitle: 'hola@tecnowallet.app', icon: 'bubble.left.and.bubble.right.fill', color: '#12B76A', badge: 'v1.0.0', badgeTone: 'neutral' },
-      { slug: 'transferir', title: 'Transferir datos', subtitle: 'Mover a otro dispositivo', icon: 'square.and.arrow.up.on.square', color: '#0878F9' },
+      { slug: 'contacto', title: 'Contáctanos', subtitle: 'dev@wwtecno.com', icon: 'bubble.left.and.bubble.right.fill', color: '#12B76A', badge: 'v1.0.0', badgeTone: 'neutral' },
     ],
   },
 ];
