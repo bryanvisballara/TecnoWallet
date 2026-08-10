@@ -913,9 +913,10 @@ export class CollaborationService {
       this.config.get<string>('PUBLIC_WEB_ORIGIN') ||
       'https://tecnowallet.app'
     ).replace(/\/+$/, '');
-    // Use invite.html so Hostinger does not 403 on the /invite/ directory
-    // (Expo static export also emits invite/[token] for recaudos).
-    return `${base}/invite.html?token=${encodeURIComponent(token)}`;
+    // Separate path from /invite/[token] (recaudos). Hostinger static export
+    // only deep-links reliably via directory/index.html (not *.html URLs —
+    // Expo Router treats those as unmatched).
+    return `${base}/colaborar/?token=${encodeURIComponent(token)}`;
   }
 
   private isNonProduction() {

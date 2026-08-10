@@ -225,6 +225,7 @@ export default function RootLayout() {
                 name="add-planning-item"
                 options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
               />
+              <Stack.Screen name="colaborar" />
               <Stack.Screen name="invite/[token]" />
               <Stack.Screen name="r/[code]" />
             </Stack>

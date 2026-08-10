@@ -20,22 +20,53 @@ fs.cpSync(dist, staging, { recursive: true });
 const htaccess = `RewriteEngine On
 RewriteBase /
 RewriteRule ^index\\.html$ - [L]
-# Collaboration invite emails use /invite?token=… — map onto invite.html
-# (the invite/ folder is for recaudo /invite/[token] and would otherwise 403).
-RewriteRule ^invite/?$ /invite.html [L,QSA]
+# Old collaboration emails used /invite.html?token=… (Unmatched in Expo Router).
+RewriteCond %{QUERY_STRING} (^|&)token=
+RewriteRule ^invite\\.html$ /colaborar/? [R=302,L,QSA]
+RewriteCond %{QUERY_STRING} (^|&)token=
+RewriteRule ^invite/?$ /colaborar/? [R=302,L,QSA]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule . /index.html [L]
 `;
 fs.writeFileSync(path.join(staging, '.htaccess'), htaccess);
 
-// Directory index for /invite/ so Apache does not 403 when the folder exists.
-const inviteHtml = path.join(staging, 'invite.html');
-const inviteDir = path.join(staging, 'invite');
-if (fs.existsSync(inviteHtml)) {
-  fs.mkdirSync(inviteDir, { recursive: true });
-  fs.copyFileSync(inviteHtml, path.join(inviteDir, 'index.html'));
+/** Physical directory index so Hostinger deep-links work without relying on SPA rewrite. */
+function ensureDirIndex(routeBaseName) {
+  const htmlFile = path.join(staging, `${routeBaseName}.html`);
+  if (!fs.existsSync(htmlFile)) return;
+  const dir = path.join(staging, routeBaseName);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(htmlFile, path.join(dir, 'index.html'));
 }
+
+ensureDirIndex('colaborar');
+
+// Backward-compat stubs for emails already sent with invite.html?token=…
+const redirectStub = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TecnoWallet</title>
+  <script>
+    (function () {
+      var q = window.location.search || '';
+      if (!q && window.location.hash.indexOf('token=') !== -1) {
+        q = '?' + window.location.hash.replace(/^#/, '');
+      }
+      window.location.replace('/colaborar/' + q);
+    })();
+  </script>
+</head>
+<body>Redirigiendo a la invitación…</body>
+</html>
+`;
+fs.writeFileSync(path.join(staging, 'invite.html'), redirectStub);
+fs.mkdirSync(path.join(staging, 'invite'), { recursive: true });
+// Only write invite/index.html if it would not block invite/[token].html.
+// Directory listing /invite/ gets the stub; /invite/TOKEN still serves [token].html.
+fs.writeFileSync(path.join(staging, 'invite', 'index.html'), redirectStub);
 
 fs.mkdirSync(hostDir, { recursive: true });
 fs.rmSync(zipPath, { force: true });
