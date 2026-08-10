@@ -6,7 +6,11 @@ import {
   type LedgerMeta,
   type LedgerSnapshot,
   type LedgerSummary,
+  type PlanningBucket,
+  type PlanningItem,
 } from '@/data/ledgers';
+
+type ResourceKind = 'account' | 'envelope' | 'bill' | 'subscription';
 
 export type ApiWorkspace = {
   _id?: string;
@@ -87,6 +91,7 @@ export function mapWorkspaceToLedger(
     color: workspace.color || '#F5C518',
     icon: workspace.icon || 'wallet.pass.fill',
     type: members.length > 1 ? 'shared' : workspace.type === 'shared' ? 'shared' : 'personal',
+    baseCurrency: (workspace.baseCurrency || 'COP').toUpperCase(),
     members,
   };
 }
@@ -135,6 +140,51 @@ export function mapEnvelopeResource(resource: ApiResource): Envelope {
     rollover: asBool(data.rollover, kind !== 'income'),
     rule: asString(data.rule, 'Sin regla aún'),
     goalId: asString(data.goalId) || undefined,
+  };
+}
+
+function normalizePlanningBucket(
+  value: string,
+  fallback: PlanningBucket,
+): PlanningBucket {
+  if (value === 'income' || value === 'bill' || value === 'subscription' || value === 'recurring') {
+    return value;
+  }
+  return fallback;
+}
+
+export function mapPlanningResource(
+  resource: ApiResource,
+  resourceKind: 'bill' | 'subscription',
+): PlanningItem {
+  const data = resource.data ?? {};
+  const cashflow = asString(data.cashflow, resourceKind === 'bill' ? '' : 'expense');
+  const defaultBucket: PlanningBucket =
+    cashflow === 'income' ? 'income' : resourceKind === 'subscription' ? 'subscription' : 'bill';
+  const bucket = normalizePlanningBucket(asString(data.bucket, defaultBucket), defaultBucket);
+  const defaultIcon =
+    bucket === 'income'
+      ? 'arrow.down.circle.fill'
+      : bucket === 'bill'
+        ? 'doc.text.fill'
+        : bucket === 'subscription'
+          ? 'repeat'
+          : 'arrow.clockwise';
+  const defaultSubtitle =
+    bucket === 'income'
+      ? 'Ingreso recurrente'
+      : bucket === 'bill'
+        ? 'Factura'
+        : bucket === 'subscription'
+          ? 'Suscripción'
+          : 'Gasto recurrente';
+  return {
+    id: objectId(resource),
+    name: resource.name,
+    amount: fromMinor(asNumber(data.amountMinor, 0)),
+    bucket,
+    icon: asString(data.icon, defaultIcon),
+    subtitle: asString(data.subtitle, defaultSubtitle) || defaultSubtitle,
   };
 }
 
@@ -223,7 +273,13 @@ export async function createWorkspace(input: {
 
 export async function updateWorkspace(
   workspaceId: string,
-  patch: { name?: string; type?: 'personal' | 'shared'; color?: string; icon?: string },
+  patch: {
+    name?: string;
+    type?: 'personal' | 'shared';
+    baseCurrency?: string;
+    color?: string;
+    icon?: string;
+  },
 ) {
   return apiRequest<ApiWorkspace>(`/workspaces/${workspaceId}`, {
     method: 'PATCH',
@@ -252,14 +308,14 @@ export async function addWorkspaceMember(
   });
 }
 
-export async function listResources(kind: 'account' | 'envelope', workspaceId: string) {
+export async function listResources(kind: ResourceKind, workspaceId: string) {
   return apiRequest<ApiResource[]>(
     `/resources/${kind}?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`,
   );
 }
 
 export async function createResource(
-  kind: 'account' | 'envelope',
+  kind: ResourceKind,
   workspaceId: string,
   name: string,
   data: Record<string, unknown>,
@@ -276,7 +332,7 @@ export async function createResource(
 }
 
 export async function updateResource(
-  kind: 'account' | 'envelope',
+  kind: ResourceKind,
   id: string,
   data: Record<string, unknown>,
   name?: string,
@@ -408,17 +464,24 @@ export async function loadWorkspaceSnapshot(
   currency: string,
 ): Promise<{ snapshot: LedgerSnapshot; clearingId: string }> {
   const { clearingId } = await ensureWorkspaceDefaults(workspaceId, currency);
-  const [accountResources, envelopeResources, transactions] = await Promise.all([
-    listResources('account', workspaceId),
-    listResources('envelope', workspaceId),
-    listTransactions(workspaceId),
-  ]);
+  const [accountResources, envelopeResources, billResources, subscriptionResources, transactions] =
+    await Promise.all([
+      listResources('account', workspaceId),
+      listResources('envelope', workspaceId),
+      listResources('bill', workspaceId),
+      listResources('subscription', workspaceId),
+      listTransactions(workspaceId),
+    ]);
 
   const accounts = accountResources
     .map(mapAccountResource)
     .filter((item): item is Account => Boolean(item));
   const accountsById = new Map(accounts.map((item) => [item.id, item]));
   const envelopes = envelopeResources.map(mapEnvelopeResource);
+  const planning = [
+    ...billResources.map((item) => mapPlanningResource(item, 'bill')),
+    ...subscriptionResources.map((item) => mapPlanningResource(item, 'subscription')),
+  ];
   const mappedTx = transactions
     .filter((tx) => !tx.entries.every((entry) => String(entry.accountId) === clearingId))
     .map((tx) => mapTransaction(tx, accountsById));
@@ -430,6 +493,7 @@ export async function loadWorkspaceSnapshot(
     transactions: mappedTx,
     summary: buildSummary(accounts, envelopes, mappedTx),
     upcoming: [],
+    planning,
   };
   return { snapshot, clearingId };
 }

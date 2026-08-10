@@ -23,6 +23,28 @@ type AuthResponse = {
 };
 
 let refreshInFlight: Promise<boolean> | null = null;
+let sessionExpiredHandler: (() => void) | null = null;
+/** Bumped on login/logout so a stale 401 cannot wipe a newer session. */
+let authEpoch = 0;
+
+/** Auth store registers this so a hard 401 clears UI session (not only tokens). */
+export function setSessionExpiredHandler(handler: (() => void) | null) {
+  sessionExpiredHandler = handler;
+}
+
+/** Call whenever local tokens are replaced or cleared (login / logout / expiry). */
+export function bumpAuthEpoch() {
+  authEpoch += 1;
+  return authEpoch;
+}
+
+function emitSessionExpired() {
+  try {
+    sessionExpiredHandler?.();
+  } catch {
+    // Never block the request path on listener errors.
+  }
+}
 
 async function errorFromResponse(response: Response) {
   const fallback = 'No pudimos completar la solicitud.';
@@ -43,6 +65,7 @@ async function errorFromResponse(response: Response) {
 async function refreshAccessToken() {
   if (!API_URL) return false;
   if (refreshInFlight) return refreshInFlight;
+  const epochAtStart = authEpoch;
   refreshInFlight = (async () => {
     const refreshToken = await refreshTokenStorage.get();
     if (!refreshToken) return false;
@@ -55,8 +78,11 @@ async function refreshAccessToken() {
         },
         body: JSON.stringify({ refreshToken }),
       });
+      // A newer login/logout won — leave its tokens alone.
+      if (epochAtStart !== authEpoch) return false;
       if (response.status === 401 || response.status === 403) {
         await Promise.all([tokenStorage.clear(), refreshTokenStorage.clear()]);
+        if (epochAtStart === authEpoch) bumpAuthEpoch();
         return false;
       }
       if (!response.ok) {
@@ -64,6 +90,7 @@ async function refreshAccessToken() {
         return false;
       }
       const auth = (await response.json()) as AuthResponse;
+      if (epochAtStart !== authEpoch) return false;
       await Promise.all([
         tokenStorage.set(auth.accessToken),
         refreshTokenStorage.set(auth.refreshToken),
@@ -104,13 +131,34 @@ export async function apiRequest<T>(
 ): Promise<T> {
   if (!API_URL)
     throw new ApiError('API no configurada; usando datos de demostración.', 503);
+
+  const epochAtStart = authEpoch;
+  const [accessAtStart, refreshAtStart] = await Promise.all([
+    tokenStorage.get(),
+    refreshTokenStorage.get(),
+  ]);
+  const hadSession = Boolean(accessAtStart || refreshAtStart);
+
   let response = await performRequest(path, init);
-  if (
-    response.status === 401 &&
-    !path.startsWith('/auth/') &&
-    (await refreshAccessToken())
-  ) {
-    response = await performRequest(path, init);
+  if (response.status === 401 && !path.startsWith('/auth/')) {
+    // Unauthenticated probes must not clear a login that started mid-flight.
+    if (!hadSession) {
+      throw await errorFromResponse(response);
+    }
+
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      response = await performRequest(path, init);
+    } else if (epochAtStart === authEpoch) {
+      // Refresh failed for this same session — drop it so UI can leave tabs.
+      await Promise.all([tokenStorage.clear(), refreshTokenStorage.clear()]);
+      bumpAuthEpoch();
+      emitSessionExpired();
+      throw await errorFromResponse(response);
+    } else {
+      // A newer login/logout happened while this request was in flight.
+      throw await errorFromResponse(response);
+    }
   }
   if (!response.ok) throw await errorFromResponse(response);
   if (response.status === 204) return undefined as T;

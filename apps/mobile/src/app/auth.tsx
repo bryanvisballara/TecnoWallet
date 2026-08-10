@@ -1,4 +1,5 @@
 import * as Google from 'expo-auth-session/providers/google';
+import { makeRedirectUri } from 'expo-auth-session';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -21,6 +22,7 @@ import Svg, { Path } from 'react-native-svg';
 import { LanguagePicker } from '@/components/language-picker';
 import { Card, PrimaryButton, useAppTheme } from '@/components/ui';
 import { authCopy } from '@/i18n/languages';
+import { ApiError } from '@/services/api';
 import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
@@ -29,6 +31,13 @@ WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
+
+/** Must match an Authorized redirect URI in the Google Cloud OAuth client. */
+const GOOGLE_REDIRECT_URI = makeRedirectUri({
+  preferLocalhost: true,
+  // Expo web on :8081; Hostinger uses the deployed origin.
+  path: Platform.OS === 'web' ? undefined : 'oauthredirect',
+});
 
 function GoogleMark() {
   return (
@@ -64,6 +73,7 @@ export default function AuthScreen() {
     clientId: GOOGLE_WEB_CLIENT_ID || undefined,
     webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
     iosClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+    redirectUri: GOOGLE_REDIRECT_URI,
   });
 
   const goHome = async () => {
@@ -175,7 +185,17 @@ export default function AuthScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await goHome();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : copy.genericError);
+      const message =
+        cause instanceof ApiError
+          ? cause.message === 'Invalid Google ID token'
+            ? 'Google rechazó el inicio de sesión. Revisa que el Client ID coincida en la app y en Render, y que http://127.0.0.1:8081 esté en orígenes/redirects autorizados.'
+            : cause.message === 'Google Sign-In is not configured'
+              ? 'El servidor no tiene GOOGLE_CLIENT_ID_WEB. Configúralo en Render y redespliega.'
+              : cause.message
+          : cause instanceof Error
+            ? cause.message
+            : copy.genericError;
+      setError(message);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);

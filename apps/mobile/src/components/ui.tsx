@@ -119,16 +119,24 @@ export function Screen({ children, title, subtitle, right, refreshing, onRefresh
             <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} />
           ) : undefined
         }>
-        {(title || right) && (
-          <View style={styles.header}>
-            <View style={styles.headerText}>
-              {typeof title === 'string' ? (
-                <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>{title}</Text>
-              ) : (
-                title
-              )}
-              {subtitle && <Text style={[styles.subtitle, { color: theme.muted }]}>{subtitle}</Text>}
-            </View>
+        {(title || subtitle || right) && (
+          <View style={[styles.header, !title && !subtitle && styles.headerActionsOnly]}>
+            {(title || subtitle) ? (
+              <View style={styles.headerText}>
+                {typeof title === 'string' ? (
+                  <Text accessibilityRole="header" style={[styles.title, { color: theme.textSecondary }]}>
+                    {title}
+                  </Text>
+                ) : (
+                  title
+                )}
+                {subtitle ? (
+                  <Text style={[styles.subtitle, { color: theme.muted }]}>{subtitle}</Text>
+                ) : null}
+              </View>
+            ) : (
+              <View style={styles.headerText} />
+            )}
             {right}
           </View>
         )}
@@ -276,10 +284,22 @@ export const uiStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   screen: { width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center', paddingHorizontal: Spacing.lg, gap: Spacing.lg },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4, paddingBottom: 4 },
-  headerText: { flex: 1, gap: 3 },
-  title: { fontSize: 34, lineHeight: 40, fontWeight: '700', letterSpacing: -1.1 },
-  subtitle: { fontSize: 14 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    paddingBottom: 6,
+    gap: 12,
+  },
+  headerActionsOnly: {
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+
+  headerText: { flex: 1, gap: 2 },
+  title: { fontSize: 20, lineHeight: 26, fontWeight: '600', letterSpacing: -0.3 },
+  subtitle: { fontSize: 13, fontWeight: '400', letterSpacing: 0 },
   card: {
     borderRadius: Radius.lg, borderWidth: StyleSheet.hairlineWidth, padding: Spacing.lg,
     shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 2,
@@ -304,8 +324,23 @@ const styles = StyleSheet.create({
   action: { fontSize: 14, fontWeight: '600' },
   progressTrack: { height: 8, borderRadius: 8, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 8 },
-  pill: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.pill },
-  pillText: { fontSize: 12, fontWeight: '700' },
+  pill: {
+    alignSelf: 'flex-start',
+    minHeight: 24,
+    paddingHorizontal: 10,
+    paddingVertical: 0,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 14,
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   primaryButton: {
     minHeight: 52,
     borderRadius: Radius.md,

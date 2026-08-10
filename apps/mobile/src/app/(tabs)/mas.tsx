@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  FlatList,
   Modal,
   Pressable,
   StyleSheet,
@@ -15,8 +17,10 @@ import {
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { featureGroups } from '@/data/demo';
 import { languages } from '@/i18n/languages';
+import { currencies, currencyLabel } from '@/lib/currencies';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
+import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 
 export default function MoreScreen() {
   const theme = useAppTheme();
@@ -29,7 +33,13 @@ export default function MoreScreen() {
   const deleteAccount = useAuthStore((state) => state.deleteAccount);
   const locale = useLanguageStore((state) => state.locale);
   const setLocale = useLanguageStore((state) => state.setLocale);
+  const setLedgerCurrency = useLedgerStore((state) => state.setLedgerCurrency);
+  const { ledger } = useActiveLedger();
+  const activeCurrency = (ledger?.baseCurrency || 'COP').toUpperCase();
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const [currencyQuery, setCurrencyQuery] = useState('');
+  const [savingCurrency, setSavingCurrency] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteStep, setDeleteStep] = useState<'confirm' | 'code'>('confirm');
   const [deleteCode, setDeleteCode] = useState('');
@@ -41,9 +51,28 @@ export default function MoreScreen() {
     ? { uri: profile.avatarUri }
     : require('../../../assets/images/tecnowallet-logo.png');
 
+  const filteredCurrencies = useMemo(() => {
+    const query = currencyQuery.trim().toLowerCase();
+    if (!query) return currencies;
+    return currencies.filter(
+      (item) =>
+        item.code.toLowerCase().includes(query) ||
+        item.name.toLowerCase().includes(query),
+    );
+  }, [currencyQuery]);
+
   const openItem = (slug: string) => {
     if (slug === 'idioma') {
       setLanguageOpen(true);
+      return;
+    }
+    if (slug === 'divisa') {
+      setCurrencyQuery('');
+      setCurrencyOpen(true);
+      return;
+    }
+    if (slug === 'bancos') {
+      router.push('/bank-accounts');
       return;
     }
     if (slug === 'datos') {
@@ -55,6 +84,47 @@ export default function MoreScreen() {
       return;
     }
     router.push({ pathname: '/feature/[slug]', params: { slug } });
+  };
+
+  const resolveItem = (slug: string, fallbackSubtitle: string, fallbackBadge?: string) => {
+    if (slug === 'divisa') {
+      return {
+        subtitle: `${currencyLabel(activeCurrency)} · libro ${ledger?.name ?? 'activo'}`,
+        badge: activeCurrency,
+      };
+    }
+    if (slug === 'bancos') {
+      return {
+        subtitle: 'Belvo · confirma gastos nuevos',
+        badge: undefined as string | undefined,
+      };
+    }
+    if (slug === 'backup') {
+      return { subtitle: 'Sin copias aún', badge: fallbackBadge };
+    }
+    if (slug === 'presupuesto-ia') {
+      return { subtitle: 'Sin sugerencias aún', badge: undefined as string | undefined };
+    }
+    return { subtitle: fallbackSubtitle, badge: fallbackBadge };
+  };
+
+  const pickCurrency = async (code: string) => {
+    if (code === activeCurrency) {
+      setCurrencyOpen(false);
+      return;
+    }
+    setSavingCurrency(true);
+    try {
+      await setLedgerCurrency(code);
+      setCurrencyOpen(false);
+    } catch (error) {
+      Alert.alert(
+        'No se pudo cambiar la divisa',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setSavingCurrency(false);
+    }
   };
 
   const leave = async () => {
@@ -156,8 +226,15 @@ export default function MoreScreen() {
           <Text style={[styles.groupTitle, { color: theme.muted }]}>{group.title.toUpperCase()}</Text>
           <Card style={styles.menu}>
             {group.items.map((item, index) => {
-              const subtitle = item.slug === 'idioma' ? language.nativeLabel : item.subtitle;
-              const badge = item.slug === 'idioma' ? language.code.toUpperCase() : item.badge;
+              const resolved = resolveItem(item.slug, item.subtitle, item.badge);
+              const subtitle =
+                item.slug === 'idioma' ? language.nativeLabel : resolved.subtitle;
+              const badge =
+                item.slug === 'idioma'
+                  ? language.code.toUpperCase()
+                  : item.slug === 'divisa'
+                    ? activeCurrency
+                    : resolved.badge;
               const iconColor = item.color ?? theme.primary;
               return (
                 <View key={item.slug}>
@@ -257,6 +334,86 @@ export default function MoreScreen() {
             })}
           </Pressable>
         </Pressable>
+      </Modal>
+
+      <Modal
+        visible={currencyOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!savingCurrency) setCurrencyOpen(false);
+        }}>
+        <View style={styles.backdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              if (!savingCurrency) setCurrencyOpen(false);
+            }}
+          />
+          <View style={[styles.currencySheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={styles.currencyHeader}>
+              <Text style={[styles.sheetTitle, { color: theme.text, marginBottom: 0 }]}>Divisa</Text>
+              <Pressable
+                accessibilityLabel="Cerrar divisas"
+                disabled={savingCurrency}
+                onPress={() => setCurrencyOpen(false)}
+                style={styles.currencyClose}>
+                <AppIcon name="xmark" color={theme.text} size={20} />
+              </Pressable>
+            </View>
+            <Text style={[styles.small, { color: theme.muted, fontSize: 13, lineHeight: 18 }]}>
+              Moneda del libro {ledger?.name ?? 'activo'}. Los montos se mostrarán en esta divisa.
+            </Text>
+            <TextInput
+              value={currencyQuery}
+              onChangeText={setCurrencyQuery}
+              placeholder="Buscar por código o nombre"
+              placeholderTextColor={theme.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!savingCurrency}
+              style={[
+                styles.currencySearch,
+                {
+                  color: theme.text,
+                  backgroundColor: theme.surfaceSecondary,
+                  borderColor: theme.border,
+                },
+              ]}
+            />
+            <FlatList
+              data={filteredCurrencies}
+              keyExtractor={(item) => item.code}
+              keyboardShouldPersistTaps="handled"
+              style={styles.currencyList}
+              renderItem={({ item }) => {
+                const selected = item.code === activeCurrency;
+                return (
+                  <ScalePressable
+                    disabled={savingCurrency}
+                    onPress={() => void pickCurrency(item.code)}
+                    style={[
+                      styles.languageRow,
+                      { backgroundColor: selected ? theme.primarySoft : theme.surfaceSecondary },
+                    ]}>
+                    <Text style={[styles.currencyCode, { color: selected ? theme.primary : theme.text }]}>
+                      {item.code}
+                    </Text>
+                    <View style={styles.copy}>
+                      <Text style={[styles.menuTitle, { color: theme.text }]}>{item.name}</Text>
+                    </View>
+                    {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
+                  </ScalePressable>
+                );
+              }}
+            />
+            {savingCurrency ? (
+              <View style={styles.currencySaving}>
+                <ActivityIndicator color={theme.primary} />
+              </View>
+            ) : null}
+          </View>
+        </View>
       </Modal>
 
       <Modal
@@ -406,4 +563,32 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   flag: { fontSize: 22 },
+  currencySheet: {
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 18,
+    gap: 10,
+    maxHeight: '78%',
+  },
+  currencyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  currencyClose: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currencySearch: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    fontSize: 15,
+  },
+  currencyList: { maxHeight: 360 },
+  currencyCode: { fontSize: 15, fontWeight: '800', minWidth: 40 },
+  currencySaving: { alignItems: 'center', paddingVertical: 4 },
 });

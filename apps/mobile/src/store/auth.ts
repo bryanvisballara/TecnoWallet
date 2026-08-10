@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 
-import { apiRequest, ensureAuthSession } from '@/services/api';
+import {
+  apiRequest,
+  bumpAuthEpoch,
+  ensureAuthSession,
+  setSessionExpiredHandler,
+} from '@/services/api';
 import {
   localStorage,
   refreshTokenStorage,
@@ -95,6 +100,7 @@ async function persistAuthSession(
     name: auth.user.name,
     email: auth.user.email.toLowerCase(),
   };
+  bumpAuthEpoch();
   await Promise.all([
     tokenStorage.set(auth.accessToken),
     refreshTokenStorage.set(auth.refreshToken),
@@ -120,6 +126,7 @@ async function persistAuthSession(
 }
 
 async function clearLocalSession() {
+  bumpAuthEpoch();
   await Promise.all([
     tokenStorage.clear(),
     refreshTokenStorage.clear(),
@@ -151,6 +158,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   demo: false,
   profile: defaultProfile,
   hydrate: async () => {
+    setSessionExpiredHandler(() => {
+      void (async () => {
+        await clearLocalSession();
+        useLedgerStore.setState({
+          ledgers: [],
+          activeLedgerId: '',
+          snapshots: {},
+          clearingIds: {},
+          pendingIds: [],
+          hydrated: true,
+        });
+        set({ authenticated: false, demo: false });
+      })();
+    });
+
     const [onboarded, token, refreshToken, demo, profile] = await Promise.all([
       localStorage.get('onboarded', false),
       tokenStorage.get(),
@@ -158,21 +180,42 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.get('demo-session', false),
       readProfile(),
     ]);
-    let stillAuthed = Boolean(token || refreshToken) || demo;
-    if (!demo && refreshToken) {
-      // Renew tokens on launch so the session stays alive indefinitely.
-      await ensureAuthSession();
+
+    let stillAuthed = demo;
+    if (!demo && (token || refreshToken)) {
+      if (refreshToken) {
+        // Renew on launch; 401/403 clears tokens inside ensureAuthSession.
+        await ensureAuthSession();
+      }
       const [nextAccess, nextRefresh] = await Promise.all([
         tokenStorage.get(),
         refreshTokenStorage.get(),
       ]);
       stillAuthed = Boolean(nextAccess || nextRefresh);
+
+      // Access token without refresh (or refresh already wiped) — probe once.
+      if (stillAuthed && nextAccess && !nextRefresh) {
+        try {
+          await apiRequest('/workspaces');
+        } catch {
+          await clearLocalSession();
+          stillAuthed = false;
+        }
+      }
+
+      if (!stillAuthed) {
+        await clearLocalSession();
+      } else {
+        const access = (await tokenStorage.get()) || nextAccess;
+        const userId = decodeJwtSub(access);
+        if (userId) await localStorage.set('auth-user-id', userId);
+        else {
+          await clearLocalSession();
+          stillAuthed = false;
+        }
+      }
     }
-    if (!demo && stillAuthed) {
-      const access = (await tokenStorage.get()) || token;
-      const userId = decodeJwtSub(access);
-      if (userId) await localStorage.set('auth-user-id', userId);
-    }
+
     set({
       hydrated: true,
       onboarded,

@@ -210,6 +210,11 @@ class UpdateWorkspaceDto {
 
   @IsOptional()
   @IsString()
+  @Length(3, 3)
+  baseCurrency?: string;
+
+  @IsOptional()
+  @IsString()
   @Length(4, 16)
   color?: string;
 
@@ -558,6 +563,9 @@ class WorkspaceController {
     if (!workspace) throw new NotFoundException('Workspace not found');
     if (dto.name !== undefined) workspace.name = dto.name.trim();
     if (dto.type !== undefined) workspace.type = dto.type;
+    if (dto.baseCurrency !== undefined) {
+      workspace.baseCurrency = dto.baseCurrency.trim().toUpperCase();
+    }
     if (dto.color !== undefined) workspace.color = dto.color.trim();
     if (dto.icon !== undefined) workspace.icon = dto.icon.trim();
     return workspace.save();
@@ -1115,6 +1123,12 @@ function escapeRegex(value: string): string {
     { provide: BankProvider, useExisting: UnconfiguredBankProvider },
     { provide: OcrProvider, useExisting: ReviewRequiredOcrProvider },
   ],
-  exports: [AiInsightsProvider, BankProvider, OcrProvider],
+  exports: [
+    AiInsightsProvider,
+    BankProvider,
+    OcrProvider,
+    LedgerService,
+    MongooseModule,
+  ],
 })
 export class PlatformModule {}

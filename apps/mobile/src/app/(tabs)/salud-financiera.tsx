@@ -10,7 +10,9 @@ import {
   isWealthDebt,
   sumBalances,
 } from '@/lib/accounts';
+import { buildRecurringCashflow, type RecurringLine } from '@/lib/recurring-cashflow';
 import { useActiveLedger } from '@/store/ledger';
+import { usePeriodStore } from '@/store/period';
 
 function AccountRow({ account }: { account: Account }) {
   const theme = useAppTheme();
@@ -47,9 +49,71 @@ function AccountRow({ account }: { account: Account }) {
   );
 }
 
+function RecurringGroup({
+  title,
+  total,
+  items,
+  empty,
+  tone,
+  onAdd,
+}: {
+  title: string;
+  total: number;
+  items: RecurringLine[];
+  empty: string;
+  tone: 'income' | 'expense';
+  onAdd: () => void;
+}) {
+  const theme = useAppTheme();
+  const amountColor = tone === 'income' ? theme.success : theme.danger;
+  return (
+    <Card style={styles.recurringGroup}>
+      <View style={uiStyles.between}>
+        <View style={styles.recurringGroupHeader}>
+          <Text style={[styles.recurringGroupTitle, { color: theme.text }]}>{title}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Agregar ${tone === 'income' ? 'ingreso' : 'gasto'} recurrente`}
+            onPress={onAdd}
+            style={[styles.addBtn, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
+            <AppIcon name="plus" color={theme.primary} size={16} />
+          </Pressable>
+        </View>
+        <Text style={[styles.recurringGroupTotal, { color: amountColor }]}>{money(total)}</Text>
+      </View>
+      {items.length === 0 ? (
+        <Pressable accessibilityRole="button" onPress={onAdd}>
+          <Text style={[styles.small, { color: theme.muted }]}>{empty}</Text>
+          <Text style={[styles.addHint, { color: theme.primary }]}>Toca para agregar</Text>
+        </Pressable>
+      ) : (
+        items.map((item, index) => (
+          <View
+            key={item.id}
+            style={[
+              styles.recurringRow,
+              index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+            ]}>
+            <View style={[styles.recurringIcon, { backgroundColor: `${amountColor}1A` }]}>
+              <AppIcon name={item.icon} color={amountColor} size={18} />
+            </View>
+            <View style={styles.copy}>
+              <Text style={[styles.accountName, { color: theme.text }]}>{item.name}</Text>
+              <Text style={[styles.small, { color: theme.muted }]}>{item.subtitle}</Text>
+            </View>
+            <Text style={[styles.balance, { color: theme.text }]}>{money(item.amount)}</Text>
+          </View>
+        ))
+      )}
+    </Card>
+  );
+}
+
 export default function SaludFinancieraScreen() {
   const theme = useAppTheme();
-  const { accounts, ledger } = useActiveLedger();
+  const { accounts, ledger, transactions, upcoming, planning } = useActiveLedger();
+  const year = usePeriodStore((state) => state.year);
+  const month = usePeriodStore((state) => state.month);
 
   const liquidAccounts = useMemo(
     () => accounts.filter((item) => isLiquidAccount(item.kind)),
@@ -79,6 +143,26 @@ export default function SaludFinancieraScreen() {
       : creditUsage < 0.3
         ? 'Bien. La deuda es baja frente a tu patrimonio.'
         : 'La deuda pesa más. Revisa pasivos y pagos.';
+
+  const recurring = useMemo(
+    () => buildRecurringCashflow(transactions, { year, month }, upcoming, planning),
+    [transactions, year, month, upcoming, planning],
+  );
+
+  const openPlanningAdd = (cashflow: 'income' | 'expense', bucket?: string) => {
+    router.push({
+      pathname: '/add-planning-item',
+      params: bucket ? { cashflow, bucket } : { cashflow },
+    });
+  };
+  const expenseLines = useMemo(
+    () => [...recurring.bills, ...recurring.subscriptions, ...recurring.recurrings],
+    [recurring.bills, recurring.subscriptions, recurring.recurrings],
+  );
+
+  if (!ledger) {
+    return <Screen withTabBar title="Salud financiera" />;
+  }
 
   return (
     <Screen
@@ -167,6 +251,90 @@ export default function SaludFinancieraScreen() {
       ) : (
         wealthDebts.map((account) => <AccountRow key={account.id} account={account} />)
       )}
+
+      <Text style={[styles.subsection, { color: theme.muted, marginTop: 8 }]}>
+        PLANIFICACIÓN
+      </Text>
+      <Text style={[styles.planCopy, { color: theme.muted }]}>
+        Analiza y proyecta todos tus gastos mensuales en cada categoría —por ejemplo, en
+        Hogar: suscripciones, hipoteca o arriendo, telefonía, internet, servicios públicos,
+        entre otros— y compáralos con tus ingresos. Así podrás conocer tu capacidad de
+        ahorro, identificar tus principales gastos y entender cómo se encuentra tu salud
+        financiera cada mes.
+      </Text>
+
+      <Card style={styles.recurringSummary}>
+        <View style={styles.recurringSummaryRow}>
+          <View style={styles.recurringSummaryCell}>
+            <Text style={[styles.small, { color: theme.muted }]}>Ingresos</Text>
+            <Text style={[styles.recurringSummaryValue, { color: theme.success }]}>
+              {money(recurring.incomeTotal)}
+            </Text>
+            <Text style={[styles.tiny, { color: theme.muted }]}>
+              {recurring.income.length} · salario y otros
+            </Text>
+          </View>
+          <View style={[styles.recurringSummaryDivider, { backgroundColor: theme.border }]} />
+          <View style={styles.recurringSummaryCell}>
+            <Text style={[styles.small, { color: theme.muted }]}>Gastos</Text>
+            <Text style={[styles.recurringSummaryValue, { color: theme.danger }]}>
+              {money(recurring.expenseTotal)}
+            </Text>
+            <Text style={[styles.tiny, { color: theme.muted }]}>
+              {expenseLines.length} · facturas y más
+            </Text>
+          </View>
+          <View style={[styles.recurringSummaryDivider, { backgroundColor: theme.border }]} />
+          <View style={styles.recurringSummaryCell}>
+            <Text style={[styles.small, { color: theme.muted }]}>Resultado</Text>
+            <Text
+              style={[
+                styles.recurringSummaryValue,
+                { color: recurring.net >= 0 ? theme.success : theme.danger },
+              ]}>
+              {money(recurring.net)}
+            </Text>
+            <Text style={[styles.tiny, { color: theme.muted }]}>ingresos − gastos</Text>
+          </View>
+        </View>
+        <View style={styles.bucketPills}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Agregar factura"
+            onPress={() => openPlanningAdd('expense', 'bill')}>
+            <Pill tone="neutral">Facturas {recurring.bills.length}</Pill>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Agregar suscripción"
+            onPress={() => openPlanningAdd('expense', 'subscription')}>
+            <Pill tone="neutral">Suscripciones {recurring.subscriptions.length}</Pill>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Agregar gasto recurrente"
+            onPress={() => openPlanningAdd('expense', 'recurring')}>
+            <Pill tone="neutral">Recurrentes {recurring.recurrings.length}</Pill>
+          </Pressable>
+        </View>
+      </Card>
+
+      <RecurringGroup
+        title="Ingresos recurrentes"
+        total={recurring.incomeTotal}
+        items={recurring.income}
+        empty="Aún no hay ingresos recurrentes (ej. salario o nómina)."
+        tone="income"
+        onAdd={() => openPlanningAdd('income')}
+      />
+      <RecurringGroup
+        title="Gastos recurrentes"
+        total={recurring.expenseTotal}
+        items={expenseLines}
+        empty="Sin facturas, suscripciones ni reglas recurrentes este mes."
+        tone="expense"
+        onAdd={() => openPlanningAdd('expense')}
+      />
     </Screen>
   );
 }
@@ -183,6 +351,7 @@ const styles = StyleSheet.create({
   divider: { height: 32, width: StyleSheet.hairlineWidth, backgroundColor: '#FFFFFF66' },
   cardTitle: { fontSize: 18, fontWeight: '700' },
   small: { fontSize: 12, lineHeight: 17 },
+  planCopy: { fontSize: 12, lineHeight: 18, marginTop: -2, marginBottom: 2 },
   accountIcon: {
     width: 48,
     height: 48,
@@ -214,6 +383,32 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 9,
     borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recurringSummary: { gap: 14 },
+  recurringSummaryRow: { flexDirection: 'row', alignItems: 'stretch' },
+  recurringSummaryCell: { flex: 1, gap: 4 },
+  recurringSummaryDivider: { width: StyleSheet.hairlineWidth, marginHorizontal: 10 },
+  recurringSummaryValue: { fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  tiny: { fontSize: 10, lineHeight: 14 },
+  bucketPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  recurringGroup: { gap: 10 },
+  recurringGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 },
+  recurringGroupTitle: { fontSize: 15, fontWeight: '700' },
+  recurringGroupTotal: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  addHint: { fontSize: 12, fontWeight: '600', marginTop: 6 },
+  recurringRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: 8,
+  },
+  recurringIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

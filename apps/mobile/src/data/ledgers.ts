@@ -30,12 +30,25 @@ export type LedgerSummary = {
   comparison: number;
 };
 
+export type PlanningBucket = 'income' | 'bill' | 'subscription' | 'recurring';
+
+export type PlanningItem = {
+  id: string;
+  name: string;
+  amount: number;
+  bucket: PlanningBucket;
+  icon: string;
+  subtitle?: string;
+};
+
 export type LedgerSnapshot = {
   summary: LedgerSummary;
   accounts: Account[];
   envelopes: Envelope[];
   transactions: Transaction[];
   upcoming: Array<{ name: string; date: string; amount: number; color: string }>;
+  /** Proyección mensual de planificación (ingresos/gastos recurrentes). */
+  planning: PlanningItem[];
 };
 
 export type LedgerMeta = {
@@ -107,6 +120,7 @@ export function emptySnapshot(): LedgerSnapshot {
     ],
     transactions: [],
     upcoming: [],
+    planning: [],
   };
 }
 
@@ -183,6 +197,7 @@ export const seedSnapshots: Record<string, LedgerSnapshot> = {
     envelopes: hogarEnvelopes.map((item) => ({ ...item })),
     transactions: hogarTransactions.map((item) => ({ ...item })),
     upcoming: hogarUpcoming.map((item) => ({ ...item })),
+    planning: [],
   },
   'teach-me': {
     summary: {
@@ -215,6 +230,7 @@ export const seedSnapshots: Record<string, LedgerSnapshot> = {
       { name: 'Renta aula', date: '10 ago', amount: 450, color: '#0878F9' },
       { name: 'Licencia Zoom', date: '18 ago', amount: 32, color: '#7F56D9' },
     ],
+    planning: [],
   },
   amazon: {
     summary: {
@@ -248,5 +264,6 @@ export const seedSnapshots: Record<string, LedgerSnapshot> = {
       { name: 'Pago FBA', date: '12 ago', amount: 280, color: '#06AED4' },
       { name: 'Restock China', date: '22 ago', amount: 2400, color: '#7F56D9' },
     ],
+    planning: [],
   },
 };

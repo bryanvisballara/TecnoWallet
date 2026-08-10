@@ -4,8 +4,10 @@ import {
   emptySnapshot,
   type LedgerMeta,
   type LedgerSnapshot,
+  type PlanningBucket,
+  type PlanningItem,
 } from '@/data/ledgers';
-import type { Account, Envelope, Transaction } from '@/data/demo';
+import { setActiveMoneyCurrency, type Account, type Envelope, type Transaction } from '@/data/demo';
 import {
   addWorkspaceMember,
   createLedgerTransaction,
@@ -46,6 +48,13 @@ type NewAccount = {
   color?: string;
   lastFour?: string;
 };
+type NewPlanningItem = {
+  name: string;
+  amount: number;
+  bucket: PlanningBucket;
+  icon?: string;
+  subtitle?: string;
+};
 
 type LedgerState = {
   ledgers: LedgerMeta[];
@@ -66,6 +75,7 @@ type LedgerState = {
   ) => Promise<{ pendingSignup?: boolean; delivered?: boolean }>;
   removeMember: (ledgerId: string, memberId: string) => Promise<void>;
   renameLedger: (ledgerId: string, name: string) => Promise<void>;
+  setLedgerCurrency: (currency: string) => Promise<void>;
   addTransaction: (value: NewTransaction) => Promise<Transaction>;
   addAccount: (value: NewAccount) => Promise<Account>;
   updateAccount: (
@@ -77,6 +87,7 @@ type LedgerState = {
     envelopeId: string,
     patch: Partial<Omit<Envelope, 'id' | 'kind' | 'spent'>>,
   ) => Promise<Envelope>;
+  addPlanningItem: (value: NewPlanningItem) => Promise<PlanningItem>;
 };
 
 const colors = ['#F5C518', '#F04438', '#06AED4', '#0878F9', '#12B76A', '#7F56D9', '#EE46BC'];
@@ -91,6 +102,14 @@ async function currentUserId() {
 
 async function currencyFor(ledger: LedgerMeta | undefined) {
   return (ledger?.baseCurrency || 'COP').toUpperCase();
+}
+
+function syncDisplayCurrency(
+  ledgers: LedgerMeta[],
+  activeLedgerId: string,
+) {
+  const active = ledgers.find((item) => item.id === activeLedgerId) ?? ledgers[0];
+  setActiveMoneyCurrency(active?.baseCurrency || 'COP');
 }
 
 async function fetchLedgersFromApi(): Promise<{
@@ -154,9 +173,11 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     if (demo) {
       // Demo mode keeps seed data in memory only (never written as product truth).
       const { seedLedgers, seedSnapshots } = await import('@/data/ledgers');
+      const activeLedgerId = seedLedgers[0]?.id ?? 'hogar';
+      syncDisplayCurrency(seedLedgers, activeLedgerId);
       set({
         ledgers: seedLedgers,
-        activeLedgerId: seedLedgers[0]?.id ?? 'hogar',
+        activeLedgerId,
         snapshots: seedSnapshots,
         clearingIds: {},
         pendingIds: [],
@@ -184,8 +205,25 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       const activeLedgerId = next.ledgers.some((item) => item.id === previousActive)
         ? previousActive
         : next.activeLedgerId;
+      syncDisplayCurrency(next.ledgers, activeLedgerId);
       set({ ...next, activeLedgerId, pendingIds: [], hydrated: true });
-    } catch {
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status?: number }).status)
+          : 0;
+      if (status === 401 || status === 403) {
+        // Session is dead — leave empty books; auth store clears authenticated via API hook.
+        set({
+          ledgers: [],
+          activeLedgerId: '',
+          snapshots: {},
+          clearingIds: {},
+          pendingIds: [],
+          hydrated: true,
+        });
+        return;
+      }
       // Keep prior in-memory state if the API is briefly unavailable.
       set({ hydrated: true });
     }
@@ -221,6 +259,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
 
   setActiveLedger: async (id) => {
     if (!get().snapshots[id]) return;
+    syncDisplayCurrency(get().ledgers, id);
     set({ activeLedgerId: id });
   },
 
@@ -278,6 +317,19 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         ledger.id === ledgerId ? { ...ledger, name: trimmed } : ledger,
       ),
     });
+  },
+
+  setLedgerCurrency: async (currency) => {
+    const ledgerId = get().activeLedgerId;
+    if (!ledgerId) throw new Error('No hay un libro activo.');
+    const code = currency.trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(code)) throw new Error('Divisa inválida.');
+    await updateWorkspace(ledgerId, { baseCurrency: code });
+    const ledgers = get().ledgers.map((ledger) =>
+      ledger.id === ledgerId ? { ...ledger, baseCurrency: code } : ledger,
+    );
+    syncDisplayCurrency(ledgers, ledgerId);
+    set({ ledgers });
   },
 
   addTransaction: async (value) => {
@@ -470,6 +522,46 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     );
     if (!updated) throw new Error('No se pudo actualizar el sobre.');
     return updated;
+  },
+
+  addPlanningItem: async (value) => {
+    const ledgerId = get().activeLedgerId;
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const currency = await currencyFor(ledger);
+    const bucket = value.bucket;
+    const resourceKind = bucket === 'subscription' ? 'subscription' : 'bill';
+    const defaultIcon =
+      bucket === 'income'
+        ? 'arrow.down.circle.fill'
+        : bucket === 'bill'
+          ? 'doc.text.fill'
+          : bucket === 'subscription'
+            ? 'repeat'
+            : 'arrow.clockwise';
+    const defaultSubtitle =
+      bucket === 'income'
+        ? 'Ingreso recurrente'
+        : bucket === 'bill'
+          ? 'Factura'
+          : bucket === 'subscription'
+            ? 'Suscripción'
+            : 'Gasto recurrente';
+    const created = await createResource(resourceKind, ledgerId, value.name.trim(), {
+      amountMinor: toMinor(Math.abs(value.amount)),
+      currency,
+      frequency: 'monthly',
+      cashflow: bucket === 'income' ? 'income' : 'expense',
+      bucket,
+      icon: value.icon ?? defaultIcon,
+      subtitle: value.subtitle?.trim() || defaultSubtitle,
+    });
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    const mapped = get().snapshots[ledgerId]?.planning.find(
+      (item) => item.id === objectId(created),
+    );
+    if (!mapped) throw new Error('No se pudo crear el ítem de planificación.');
+    return mapped;
   },
 }));
 

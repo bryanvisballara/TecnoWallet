@@ -36,6 +36,9 @@ const schema = Joi.object({
   GOOGLE_CLIENT_ID_WEB: Joi.string().optional().allow(''),
   GOOGLE_CLIENT_ID_IOS: Joi.string().optional().allow(''),
   GOOGLE_CLIENT_SECRET: Joi.string().optional().allow(''),
+  BELVO_SECRET_ID: Joi.string().optional().allow(''),
+  BELVO_SECRET_PASSWORD: Joi.string().optional().allow(''),
+  BELVO_API_URL: Joi.string().uri().default('https://sandbox.belvo.com'),
 });
 
 export function validateEnvironment(config: Record<string, unknown>) {

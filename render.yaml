@@ -57,3 +57,9 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_ID_IOS
         sync: false
+      - key: BELVO_SECRET_ID
+        sync: false
+      - key: BELVO_SECRET_PASSWORD
+        sync: false
+      - key: BELVO_API_URL
+        value: https://sandbox.belvo.com

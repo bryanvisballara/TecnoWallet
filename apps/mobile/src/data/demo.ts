@@ -95,22 +95,12 @@ export type FeatureItem = {
 
 export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
   {
-    title: 'Planificación',
-    items: [
-      { slug: 'facturas', title: 'Facturas', subtitle: '3 próximas · $1,102.90', icon: 'doc.text.fill', color: '#0878F9' },
-      { slug: 'suscripciones', title: 'Suscripciones', subtitle: '$64.47 al mes', icon: 'repeat', color: '#06AED4' },
-      { slug: 'recurrentes', title: 'Recurrentes', subtitle: '5 reglas activas', icon: 'arrow.clockwise', color: '#0E9384', badge: 'Activo', badgeTone: 'green' },
-      { slug: 'metas', title: 'Metas/Ahorros', subtitle: '3 activas · 74% promedio', icon: 'target', color: '#F79009' },
-      { slug: 'estadisticas', title: 'Estadísticas', subtitle: 'Tendencias e informes', icon: 'chart.bar.fill', color: '#0878F9' },
-    ],
-  },
-  {
     title: 'Datos y utilidades',
     items: [
+      { slug: 'divisa', title: 'Divisa', subtitle: 'Moneda del libro activo', icon: 'banknote.fill', color: '#12B76A' },
+      { slug: 'bancos', title: 'Cuentas bancarias', subtitle: 'Conecta con Belvo', icon: 'building.columns.fill', color: '#0878F9' },
       { slug: 'datos', title: 'Exportar', subtitle: 'Descarga tus movimientos en CSV', icon: 'square.and.arrow.up', color: '#F79009' },
-      { slug: 'backup', title: 'Copias de seguridad', subtitle: 'Última copia hace 3 días', icon: 'externaldrive.fill', color: '#7F56D9', badge: 'Inactivo', badgeTone: 'orange' },
-      { slug: 'bancos', title: 'Cuentas bancarias', subtitle: 'Conectar bancos y tarjetas', icon: 'building.columns.fill', color: '#0878F9' },
-      { slug: 'ocr', title: 'Escanear recibos', subtitle: 'OCR de tickets y facturas', icon: 'camera', color: '#12B76A' },
+      { slug: 'backup', title: 'Copias de seguridad', subtitle: 'Sin copias aún', icon: 'externaldrive.fill', color: '#7F56D9', badge: 'Inactivo', badgeTone: 'orange' },
       { slug: 'actividad', title: 'Actividad en vivo', subtitle: 'Widgets y Live Activities', icon: 'flame.fill', color: '#0878F9' },
     ],
   },
@@ -118,7 +108,7 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
     title: 'TecnoWallet+',
     items: [
       { slug: 'asistente', title: 'Asistente IA', subtitle: 'Pregunta sobre tus finanzas', icon: 'sparkles', color: '#7F56D9' },
-      { slug: 'presupuesto-ia', title: 'Presupuesto inteligente', subtitle: 'Ajustes sugeridos este mes', icon: 'chart.pie.fill', color: '#0878F9' },
+      { slug: 'presupuesto-ia', title: 'Presupuesto inteligente', subtitle: 'Sin sugerencias aún', icon: 'chart.pie.fill', color: '#0878F9' },
       { slug: 'familia', title: 'Libros de contabilidad', subtitle: 'Crear, cambiar y compartir', icon: 'wallet.pass.fill', color: '#F04438' },
     ],
   },
@@ -145,10 +135,22 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
   },
 ];
 
+let activeMoneyCurrency = 'COP';
+
+/** Sync display currency with the active ledger (Más → Divisa). */
+export function setActiveMoneyCurrency(code: string) {
+  const next = code.trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(next)) activeMoneyCurrency = next;
+}
+
+export function getActiveMoneyCurrency() {
+  return activeMoneyCurrency;
+}
+
 export const money = (value: number, compact = false) =>
   new Intl.NumberFormat('es-ES', {
     style: 'currency',
-    currency: 'USD',
+    currency: activeMoneyCurrency,
     maximumFractionDigits: compact ? 0 : 2,
     notation: compact ? 'compact' : 'standard',
   }).format(value);

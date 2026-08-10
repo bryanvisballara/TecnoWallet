@@ -44,15 +44,25 @@ export default function RootLayout() {
     void (async () => {
       // Auth → ledgers (Mongo workspaces) → dependent stores.
       await hydrateAuth();
-      await hydrateLedger();
-      await Promise.all([
-        hydrateCalendar(),
-        hydrateFinance(),
-        hydrateLanguage(),
-        hydrateNotifications(),
-        hydrateGoals(),
-        hydrateRecaudos(),
-      ]);
+      const isAuthed = useAuthStore.getState().authenticated;
+      if (isAuthed) {
+        await hydrateLedger();
+        await Promise.all([
+          hydrateCalendar(),
+          hydrateFinance(),
+          hydrateLanguage(),
+          hydrateNotifications(),
+          hydrateGoals(),
+          hydrateRecaudos(),
+        ]);
+      } else {
+        await Promise.all([hydrateLanguage(), hydrateNotifications(), hydrateFinance()]);
+        // Mark empty product stores so the UI does not wait forever.
+        useLedgerStore.setState({ hydrated: true, ledgers: [], activeLedgerId: '' });
+        useRecaudosStore.setState({ hydrated: true, recaudos: [] });
+        useGoalsStore.setState({ hydrated: true, goals: [] });
+        useCalendarStore.setState({ hydrated: true });
+      }
     })();
   }, [
     hydrateAuth,
@@ -138,6 +148,10 @@ export default function RootLayout() {
                 options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
               />
               <Stack.Screen
+                name="add-planning-item"
+                options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
+              />
+              <Stack.Screen
                 name="export"
                 options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
               />
@@ -150,9 +164,9 @@ export default function RootLayout() {
               <Stack.Screen name="account/[id]" />
               <Stack.Screen name="cashflow/[type]" />
               <Stack.Screen name="goal/[id]" />
-              <Stack.Screen name="recaudo/[id]" />
               <Stack.Screen name="invite/[token]" />
               <Stack.Screen name="patrimonio" />
+              <Stack.Screen name="bank-accounts" />
             </Stack>
           </ThemeProvider>
         </QueryClientProvider>
