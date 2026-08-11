@@ -122,6 +122,10 @@ export class User {
     index: true,
   })
   platformRole!: PlatformRole;
+
+  /** Set by Mongoose timestamps: true */
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 export const UserSchema = SchemaFactory.createForClass(User);
 

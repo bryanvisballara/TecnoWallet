@@ -41,14 +41,61 @@ export type AdminAffiliatePayout = {
   commissions: AdminCommissionRow[];
 };
 
+export type AdminPlan = 'free' | 'plus' | 'business';
+
 export type AdminUserRow = {
   id: string;
   name: string;
   email: string;
   platformRole: 'user' | 'admin';
-  plan: 'free' | 'plus' | 'business';
+  plan: AdminPlan;
   expiresAt: string | null;
   provider: string | null;
+  createdAt?: string | null;
+};
+
+export type AdminUserDetail = {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    platformRole: 'user' | 'admin';
+    active: boolean;
+    createdAt: string | null;
+    updatedAt: string | null;
+  };
+  plan: AdminPlan;
+  subscription: {
+    status: string;
+    provider: string;
+    productId: string | null;
+    entitlementId: string;
+    purchasedAt: string | null;
+    expiresAt: string | null;
+    willRenew: boolean;
+    updatedAt: string | null;
+  } | null;
+  upgrades: Array<{
+    at: string;
+    plan: string;
+    provider: string;
+    productId: string | null;
+    status: string;
+    expiresAt: string | null;
+    source: 'subscription' | 'commission';
+  }>;
+  payments: Array<{
+    id: string;
+    at: string;
+    product: string;
+    planLabel: string;
+    eventType: string;
+    amountMinor: number;
+    commissionAmountMinor: number;
+    currency: string;
+    status: string;
+    paidAt: string | null;
+  }>;
 };
 
 export function getAdminUserStats() {
@@ -98,16 +145,26 @@ export function markAdminCommissionsPaid(input: {
   });
 }
 
-export function searchAdminUsers(q?: string) {
+export function searchAdminUsers(
+  q?: string,
+  plan?: 'all' | AdminPlan,
+) {
   const query = new URLSearchParams();
   if (q?.trim()) query.set('q', q.trim());
+  if (plan && plan !== 'all') query.set('plan', plan);
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return apiRequest<{ users: AdminUserRow[] }>(`/admin/users${suffix}`);
 }
 
+export function getAdminUserDetail(userId: string) {
+  return apiRequest<AdminUserDetail>(
+    `/admin/users/${encodeURIComponent(userId)}`,
+  );
+}
+
 export function upgradeAdminUser(
   userId: string,
-  input: { plan: 'plus' | 'business'; months?: number },
+  input: { plan: AdminPlan; months?: number },
 ) {
   return apiRequest<{
     userId: string;

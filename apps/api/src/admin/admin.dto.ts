@@ -52,8 +52,8 @@ export class MarkCommissionsPaidDto {
 }
 
 export class ManualUpgradeDto {
-  @IsIn(['plus', 'business'])
-  plan!: 'plus' | 'business';
+  @IsIn(['free', 'plus', 'business'])
+  plan!: 'free' | 'plus' | 'business';
 
   @IsOptional()
   @Type(() => Number)
@@ -68,4 +68,8 @@ export class AdminUserSearchQueryDto {
   @IsString()
   @MaxLength(160)
   q?: string;
+
+  @IsOptional()
+  @IsIn(['all', 'free', 'plus', 'business'])
+  plan?: 'all' | 'free' | 'plus' | 'business';
 }

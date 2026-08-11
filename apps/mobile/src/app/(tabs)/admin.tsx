@@ -15,17 +15,28 @@ import { safeGoBack } from '@/lib/navigation';
 import {
   approveAdminCommission,
   getAdminAffiliatePayouts,
+  getAdminUserDetail,
   getAdminUserStats,
   markAdminCommissionsPaid,
   searchAdminUsers,
   upgradeAdminUser,
   type AdminAffiliatePayout,
+  type AdminPlan,
+  type AdminUserDetail,
   type AdminUserRow,
   type AdminUserStats,
 } from '@/services/admin-api';
 import { useAuthStore } from '@/store/auth';
 
 type AdminTab = 'resumen' | 'pagos' | 'usuarios';
+type PlanFilter = 'all' | AdminPlan;
+
+const planFilters: { id: PlanFilter; label: string }[] = [
+  { id: 'all', label: 'Todos' },
+  { id: 'free', label: 'Free' },
+  { id: 'plus', label: 'Plus' },
+  { id: 'business', label: 'Business' },
+];
 
 const statusLabel: Record<string, string> = {
   pending: 'Pendiente',
@@ -33,6 +44,19 @@ const statusLabel: Record<string, string> = {
   paid: 'Pagado',
   reversed: 'Reversado',
 };
+
+function formatAdminDate(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('es-CO', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 function moneyMinor(amountMinor: number, currency: string) {
   return new Intl.NumberFormat('es-CO', {
@@ -69,7 +93,11 @@ export default function AdminPortalScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [userQuery, setUserQuery] = useState('');
+  const [planFilter, setPlanFilter] = useState<PlanFilter>('all');
   const [usersLoading, setUsersLoading] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,11 +131,11 @@ export default function AdminPortalScreen() {
     }
   }, [from, to, statusFilter]);
 
-  const loadUsers = useCallback(async (q?: string) => {
+  const loadUsers = useCallback(async (q?: string, plan?: PlanFilter) => {
     setUsersLoading(true);
     setError(null);
     try {
-      const result = await searchAdminUsers(q);
+      const result = await searchAdminUsers(q, plan ?? planFilter);
       setUsers(result.users);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudieron cargar usuarios.');
@@ -115,14 +143,59 @@ export default function AdminPortalScreen() {
     } finally {
       setUsersLoading(false);
     }
+  }, [planFilter]);
+
+  const openUserDetail = useCallback(async (userId: string) => {
+    setSelectedUserId(userId);
+    setDetailLoading(true);
+    setError(null);
+    try {
+      setUserDetail(await getAdminUserDetail(userId));
+    } catch (cause) {
+      setUserDetail(null);
+      setError(cause instanceof Error ? cause.message : 'No se pudo cargar el usuario.');
+    } finally {
+      setDetailLoading(false);
+    }
   }, []);
+
+  const applyManualPlan = useCallback(
+    async (userId: string, plan: AdminPlan, email: string) => {
+      setBusyId(`${userId}-${plan}`);
+      try {
+        await upgradeAdminUser(
+          userId,
+          plan === 'free' ? { plan: 'free' } : { plan, months: 1 },
+        );
+        Alert.alert(
+          'Listo',
+          plan === 'free'
+            ? `${email} → Free`
+            : `${email} → ${plan === 'plus' ? 'Plus' : 'Business'} (1 mes)`,
+        );
+        await Promise.all([
+          loadUsers(userQuery, planFilter),
+          openUserDetail(userId),
+          loadStats(),
+        ]);
+      } catch (cause) {
+        Alert.alert(
+          'Error',
+          cause instanceof Error ? cause.message : 'No se pudo actualizar.',
+        );
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [loadStats, loadUsers, openUserDetail, planFilter, userQuery],
+  );
 
   useEffect(() => {
     if (!isAdmin) return;
     if (tab === 'resumen') void loadStats();
     if (tab === 'pagos') void loadPayouts();
-    if (tab === 'usuarios') void loadUsers(userQuery);
-  }, [isAdmin, tab, loadStats, loadPayouts, loadUsers, userQuery]);
+    if (tab === 'usuarios') void loadUsers(userQuery, planFilter);
+  }, [isAdmin, tab, planFilter, loadStats, loadPayouts, loadUsers]);
 
   if (!isAdmin) {
     return <Redirect href="/(tabs)/mas" />;
@@ -410,92 +483,234 @@ export default function AdminPortalScreen() {
       ) : null}
 
       {tab === 'usuarios' ? (
-        <Card style={styles.block}>
-          <Text style={[styles.section, { color: theme.text }]}>Upgrade manual</Text>
-          <Text style={[styles.hint, { color: theme.muted }]}>
-            Busca por correo o nombre y asigna Plus o Business (provider manual).
-          </Text>
-          <TextInput
-            value={userQuery}
-            onChangeText={setUserQuery}
-            placeholder="Buscar usuario…"
-            placeholderTextColor={theme.muted}
-            autoCapitalize="none"
-            style={[
-              styles.input,
-              {
-                color: theme.text,
-                borderColor: theme.border,
-                backgroundColor: theme.surfaceSecondary,
-              },
-            ]}
-          />
-          <PrimaryButton onPress={() => void loadUsers(userQuery)}>
-            {usersLoading ? 'Buscando…' : 'Buscar'}
-          </PrimaryButton>
-          {users.map((user) => (
-            <View
-              key={user.id}
-              style={[styles.userRow, { borderTopColor: theme.border }]}>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.memberName, { color: theme.text }]}>{user.name}</Text>
-                <Text style={[styles.hint, { color: theme.muted }]}>
-                  {user.email} · {user.plan}
-                  {user.provider ? ` · ${user.provider}` : ''}
-                </Text>
-              </View>
-              <View style={{ gap: 8 }}>
-                <Pressable
-                  onPress={() => {
-                    void (async () => {
-                      setBusyId(`${user.id}-plus`);
-                      try {
-                        await upgradeAdminUser(user.id, { plan: 'plus', months: 1 });
-                        Alert.alert('Listo', `${user.email} → Plus (1 mes)`);
-                        await loadUsers(userQuery);
-                      } catch (cause) {
-                        Alert.alert(
-                          'Error',
-                          cause instanceof Error ? cause.message : 'No se pudo actualizar.',
-                        );
-                      } finally {
-                        setBusyId(null);
-                      }
-                    })();
-                  }}>
-                  <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 12 }}>
-                    {busyId === `${user.id}-plus` ? '…' : '→ Plus'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    void (async () => {
-                      setBusyId(`${user.id}-business`);
-                      try {
-                        await upgradeAdminUser(user.id, {
-                          plan: 'business',
-                          months: 1,
-                        });
-                        Alert.alert('Listo', `${user.email} → Business (1 mes)`);
-                        await loadUsers(userQuery);
-                      } catch (cause) {
-                        Alert.alert(
-                          'Error',
-                          cause instanceof Error ? cause.message : 'No se pudo actualizar.',
-                        );
-                      } finally {
-                        setBusyId(null);
-                      }
-                    })();
-                  }}>
-                  <Text style={{ color: theme.success, fontWeight: '700', fontSize: 12 }}>
-                    {busyId === `${user.id}-business` ? '…' : '→ Business'}
-                  </Text>
-                </Pressable>
-              </View>
+        <>
+          <Card style={styles.block}>
+            <Text style={[styles.section, { color: theme.text }]}>Usuarios</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Filtra por plan, busca y toca un usuario para ver registro, upgrades, pagos y
+              upgrade manual (incluye Free).
+            </Text>
+            <View style={styles.rowWrap}>
+              {planFilters.map((filter) => {
+                const selected = planFilter === filter.id;
+                return (
+                  <Pressable
+                    key={filter.id}
+                    onPress={() => setPlanFilter(filter.id)}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: selected ? theme.primary : theme.surfaceSecondary,
+                        borderColor: selected ? theme.primary : theme.border,
+                      },
+                    ]}>
+                    <Text
+                      style={{
+                        color: selected ? '#FFFFFF' : theme.muted,
+                        fontWeight: '700',
+                        fontSize: 12,
+                      }}>
+                      {filter.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-          ))}
-        </Card>
+            <TextInput
+              value={userQuery}
+              onChangeText={setUserQuery}
+              placeholder="Buscar usuario…"
+              placeholderTextColor={theme.muted}
+              autoCapitalize="none"
+              style={[
+                styles.input,
+                {
+                  color: theme.text,
+                  borderColor: theme.border,
+                  backgroundColor: theme.surfaceSecondary,
+                },
+              ]}
+            />
+            <PrimaryButton onPress={() => void loadUsers(userQuery, planFilter)}>
+              {usersLoading ? 'Buscando…' : 'Buscar'}
+            </PrimaryButton>
+            {users.map((user) => {
+              const selected = selectedUserId === user.id;
+              return (
+                <Pressable
+                  key={user.id}
+                  onPress={() => void openUserDetail(user.id)}
+                  style={[
+                    styles.userRow,
+                    {
+                      borderTopColor: theme.border,
+                      backgroundColor: selected ? theme.primarySoft : 'transparent',
+                      borderRadius: selected ? 12 : 0,
+                      paddingHorizontal: selected ? 10 : 0,
+                      paddingBottom: selected ? 10 : 0,
+                    },
+                  ]}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[styles.memberName, { color: theme.text }]}>{user.name}</Text>
+                    <Text style={[styles.hint, { color: theme.muted }]}>
+                      {user.email} · {user.plan}
+                      {user.provider ? ` · ${user.provider}` : ''}
+                    </Text>
+                  </View>
+                  <Pill
+                    tone={
+                      user.plan === 'business'
+                        ? 'green'
+                        : user.plan === 'plus'
+                          ? 'blue'
+                          : 'neutral'
+                    }>
+                    {user.plan}
+                  </Pill>
+                </Pressable>
+              );
+            })}
+            {!usersLoading && users.length === 0 ? (
+              <Text style={[styles.hint, { color: theme.muted }]}>
+                No hay usuarios para este filtro.
+              </Text>
+            ) : null}
+          </Card>
+
+          {selectedUserId ? (
+            <Card style={styles.block}>
+              {detailLoading || !userDetail ? (
+                <ActivityIndicator color={theme.primary} />
+              ) : (
+                <>
+                  <View style={styles.between}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={[styles.section, { color: theme.text }]}>
+                        {userDetail.user.name}
+                      </Text>
+                      <Text style={[styles.hint, { color: theme.muted }]}>
+                        {userDetail.user.email}
+                      </Text>
+                    </View>
+                    <Pill
+                      tone={
+                        userDetail.plan === 'business'
+                          ? 'green'
+                          : userDetail.plan === 'plus'
+                            ? 'blue'
+                            : 'neutral'
+                      }>
+                      {userDetail.plan}
+                    </Pill>
+                  </View>
+
+                  <View style={styles.detailGrid}>
+                    <Text style={[styles.label, { color: theme.muted }]}>Registro</Text>
+                    <Text style={[styles.hint, { color: theme.text }]}>
+                      {formatAdminDate(userDetail.user.createdAt)}
+                    </Text>
+                    <Text style={[styles.label, { color: theme.muted }]}>Plan actual</Text>
+                    <Text style={[styles.hint, { color: theme.text }]}>
+                      {userDetail.plan}
+                      {userDetail.subscription?.provider
+                        ? ` · ${userDetail.subscription.provider}`
+                        : ''}
+                      {userDetail.subscription?.expiresAt
+                        ? ` · vence ${formatAdminDate(userDetail.subscription.expiresAt)}`
+                        : ''}
+                    </Text>
+                    <Text style={[styles.label, { color: theme.muted }]}>Último upgrade</Text>
+                    <Text style={[styles.hint, { color: theme.text }]}>
+                      {userDetail.subscription?.purchasedAt
+                        ? formatAdminDate(userDetail.subscription.purchasedAt)
+                        : '—'}
+                    </Text>
+                  </View>
+
+                  <Text style={[styles.label, { color: theme.text }]}>Upgrade manual</Text>
+                  <View style={styles.rowWrap}>
+                    {([
+                      { plan: 'free' as const, label: '→ Free', color: theme.muted },
+                      { plan: 'plus' as const, label: '→ Plus', color: theme.primary },
+                      { plan: 'business' as const, label: '→ Business', color: theme.success },
+                    ]).map((action) => (
+                      <Pressable
+                        key={action.plan}
+                        disabled={Boolean(busyId)}
+                        onPress={() =>
+                          void applyManualPlan(
+                            userDetail.user.id,
+                            action.plan,
+                            userDetail.user.email,
+                          )
+                        }
+                        style={[
+                          styles.chip,
+                          {
+                            borderColor: action.color,
+                            backgroundColor: theme.surfaceSecondary,
+                            opacity: busyId === `${userDetail.user.id}-${action.plan}` ? 0.6 : 1,
+                          },
+                        ]}>
+                        <Text style={{ color: action.color, fontWeight: '800', fontSize: 12 }}>
+                          {busyId === `${userDetail.user.id}-${action.plan}`
+                            ? '…'
+                            : action.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text style={[styles.label, { color: theme.text }]}>Historial de upgrades</Text>
+                  {userDetail.upgrades.length === 0 ? (
+                    <Text style={[styles.hint, { color: theme.muted }]}>Sin upgrades aún.</Text>
+                  ) : (
+                    userDetail.upgrades.slice(0, 8).map((item, index) => (
+                      <View
+                        key={`${item.at}-${item.productId}-${index}`}
+                        style={[styles.historyRow, { borderTopColor: theme.border }]}>
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
+                            {item.plan}
+                          </Text>
+                          <Text style={[styles.hint, { color: theme.muted }]}>
+                            {formatAdminDate(item.at)} · {item.provider} · {item.status}
+                          </Text>
+                        </View>
+                      </View>
+                    ))
+                  )}
+
+                  <Text style={[styles.label, { color: theme.text }]}>Pagos / comisiones</Text>
+                  {userDetail.payments.length === 0 ? (
+                    <Text style={[styles.hint, { color: theme.muted }]}>
+                      No hay pagos de suscripción registrados para este usuario.
+                    </Text>
+                  ) : (
+                    userDetail.payments.slice(0, 8).map((payment) => (
+                      <View
+                        key={payment.id}
+                        style={[styles.historyRow, { borderTopColor: theme.border }]}>
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
+                            {payment.planLabel}
+                          </Text>
+                          <Text style={[styles.hint, { color: theme.muted }]}>
+                            {formatAdminDate(payment.at)} · {payment.eventType} ·{' '}
+                            {statusLabel[payment.status] || payment.status}
+                          </Text>
+                        </View>
+                        <Text style={[styles.amount, { color: theme.text }]}>
+                          {moneyMinor(payment.amountMinor, payment.currency)}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                </>
+              )}
+            </Card>
+          ) : null}
+        </>
       ) : null}
     </Screen>
   );
@@ -584,6 +799,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     flexDirection: 'row',
     gap: 12,
+    alignItems: 'center',
+  },
+  detailGrid: { gap: 6 },
+  historyRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    flexDirection: 'row',
+    gap: 10,
     alignItems: 'center',
   },
   error: { color: '#E5484D', fontSize: 13 },

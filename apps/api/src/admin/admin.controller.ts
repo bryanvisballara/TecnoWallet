@@ -45,7 +45,12 @@ export class AdminController {
 
   @Get('users')
   searchUsers(@Query() query: AdminUserSearchQueryDto) {
-    return this.admin.searchUsers(query.q);
+    return this.admin.searchUsers(query.q, query.plan);
+  }
+
+  @Get('users/:id')
+  userDetail(@Param('id') id: string) {
+    return this.admin.userDetail(id);
   }
 
   @Post('users/:id/upgrade')

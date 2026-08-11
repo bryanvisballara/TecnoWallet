@@ -262,7 +262,10 @@ export class AdminService {
     };
   }
 
-  async searchUsers(q?: string) {
+  async searchUsers(
+    q?: string,
+    planFilter: 'all' | 'free' | 'plus' | 'business' = 'all',
+  ) {
     const query = q?.trim().toLowerCase() ?? '';
     const filter = query
       ? {
@@ -276,7 +279,7 @@ export class AdminService {
     const users = await this.users
       .find(filter)
       .sort({ createdAt: -1 })
-      .limit(40)
+      .limit(80)
       .select('name email platformRole createdAt')
       .lean();
     const ids = users.map((u) => u._id);
@@ -286,19 +289,132 @@ export class AdminService {
     const subByUser = new Map(
       subscriptions.map((sub) => [sub.userId.toString(), sub]),
     );
+    const mapped = users.map((user) => {
+      const sub = subByUser.get(user._id.toString());
+      return {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        platformRole: user.platformRole === 'admin' ? 'admin' : 'user',
+        plan: this.entitlements.planFromSubscription(sub),
+        expiresAt: sub?.expiresAt ?? null,
+        provider: sub?.provider ?? null,
+        createdAt: user.createdAt ?? null,
+      };
+    });
+    const plan = planFilter || 'all';
     return {
-      users: users.map((user) => {
-        const sub = subByUser.get(user._id.toString());
-        return {
-          id: user._id.toString(),
-          name: user.name,
-          email: user.email,
-          platformRole: user.platformRole === 'admin' ? 'admin' : 'user',
-          plan: this.entitlements.planFromSubscription(sub),
-          expiresAt: sub?.expiresAt ?? null,
-          provider: sub?.provider ?? null,
-        };
-      }),
+      users:
+        plan === 'all' ? mapped : mapped.filter((row) => row.plan === plan),
+    };
+  }
+
+  async userDetail(userId: string) {
+    if (!isValidObjectId(userId)) {
+      throw new BadRequestException('Invalid user id');
+    }
+    const user = await this.users
+      .findById(userId)
+      .select('name email platformRole active createdAt updatedAt')
+      .lean();
+    if (!user) throw new NotFoundException('User not found');
+
+    const subscription = await this.subscriptions.findOne({ userId }).lean();
+    const commissions = await this.commissions
+      .find({ userId: new Types.ObjectId(userId) })
+      .sort({ occurredAt: -1 })
+      .limit(40)
+      .lean();
+
+    const plan = this.entitlements.planFromSubscription(subscription);
+    const upgrades: Array<{
+      at: string;
+      plan: string;
+      provider: string;
+      productId: string | null;
+      status: string;
+      expiresAt: string | null;
+      source: 'subscription' | 'commission';
+    }> = [];
+
+    if (subscription?.purchasedAt || subscription?.updatedAt) {
+      upgrades.push({
+        at: (
+          subscription.purchasedAt ??
+          subscription.updatedAt ??
+          new Date()
+        ).toISOString(),
+        plan: this.planLabelFromProduct(
+          subscription.productId || subscription.entitlementId || plan,
+        ),
+        provider: subscription.provider || 'unknown',
+        productId: subscription.productId ?? null,
+        status: subscription.status,
+        expiresAt: subscription.expiresAt
+          ? subscription.expiresAt.toISOString()
+          : null,
+        source: 'subscription',
+      });
+    }
+
+    for (const event of commissions) {
+      upgrades.push({
+        at: event.occurredAt.toISOString(),
+        plan: this.planLabelFromProduct(event.product),
+        provider: 'store',
+        productId: event.product,
+        status: event.status,
+        expiresAt: null,
+        source: 'commission',
+      });
+    }
+
+    upgrades.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+
+    const payments = commissions.map((event) => ({
+      id: event._id.toString(),
+      at: event.occurredAt.toISOString(),
+      product: event.product,
+      planLabel: this.planLabelFromProduct(event.product),
+      eventType: event.eventType,
+      amountMinor: event.netAmountMinor,
+      commissionAmountMinor: event.commissionAmountMinor,
+      currency: event.currency,
+      status: event.status,
+      paidAt: event.paidAt ? event.paidAt.toISOString() : null,
+    }));
+
+    return {
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        platformRole: user.platformRole === 'admin' ? 'admin' : 'user',
+        active: Boolean(user.active),
+        createdAt: user.createdAt ? user.createdAt.toISOString() : null,
+        updatedAt: user.updatedAt ? user.updatedAt.toISOString() : null,
+      },
+      plan,
+      subscription: subscription
+        ? {
+            status: subscription.status,
+            provider: subscription.provider,
+            productId: subscription.productId ?? null,
+            entitlementId: subscription.entitlementId,
+            purchasedAt: subscription.purchasedAt
+              ? subscription.purchasedAt.toISOString()
+              : null,
+            expiresAt: subscription.expiresAt
+              ? subscription.expiresAt.toISOString()
+              : null,
+            willRenew: Boolean(subscription.willRenew),
+            updatedAt: subscription.updatedAt
+              ? subscription.updatedAt.toISOString()
+              : null,
+          }
+        : null,
+      upgrades,
+      payments,
     };
   }
 
@@ -309,12 +425,46 @@ export class AdminService {
     const user = await this.users.findById(userId).lean();
     if (!user?.active) throw new NotFoundException('User not found');
 
+    const now = new Date();
+
+    if (dto.plan === 'free') {
+      const subscription = await this.subscriptions.findOneAndUpdate(
+        { userId },
+        {
+          $set: {
+            appUserId: userId,
+            status: 'cancelled',
+            entitlementId: 'free',
+            productId: 'manual_free',
+            purchasedAt: now,
+            expiresAt: now,
+            willRenew: false,
+            provider: 'manual',
+            lastEventId: `manual_free_${now.getTime()}`,
+            environment:
+              this.config.get<string>('NODE_ENV', 'development') ===
+              'production'
+                ? 'PRODUCTION'
+                : 'SANDBOX',
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+      return {
+        userId,
+        plan: 'free' as const,
+        entitlementId: 'free',
+        expiresAt: subscription.expiresAt,
+        provider: 'manual',
+        months: 0,
+      };
+    }
+
     const months = dto.months ?? 1;
     const entitlementId =
       dto.plan === 'business'
         ? this.entitlements.businessEntitlementId()
         : this.entitlements.plusEntitlementId();
-    const now = new Date();
     const expiresAt = new Date(now);
     expiresAt.setUTCMonth(expiresAt.getUTCMonth() + months);
 
