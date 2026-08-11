@@ -38,6 +38,13 @@ type GoalsState = {
     envelopeId?: string;
   }) => Promise<UserGoal>;
   linkEnvelope: (goalId: string, envelopeId: string) => Promise<void>;
+  updateGoal: (id: string, value: {
+    title: string;
+    period: GoalPeriod;
+    targetDate?: string;
+    targetAmount?: number;
+    color?: string;
+  }) => Promise<void>;
   toggleCompleted: (id: string) => Promise<void>;
   removeGoal: (id: string) => Promise<void>;
 };
@@ -228,6 +235,38 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
       goals: get().goals.map((item) =>
         item.id === goalId ? { ...item, envelopeId } : item,
       ),
+    });
+  },
+
+  updateGoal: async (id, value) => {
+    const current = get().goals.find((item) => item.id === id);
+    if (!current) throw new Error('Meta no encontrada.');
+    const next: UserGoal = {
+      ...current,
+      title: value.title.trim(),
+      period: value.period,
+      targetDate:
+        value.period === 'date' &&
+        value.targetDate &&
+        isValidGoalDateKey(value.targetDate)
+          ? value.targetDate
+          : undefined,
+      targetAmount:
+        value.targetAmount !== undefined && Number.isFinite(value.targetAmount)
+          ? Math.max(0, value.targetAmount)
+          : undefined,
+      color: value.color ?? current.color,
+    };
+    const { title, id: _id, ...rest } = next;
+    await apiRequest(`/resources/goal/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: title,
+        data: goalData(rest),
+      }),
+    });
+    set({
+      goals: get().goals.map((item) => (item.id === id ? next : item)),
     });
   },
 

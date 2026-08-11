@@ -324,3 +324,8 @@ CalendarItemRecordSchema.index({
   deletedAt: 1,
   'data.date': 1,
 });
+CalendarItemRecordSchema.index({
+  deletedAt: 1,
+  'data.reminderAt': 1,
+  'data.reminderNotifiedAt': 1,
+});

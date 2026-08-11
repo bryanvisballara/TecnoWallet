@@ -136,7 +136,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
 
             {calendars.map((calendar) => {
               const selected = calendar.id === activeCalendarId;
-              const others = calendar.members.filter((member) => member.id !== 'me').length;
+              const count = calendar.members.length;
               const name = displayCalendarName(calendar.name, locale);
               return (
                 <View
@@ -162,8 +162,8 @@ export function CalendarSwitcher({ compact = false }: Props) {
                     <View style={styles.copy}>
                       <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
                       <Text style={[styles.meta, { color: theme.muted }]}>
-                        {others > 0
-                          ? copy.calendar.sharedMeta(others + 1)
+                        {count > 1
+                          ? copy.calendar.sharedMeta(count)
                           : copy.calendar.onlyYou}
                       </Text>
                     </View>

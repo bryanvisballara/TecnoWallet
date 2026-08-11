@@ -1,10 +1,9 @@
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { AppDateField } from '@/components/app-date-field';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
@@ -37,10 +37,20 @@ export default function AddGoalScreen() {
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);
+  const params = useLocalSearchParams<{ id?: string }>();
+  const editId = typeof params.id === 'string' ? params.id : '';
+  const editing = Boolean(editId);
   const { ledger } = useActiveLedger();
+  const goals = useGoalsStore((state) => state.goals);
   const addGoal = useGoalsStore((state) => state.addGoal);
+  const updateGoal = useGoalsStore((state) => state.updateGoal);
   const linkEnvelope = useGoalsStore((state) => state.linkEnvelope);
   const addEnvelope = useLedgerStore((state) => state.addEnvelope);
+  const existing = useMemo(
+    () => (editId ? goals.find((item) => item.id === editId) : undefined),
+    [editId, goals],
+  );
+
   const [title, setTitle] = useState('');
   const [period, setPeriod] = useState<GoalPeriod>('month');
   const [targetDate, setTargetDate] = useState(toDateKey(new Date()));
@@ -49,6 +59,24 @@ export default function AddGoalScreen() {
   const [withSavingsEnvelope, setWithSavingsEnvelope] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [hydratedEdit, setHydratedEdit] = useState(!editing);
+
+  useEffect(() => {
+    if (!editing) {
+      setHydratedEdit(true);
+      return;
+    }
+    if (!existing) return;
+    setTitle(existing.title);
+    setPeriod(existing.period);
+    setTargetDate(existing.targetDate || toDateKey(new Date()));
+    setAmount(
+      existing.targetAmount !== undefined ? String(existing.targetAmount) : '',
+    );
+    setColor(existing.color || palette[2]);
+    setWithSavingsEnvelope(Boolean(existing.envelopeId));
+    setHydratedEdit(true);
+  }, [editing, existing]);
 
   const dateLabel = useMemo(() => {
     if (!isValidGoalDateKey(targetDate)) return null;
@@ -84,7 +112,8 @@ export default function AddGoalScreen() {
     }
 
     const parsed = amount.trim() ? Number(amount.replace(',', '.')) : undefined;
-    if (withSavingsEnvelope) {
+    const wantsEnvelope = withSavingsEnvelope && !existing?.envelopeId;
+    if (wantsEnvelope) {
       if (parsed === undefined || !Number.isFinite(parsed) || parsed <= 0) {
         nextErrors.amount = true;
         missing.push('meta financiera');
@@ -109,40 +138,68 @@ export default function AddGoalScreen() {
     setErrors({});
     setSaving(true);
     try {
-      const goal = await addGoal({
-        title: title.trim(),
-        period,
-        targetDate: period === 'date' ? targetDate : undefined,
-        targetAmount: parsed,
-        color,
-      });
-
-      if (withSavingsEnvelope && parsed !== undefined) {
-        const ruleLabel =
-          period === 'date' && dateLabel
-            ? `Ahorro · ${dateLabel}`
-            : `Ahorro · ${goalPeriodLabels[period]}`;
-        const envelope = await addEnvelope({
-          name: title.trim(),
-          kind: 'savings',
-          budget: parsed,
-          icon: 'leaf.fill',
+      if (editing && editId) {
+        await updateGoal(editId, {
+          title: title.trim(),
+          period,
+          targetDate: period === 'date' ? targetDate : undefined,
+          targetAmount: parsed,
           color,
-          rollover: true,
-          rule: ruleLabel,
-          goalId: goal.id,
         });
-        await linkEnvelope(goal.id, envelope.id);
+      } else {
+        const goal = await addGoal({
+          title: title.trim(),
+          period,
+          targetDate: period === 'date' ? targetDate : undefined,
+          targetAmount: parsed,
+          color,
+        });
+
+        if (wantsEnvelope && parsed !== undefined) {
+          const ruleLabel =
+            period === 'date' && dateLabel
+              ? `Ahorro · ${dateLabel}`
+              : `Ahorro · ${goalPeriodLabels[period]}`;
+          const envelope = await addEnvelope({
+            name: title.trim(),
+            kind: 'savings',
+            budget: parsed,
+            icon: 'leaf.fill',
+            color,
+            rollover: true,
+            rule: ruleLabel,
+            goalId: goal.id,
+          });
+          await linkEnvelope(goal.id, envelope.id);
+        }
       }
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       safeGoBack('/(tabs)/metas');
     } catch {
-      Alert.alert('No se pudo crear', 'Inténtalo de nuevo.');
+      Alert.alert(
+        editing ? 'No se pudo guardar' : 'No se pudo crear',
+        'Inténtalo de nuevo.',
+      );
     } finally {
       setSaving(false);
     }
   };
+
+  if (editing && hydratedEdit && !existing) {
+    return (
+      <SheetScreen fallback="/(tabs)/metas">
+        <View style={[styles.flex, styles.missing]}>
+          <Text style={[styles.title, { color: theme.text }]}>Meta no encontrada</Text>
+          <ScalePressable
+            onPress={() => safeGoBack('/(tabs)/metas')}
+            style={[styles.save, { backgroundColor: theme.primary }]}>
+            <Text style={styles.saveText}>Volver</Text>
+          </ScalePressable>
+        </View>
+      </SheetScreen>
+    );
+  }
 
   return (
     <SheetScreen fallback="/(tabs)/metas">
@@ -153,15 +210,17 @@ export default function AddGoalScreen() {
           </Pressable>
           <View style={styles.headerSpacer} />
           <ScalePressable
-            disabled={saving}
+            disabled={saving || (editing && !hydratedEdit)}
             onPress={() => void save()}
             style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
-            <Text style={styles.saveText}>Crear</Text>
+            <Text style={styles.saveText}>{editing ? 'Guardar' : 'Crear'}</Text>
           </ScalePressable>
         </View>
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-          <Text style={[styles.title, { color: theme.text }]}>Nueva meta</Text>
+          <Text style={[styles.title, { color: theme.text }]}>
+            {editing ? 'Editar meta' : 'Nueva meta'}
+          </Text>
           <Text style={[styles.hint, { color: theme.muted }]}>Libro {ledger.name}</Text>
 
           <Text style={[styles.label, { color: errors.title ? theme.danger : theme.muted }]}>
@@ -225,82 +284,65 @@ export default function AddGoalScreen() {
               <Text style={[styles.fieldHint, { color: errors.date ? theme.danger : theme.muted }]}>
                 Fecha objetivo · p. ej. el día del viaje
               </Text>
-              {Platform.OS === 'web' ? (
-                <input
-                  type="date"
-                  value={targetDate}
-                  min={toDateKey(new Date())}
-                  onChange={(event) => {
-                    setTargetDate(event.target.value);
-                    clearError('date');
-                  }}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    border: `${errors.date ? 1.5 : 1}px solid ${errors.date ? theme.danger : theme.border}`,
-                    borderRadius: 14,
-                    padding: '12px 14px',
-                    fontSize: 15,
-                    color: theme.text,
-                    backgroundColor: theme.surfaceSecondary,
-                    fontFamily: 'inherit',
-                  }}
-                />
-              ) : (
-                <TextInput
-                  value={targetDate}
-                  onChangeText={(value) => {
-                    setTargetDate(value);
-                    clearError('date');
-                  }}
-                  onFocus={focusScrollToEnd(scrollRef, 120)}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={theme.muted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={[
-                    styles.input,
-                    {
-                      color: theme.text,
-                      backgroundColor: theme.surfaceSecondary,
-                      ...fieldBorder('date'),
-                    },
-                  ]}
-                />
-              )}
+              <AppDateField
+                value={targetDate}
+                minimumDate={editing ? undefined : new Date()}
+                error={Boolean(errors.date)}
+                placeholder="Toca para elegir en el calendario"
+                onChange={(next) => {
+                  setTargetDate(next);
+                  clearError('date');
+                }}
+              />
               {errors.date ? (
                 <Text style={[styles.errorText, { color: theme.danger }]}>Elige una fecha válida</Text>
-              ) : dateLabel ? (
-                <Text style={[styles.datePreview, { color: theme.primary }]}>{dateLabel}</Text>
               ) : null}
             </View>
           ) : null}
 
-          <View
-            style={[
-              styles.switchRow,
-              { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
-            ]}>
-            <View style={styles.switchCopy}>
-              <Text style={[styles.switchTitle, { color: theme.text }]}>Sobre de ahorros</Text>
-              <Text style={[styles.switchHint, { color: theme.muted }]}>
-                Se verá en Sobres. Solo se puede crear desde aquí.
-              </Text>
+          {existing?.envelopeId ? (
+            <View
+              style={[
+                styles.switchRow,
+                { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
+              ]}>
+              <View style={styles.switchCopy}>
+                <Text style={[styles.switchTitle, { color: theme.text }]}>Sobre vinculado</Text>
+                <Text style={[styles.switchHint, { color: theme.muted }]}>
+                  Esta meta ya tiene un sobre de ahorros. Puedes gestionarlo en Sobres.
+                </Text>
+              </View>
+              <AppIcon name="leaf.fill" color={theme.success} size={20} />
             </View>
-            <Switch
-              value={withSavingsEnvelope}
-              onValueChange={(value) => {
-                setWithSavingsEnvelope(value);
-                if (!value) clearError('amount');
-              }}
-              trackColor={{ true: theme.primary }}
-            />
-          </View>
+          ) : (
+            <View
+              style={[
+                styles.switchRow,
+                { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
+              ]}>
+              <View style={styles.switchCopy}>
+                <Text style={[styles.switchTitle, { color: theme.text }]}>Sobre de ahorros</Text>
+                <Text style={[styles.switchHint, { color: theme.muted }]}>
+                  Se verá en Sobres. Solo se puede crear desde aquí.
+                </Text>
+              </View>
+              <Switch
+                value={withSavingsEnvelope}
+                onValueChange={(value) => {
+                  setWithSavingsEnvelope(value);
+                  if (!value) clearError('amount');
+                }}
+                trackColor={{ true: theme.primary }}
+              />
+            </View>
+          )}
 
           <Text style={[styles.label, { color: errors.amount ? theme.danger : theme.muted }]}>
-            {withSavingsEnvelope ? 'Meta financiera' : 'Monto objetivo (opcional)'}
+            {withSavingsEnvelope && !existing?.envelopeId
+              ? 'Meta financiera'
+              : 'Monto objetivo (opcional)'}
           </Text>
-          {withSavingsEnvelope ? (
+          {withSavingsEnvelope && !existing?.envelopeId ? (
             <Text style={[styles.fieldHint, { color: errors.amount ? theme.danger : theme.muted }]}>
               Obligatoria para el sobre de ahorros.
             </Text>
@@ -313,7 +355,9 @@ export default function AddGoalScreen() {
             }}
             onFocus={focusScrollToEnd(scrollRef, 120)}
             keyboardType="decimal-pad"
-            placeholder={withSavingsEnvelope ? 'Ej. 1500' : 'Sin monto'}
+            placeholder={
+              withSavingsEnvelope && !existing?.envelopeId ? 'Ej. 1500' : 'Sin monto'
+            }
             placeholderTextColor={theme.muted}
             style={[
               styles.input,
@@ -326,7 +370,9 @@ export default function AddGoalScreen() {
           />
           {errors.amount ? (
             <Text style={[styles.errorText, { color: theme.danger }]}>
-              {withSavingsEnvelope ? 'Indica un monto mayor a 0' : 'Monto inválido'}
+              {withSavingsEnvelope && !existing?.envelopeId
+                ? 'Indica un monto mayor a 0'
+                : 'Monto inválido'}
             </Text>
           ) : null}
 
@@ -352,6 +398,7 @@ export default function AddGoalScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  missing: { padding: 24, gap: 16, justifyContent: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -393,7 +440,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   dateBlock: { gap: 8 },
-  datePreview: { fontSize: 13, fontWeight: '700' },
   switchRow: {
     marginTop: 10,
     minHeight: 64,

@@ -385,13 +385,13 @@ export default function LedgersScreen() {
                     {member.email} · {member.role}
                   </Text>
                 </View>
-                {member.id !== 'me' ? (
+                {member.id === 'me' ? (
+                  <Pill tone="green">Tú</Pill>
+                ) : member.role !== 'owner' ? (
                   <Pressable onPress={() => void onRemoveMember(member.id, member.name)}>
                     <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>Quitar</Text>
                   </Pressable>
-                ) : (
-                  <Pill tone="green">Tú</Pill>
-                )}
+                ) : null}
               </View>
             ))}
 

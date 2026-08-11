@@ -19,6 +19,7 @@ import {
   PaymentRequiredException,
 } from '../billing/entitlement.service';
 import { PushService } from '../push/push.service';
+import { resolveCalendarReminderAt, withReminderSchedule } from './calendar-reminder.util';
 import {
   AcceptCollaborationInviteDto,
   CreateAccessRequestDto,
@@ -1490,14 +1491,22 @@ export class CalendarService {
     const memberships = await this.memberships.find({ calendarId: id }).lean();
     const userIds = memberships.map((membership) => membership.userId);
     const users = await this.usersForMemberships(userIds);
-    return memberships.map((membership) => ({
-      id: membership._id,
-      userId: membership.userId,
-      role: membership.role,
-      name: users.get(membership.userId.toString())?.name,
-      email: users.get(membership.userId.toString())?.email,
-      sponsored: Boolean(membership.sponsorUserId),
-    }));
+    const seen = new Set<string>();
+    return memberships.flatMap((membership) => {
+      const memberUserId = membership.userId?.toString?.() ?? String(membership.userId ?? '');
+      if (!memberUserId || seen.has(memberUserId)) return [];
+      seen.add(memberUserId);
+      return [
+        {
+          id: membership._id,
+          userId: membership.userId,
+          role: membership.role,
+          name: users.get(memberUserId)?.name,
+          email: users.get(memberUserId)?.email,
+          sponsored: Boolean(membership.sponsorUserId),
+        },
+      ];
+    });
   }
 
   async removeMember(
@@ -1548,11 +1557,12 @@ export class CalendarService {
   async createItem(dto: CreateCalendarItemDto, userId: string) {
     await this.assertAccess(dto.calendarId, userId, ['owner', 'editor']);
     this.validateItemData(dto.data);
+    const data = withReminderSchedule(dto.data);
     const created = await this.items.create({
       ...(dto.id ? { _id: new Types.ObjectId(dto.id) } : {}),
       calendarId: new Types.ObjectId(dto.calendarId),
       ownerId: new Types.ObjectId(userId),
-      data: dto.data,
+      data,
     });
     const [actor, calendar] = await Promise.all([
       this.users.findById(userId).select('name').lean(),
@@ -1561,10 +1571,9 @@ export class CalendarService {
     const who = actor?.name?.trim() || 'Un colaborador';
     const calendarName = calendar?.name?.trim() || 'Calendario';
     const title =
-      typeof dto.data.title === 'string' ? dto.data.title.trim() : 'Elemento';
-    const date =
-      typeof dto.data.date === 'string' ? dto.data.date : '';
-    const type = String(dto.data.type || 'event');
+      typeof data.title === 'string' ? data.title.trim() : 'Elemento';
+    const date = typeof data.date === 'string' ? data.date : '';
+    const type = String(data.type || 'event');
     const kindLabel =
       type === 'task' ? 'tarea' : type === 'birthday' ? 'cumpleaños' : 'evento';
     this.push.notifyCalendarMembers(dto.calendarId, userId, {
@@ -1591,8 +1600,108 @@ export class CalendarService {
       'editor',
     ]);
     this.validateItemData(dto.data);
-    item.data = dto.data;
+    item.data = withReminderSchedule(dto.data);
     return item.save();
+  }
+
+  /**
+   * Sends due reminder pushes to every calendar member (shared + personal).
+   * Marks each item so it only fires once.
+   */
+  async dispatchDueReminders() {
+    const now = Date.now();
+    const windowStart = new Date(now - 3 * 60_000).toISOString();
+    const windowEnd = new Date(now + 30_000).toISOString();
+    const dueByField = await this.items
+      .find({
+        deletedAt: { $exists: false },
+        'data.reminderAt': { $gte: windowStart, $lte: windowEnd },
+        'data.reminderNotifiedAt': { $exists: false },
+      })
+      .limit(100)
+      .lean();
+
+    // Legacy rows created before reminderAt existed — compute on the fly.
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(from.getDate() - 8);
+    const to = new Date(today);
+    to.setDate(to.getDate() + 2);
+    const legacyCandidates = await this.items
+      .find({
+        deletedAt: { $exists: false },
+        'data.reminder': { $exists: true, $nin: [null, '', 'Sin notificación'] },
+        'data.reminderAt': { $exists: false },
+        'data.reminderNotifiedAt': { $exists: false },
+        'data.date': {
+          $gte: from.toISOString().slice(0, 10),
+          $lte: to.toISOString().slice(0, 10),
+        },
+      })
+      .limit(100)
+      .lean();
+
+    const legacyDue = legacyCandidates.filter((item) => {
+      const data = (item.data ?? {}) as Record<string, unknown>;
+      const fireAt = resolveCalendarReminderAt({
+        date: typeof data.date === 'string' ? data.date : '',
+        allDay: Boolean(data.allDay),
+        startHour:
+          typeof data.startHour === 'number' ? data.startHour : undefined,
+        reminder:
+          typeof data.reminder === 'string' ? data.reminder : undefined,
+      });
+      if (!fireAt) return false;
+      const ts = fireAt.getTime();
+      return ts >= now - 3 * 60_000 && ts <= now + 30_000;
+    });
+
+    const seen = new Set<string>();
+    const due = [...dueByField, ...legacyDue].filter((item) => {
+      const id = String(item._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    let sent = 0;
+    for (const item of due) {
+      const data = (item.data ?? {}) as Record<string, unknown>;
+      const title =
+        typeof data.title === 'string' ? data.title.trim() : 'Elemento';
+      const date = typeof data.date === 'string' ? data.date : '';
+      const type = String(data.type || 'event');
+      const kindLabel =
+        type === 'task'
+          ? 'tarea'
+          : type === 'birthday'
+            ? 'cumpleaños'
+            : 'evento';
+      const calendarId = item.calendarId.toString();
+      const calendarName = await this.push.calendarName(calendarId);
+      this.push.notifyAllCalendarMembers(calendarId, {
+        title: `Recordatorio · ${kindLabel}`,
+        body: `${title}${date ? ` · ${date}` : ''} · ${calendarName}`,
+        data: {
+          kind: 'calendar',
+          route: '/(tabs)/calendario',
+          notificationId: `cal-reminder-${String(item._id)}`,
+          itemId: String(item._id),
+          calendarId,
+        },
+        sound: 'calendario.wav',
+      });
+      await this.items.updateOne(
+        { _id: item._id },
+        {
+          $set: {
+            'data.reminderNotifiedAt': new Date().toISOString(),
+          },
+        },
+      );
+      sent += 1;
+    }
+    return { sent, scanned: due.length };
   }
 
   async removeItem(id: string, userId: string) {

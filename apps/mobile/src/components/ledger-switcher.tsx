@@ -29,6 +29,7 @@ export function LedgerSwitcher({ compact = false }: Props) {
   const activeLedgerId = useLedgerStore((state) => state.activeLedgerId);
   const setActiveLedger = useLedgerStore((state) => state.setActiveLedger);
   const createLedger = useLedgerStore((state) => state.createLedger);
+  const hydrateLedgers = useLedgerStore((state) => state.hydrate);
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const [open, setOpen] = useState(false);
@@ -97,7 +98,10 @@ export function LedgerSwitcher({ compact = false }: Props) {
         accessibilityRole="button"
         accessibilityLabel={copy.ledger.activeA11y(activeName)}
         accessibilityHint={copy.ledger.openHint}
-        onPress={() => setOpen(true)}
+        onPress={() => {
+          setOpen(true);
+          void hydrateLedgers();
+        }}
         style={({ pressed }) => [
           styles.trigger,
           compact && styles.triggerCompactPad,
@@ -128,6 +132,7 @@ export function LedgerSwitcher({ compact = false }: Props) {
             {ledgers.map((ledger) => {
               const selected = ledger.id === activeLedgerId;
               const name = displayLedgerName(ledger.name, locale);
+              const count = ledger.members.length;
               return (
                 <View
                   key={ledger.id}
@@ -148,8 +153,8 @@ export function LedgerSwitcher({ compact = false }: Props) {
                     <View style={styles.copy}>
                       <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
                       <Text style={[styles.meta, { color: theme.muted }]}>
-                        {ledger.type === 'shared'
-                          ? copy.common.people(ledger.members.length)
+                        {count > 1
+                          ? copy.calendar.sharedMeta(count)
                           : copy.common.personal}
                       </Text>
                     </View>

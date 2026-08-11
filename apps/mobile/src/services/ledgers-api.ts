@@ -106,13 +106,39 @@ export function mapApiMember(member: ApiMember, selfUserId?: string | null): Led
   const role = (['owner', 'admin', 'member', 'viewer'].includes(member.role)
     ? member.role
     : 'member') as LedgerMember['role'];
-  const userId = String(member.userId ?? '');
+  const userId = String(member.userId ?? '').trim();
   return {
-    id: selfUserId && userId === String(selfUserId) ? 'me' : userId,
+    id: selfUserId && userId && userId === String(selfUserId) ? 'me' : userId,
     name: member.name?.trim() || member.email?.split('@')[0] || 'Miembro',
     email: (member.email || '').toLowerCase(),
     role,
   };
+}
+
+/** Unique people only — avoids inflated “3 personas” when the same user appears twice. */
+export function mapApiMembers(
+  members: ApiMember[],
+  selfUserId?: string | null,
+): LedgerMember[] {
+  const seenIds = new Set<string>();
+  const seenEmails = new Set<string>();
+  const mapped: LedgerMember[] = [];
+  for (const member of members) {
+    const userId = String(member.userId ?? '').trim();
+    if (!userId) continue;
+    const email = (member.email || '').trim().toLowerCase();
+    if (seenIds.has(userId)) continue;
+    if (email && seenEmails.has(email)) continue;
+    seenIds.add(userId);
+    if (email) seenEmails.add(email);
+    mapped.push(mapApiMember(member, selfUserId));
+  }
+  mapped.sort((a, b) => {
+    if (a.role === 'owner' && b.role !== 'owner') return -1;
+    if (b.role === 'owner' && a.role !== 'owner') return 1;
+    return a.name.localeCompare(b.name, 'es');
+  });
+  return mapped;
 }
 
 export function mapAccountResource(resource: ApiResource): Account | null {

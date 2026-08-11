@@ -567,6 +567,45 @@ export async function scheduleCalendarReminder(input: {
   }
 }
 
+/** Schedule local reminders for every calendar item the user can see (team + own). */
+export async function syncCalendarReminders(
+  items: Array<{
+    id: string;
+    title: string;
+    type: string;
+    date: string;
+    allDay: boolean;
+    startHour?: number;
+    reminder?: string;
+  }>,
+) {
+  if (Platform.OS === "web") return;
+  try {
+    if (!(await reminderKindEnabled("calendar"))) return;
+    const { typeLabels } = await import("@/data/calendar");
+    await Promise.all(
+      items.map(async (item) => {
+        if (!item.reminder?.trim()) {
+          await cancelCalendarReminder(item.id);
+          return;
+        }
+        await scheduleCalendarReminder({
+          itemId: item.id,
+          title: item.title,
+          typeLabel:
+            typeLabels[item.type as keyof typeof typeLabels] ?? "Elemento",
+          date: item.date,
+          allDay: item.allDay,
+          startHour: item.startHour,
+          reminder: item.reminder,
+        });
+      }),
+    );
+  } catch {
+    // Reminder sync must never break hydration.
+  }
+}
+
 export async function scheduleRecaudoReminder(input: {
   recaudoId: string;
   title: string;

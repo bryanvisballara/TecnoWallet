@@ -110,6 +110,17 @@ export class PushService {
     );
   }
 
+  /** Reminder fan-out: notify every member, including the organizer. */
+  notifyAllCalendarMembers(calendarId: string, payload: PushPayload): void {
+    void this.sendToCalendarMembers(calendarId, '', payload).catch(
+      (error: unknown) => {
+        this.logger.warn(
+          `Calendar reminder push failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
+  }
+
   notifyUsers(userIds: string[], actorUserId: string, payload: PushPayload): void {
     const recipients = userIds.filter((id) => id && id !== actorUserId);
     void this.sendToUsers(recipients, payload).catch((error: unknown) => {

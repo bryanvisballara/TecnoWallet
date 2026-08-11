@@ -962,14 +962,20 @@ class WorkspaceController {
     const users = await this.users.find({
       _id: { $in: memberships.map((member) => member.userId) },
     });
-    return memberships.map((member) => {
+    const seen = new Set<string>();
+    return memberships.flatMap((member) => {
+      const userId = member.userId?.toString?.() ?? String(member.userId ?? '');
+      if (!userId || seen.has(userId)) return [];
+      seen.add(userId);
       const profile = users.find((item) => item._id.equals(member.userId));
-      return {
-        userId: member.userId,
-        role: member.role,
-        name: profile?.name,
-        email: profile?.email,
-      };
+      return [
+        {
+          userId: member.userId,
+          role: member.role,
+          name: profile?.name,
+          email: profile?.email,
+        },
+      ];
     });
   }
 

@@ -20,6 +20,7 @@ import {
   updateCalendar,
   updateCalendarItem,
   type ApiCalendar,
+  type ApiCalendarMember,
 } from '@/services/calendar-api';
 import { localStorage } from '@/services/persistence';
 import { useLedgerStore } from '@/store/ledger';
@@ -115,6 +116,33 @@ function ownedWorkspaceId() {
   if (personal) return personal.id;
   const anyOwned = ledgers.find(owns);
   return anyOwned?.id ?? activeLedgerId;
+}
+
+/** Dedupe by userId and mark the current user as `me` (same pattern as ledgers). */
+function mapCalendarMembers(
+  members: ApiCalendarMember[],
+  selfUserId?: string,
+): CalendarMember[] {
+  const seen = new Set<string>();
+  const mapped: CalendarMember[] = [];
+  for (const member of members) {
+    const userId = String(member.userId ?? '').trim();
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+    const isSelf = Boolean(selfUserId && userId === String(selfUserId));
+    mapped.push({
+      id: isSelf ? 'me' : userId,
+      name: member.name?.trim() || member.email?.split('@')[0] || 'Miembro',
+      email: (member.email || '').toLowerCase(),
+      role: member.role,
+    });
+  }
+  mapped.sort((a, b) => {
+    if (a.role === 'owner' && b.role !== 'owner') return -1;
+    if (b.role === 'owner' && a.role !== 'owner') return 1;
+    return a.name.localeCompare(b.name, 'es');
+  });
+  return mapped;
 }
 
 function clientObjectId() {
@@ -296,43 +324,30 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         }
       }
 
+      const nameByUserId = new Map<string, string>();
       const calendars = await Promise.all(
         remoteCalendars.map(async (calendar) => {
           const members = await listCalendarMembers(calendar._id).catch(() => []);
-          return calendarBook(
-            calendar,
-            members.map((member) => ({
-              id: String(member.userId),
-              name: member.name ?? member.email?.split('@')[0] ?? 'Miembro',
-              email: member.email ?? '',
-              role: member.role,
-            })),
-          );
+          for (const member of members) {
+            const userId = String(member.userId ?? '').trim();
+            const label =
+              member.name?.trim() || member.email?.split('@')[0] || '';
+            if (userId && label) nameByUserId.set(userId, label);
+          }
+          return calendarBook(calendar, mapCalendarMembers(members, selfUserId));
         }),
       );
       // Own calendars first, then shared — keeps the default personal calendar visible.
       calendars.sort((a, b) => {
         const aOwned = a.members.some(
-          (member) =>
-            member.role === 'owner' &&
-            (member.id === 'me' ||
-              (selfUserId && String(member.id) === String(selfUserId))),
+          (member) => member.role === 'owner' && member.id === 'me',
         );
         const bOwned = b.members.some(
-          (member) =>
-            member.role === 'owner' &&
-            (member.id === 'me' ||
-              (selfUserId && String(member.id) === String(selfUserId))),
+          (member) => member.role === 'owner' && member.id === 'me',
         );
         if (aOwned === bOwned) return a.name.localeCompare(b.name, 'es');
         return aOwned ? -1 : 1;
       });
-      const nameByUserId = new Map<string, string>();
-      for (const calendar of calendars) {
-        for (const member of calendar.members) {
-          if (member.id && member.name) nameByUserId.set(String(member.id), member.name);
-        }
-      }
       items = items.map((item) => {
         const authorId = item.createdByUserId?.trim();
         if (!authorId) return item;
@@ -349,10 +364,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       );
       const preferredOwn = calendars.find((calendar) =>
         calendar.members.some(
-          (member) =>
-            member.role === 'owner' &&
-            (member.id === 'me' ||
-              (selfUserId && String(member.id) === String(selfUserId))),
+          (member) => member.role === 'owner' && member.id === 'me',
         ),
       );
       const activeCalendarId = calendars.some(
@@ -366,6 +378,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       void import('@/services/collaboration-api').then(
         ({ notifyNewTeamCalendarItems }) =>
           notifyNewTeamCalendarItems().catch(() => undefined),
+      );
+      void import('@/services/push-notifications').then(
+        ({ syncCalendarReminders }) =>
+          syncCalendarReminders(items).catch(() => undefined),
       );
     } catch {
       set({ hydrated: true });
@@ -393,14 +409,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       icon: 'calendar',
     });
     const members = await listCalendarMembers(created._id).catch(() => []);
+    const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
     const calendar = calendarBook(
       created,
-      members.map((member) => ({
-        id: member.userId,
-        name: member.name ?? member.email?.split('@')[0] ?? 'Miembro',
-        email: member.email ?? '',
-        role: member.role,
-      })),
+      mapCalendarMembers(members, selfUserId),
     );
     const id = calendar.id;
     const next = {

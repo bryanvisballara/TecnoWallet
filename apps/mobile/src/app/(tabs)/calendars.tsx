@@ -377,15 +377,15 @@ export default function CalendarsScreen() {
                     {member.email} · {roleLabels[member.role]}
                   </Text>
                 </View>
-                {member.id !== 'me' ? (
+                {member.id === 'me' ? (
+                  <Pill tone="green">Tú</Pill>
+                ) : member.role !== 'owner' ? (
                   <Pressable onPress={() => void removeMember(selected.id, member.id)}>
                     <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>
                       Quitar
                     </Text>
                   </Pressable>
-                ) : (
-                  <Pill tone="green">Tú</Pill>
-                )}
+                ) : null}
               </View>
             ))}
 

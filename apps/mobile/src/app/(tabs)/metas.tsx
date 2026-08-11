@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HeroGoalsBanner } from '@/components/hero-goals-banner';
 import { AppIcon, Card, Pill, ScalePressable, Screen, useAppTheme } from '@/components/ui';
@@ -25,8 +25,32 @@ function GoalCard({ goal }: { goal: UserGoal }) {
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
   const toggleCompleted = useGoalsStore((state) => state.toggleCompleted);
+  const removeGoal = useGoalsStore((state) => state.removeGoal);
   const activeColor = goal.completed ? theme.success : goal.color;
   const surface = goal.completed ? theme.successSoft : theme.surface;
+
+  const onEdit = () => {
+    router.push({ pathname: '/add-goal', params: { id: goal.id } });
+  };
+
+  const onDelete = () => {
+    const run = async () => {
+      try {
+        await removeGoal(goal.id);
+      } catch {
+        Alert.alert('No se pudo borrar', 'Inténtalo de nuevo.');
+      }
+    };
+    const message = `Se eliminará “${goal.title}”. Esta acción no se puede deshacer.`;
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(`${message}\n\n¿Borrar meta?`)) void run();
+      return;
+    }
+    Alert.alert('¿Borrar meta?', message, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Borrar', style: 'destructive', onPress: () => void run() },
+    ]);
+  };
 
   return (
     <Card
@@ -66,6 +90,32 @@ function GoalCard({ goal }: { goal: UserGoal }) {
           {goal.completed ? copy.goals.completed : copy.goals.active}
         </Pill>
       </View>
+
+      <View style={styles.goalActions}>
+        <ScalePressable
+          accessibilityRole="button"
+          accessibilityLabel={`Editar ${goal.title}`}
+          onPress={onEdit}
+          style={[
+            styles.actionBtn,
+            { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
+          ]}>
+          <AppIcon name="pencil" color={theme.text} size={15} />
+          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }}>Editar</Text>
+        </ScalePressable>
+        <ScalePressable
+          accessibilityRole="button"
+          accessibilityLabel={`Borrar ${goal.title}`}
+          onPress={onDelete}
+          style={[
+            styles.actionBtn,
+            { backgroundColor: `${theme.danger}12`, borderColor: theme.danger },
+          ]}>
+          <AppIcon name="trash" color={theme.danger} size={15} />
+          <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>Borrar</Text>
+        </ScalePressable>
+      </View>
+
       <ScalePressable
         accessibilityRole="button"
         accessibilityLabel={
@@ -220,6 +270,17 @@ const styles = StyleSheet.create({
   copy: { flex: 1, gap: 2, minWidth: 0 },
   goalTitle: { fontSize: 15, fontWeight: '700' },
   goalMeta: { fontSize: 12 },
+  goalActions: { flexDirection: 'row', gap: 8 },
+  actionBtn: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
   completeBtn: {
     minHeight: 42,
     borderRadius: 12,

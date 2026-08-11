@@ -26,7 +26,7 @@ import {
   listMembers,
   listWorkspaces,
   loadWorkspaceSnapshot,
-  mapApiMember,
+  mapApiMembers,
   mapWorkspaceToLedger,
   objectId,
   reverseLedgerTransaction,
@@ -160,7 +160,7 @@ async function fetchLedgersFromApi(): Promise<{
     const id = objectId(workspace);
     if (!id) continue;
     const membersRaw = await listMembers(id);
-    const members = membersRaw.map((member) => mapApiMember(member, selfId));
+    const members = mapApiMembers(membersRaw, selfId);
     const meta = mapWorkspaceToLedger(workspace, members);
     meta.baseCurrency = (workspace.baseCurrency || 'COP').toUpperCase();
     ledgers.push(meta);

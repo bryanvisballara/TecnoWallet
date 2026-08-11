@@ -23,6 +23,7 @@ import {
   CollaborationSeatSchema,
 } from './collaboration.schemas';
 import { CalendarService, CollaborationService } from './collaboration.service';
+import { CalendarReminderSchedulerService } from './calendar-reminder.scheduler';
 
 @Module({
   imports: [
@@ -43,7 +44,11 @@ import { CalendarService, CollaborationService } from './collaboration.service';
     ]),
   ],
   controllers: [CollaborationController, CalendarController],
-  providers: [CollaborationService, CalendarService],
+  providers: [
+    CollaborationService,
+    CalendarService,
+    CalendarReminderSchedulerService,
+  ],
   exports: [CollaborationService, CalendarService, MongooseModule],
 })
 export class CollaborationModule {}
