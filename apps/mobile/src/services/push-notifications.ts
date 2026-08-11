@@ -131,11 +131,35 @@ export async function configureActivityNotifications(): Promise<boolean> {
 
   if (!listenersConfigured) {
     listenersConfigured = true;
-    // Scheduled reminders also land in the in-app bell when they fire.
+    // Local reminders + remote APNS land in the in-app bell when received.
     Notifications.addNotificationReceivedListener((notification) => {
       const content = notification.request.content;
       const data = (content.data ?? {}) as Record<string, string>;
-      if (data.notificationId) return; // Already recorded via recordActivity
+      const notificationId = data.notificationId?.trim();
+      if (notificationId) {
+        void markSharedNotificationSeen(notificationId);
+        // Remote collaborator pushes (not local recordActivity ids).
+        if (/^(tx|cal|rec)-/.test(notificationId)) {
+          if (notificationId.startsWith("tx-")) return; // feed synthesizes txs
+          const rawKind = data.kind as ActivityKind | undefined;
+          const kind: ActivityKind =
+            rawKind === "calendar" || rawKind === "recaudo"
+              ? rawKind
+              : "system";
+          void import("@/store/notifications").then(({ recordActivity }) =>
+            recordActivity({
+              kind,
+              title: content.title ?? "Novedad del equipo",
+              body: content.body ?? "",
+              icon: kind === "calendar" ? "calendar" : "person.3.fill",
+              tone: kind === "calendar" ? "purple" : "green",
+              route: data.route,
+              push: false,
+            }),
+          );
+        }
+        return;
+      }
       const rawKind = data.kind as ActivityKind | undefined;
       const kind: ActivityKind =
         rawKind === "income" ||
@@ -218,7 +242,97 @@ export async function configureActivityNotifications(): Promise<boolean> {
           },
         });
 
+  if (result.status === "granted") {
+    void registerRemotePushToken().catch(() => undefined);
+  }
+
   return result.status === "granted";
+}
+
+async function markSharedNotificationSeen(notificationId: string) {
+  const id = notificationId.trim();
+  if (!id) return;
+  const key = id.startsWith("tx-")
+    ? "seen-team-transaction-ids"
+    : id.startsWith("cal-")
+      ? "seen-team-calendar-item-ids"
+      : id.startsWith("rec-")
+        ? "seen-team-recaudo-activity-ids"
+        : null;
+  if (!key) return;
+  const seen = await localStorage.get<string[]>(key, []);
+  if (seen.includes(id)) return;
+  await localStorage.set(key, [...seen, id].slice(-400));
+}
+
+let lastRegisteredToken: string | null = null;
+
+/** Register APNS/FCM (or Expo) token with the API so locked-phone pushes work. */
+export async function registerRemotePushToken(): Promise<boolean> {
+  try {
+    if (Platform.OS === "web") return false;
+    const Notifications = await notificationsModule();
+    if (!Notifications) return false;
+    const { apiRequest } = await import("@/services/api");
+    const Constants = await import("expo-constants");
+
+    const projectId =
+      Constants.default.easConfig?.projectId ??
+      Constants.default.expoConfig?.extra?.eas?.projectId;
+
+    let token = "";
+    let platform: "ios" | "android" | "expo" =
+      Platform.OS === "ios" ? "ios" : "android";
+
+    if (typeof projectId === "string" && projectId.trim()) {
+      try {
+        const expoToken = await Notifications.getExpoPushTokenAsync({
+          projectId: projectId.trim(),
+        });
+        if (expoToken?.data) {
+          token = expoToken.data;
+          platform = "expo";
+        }
+      } catch {
+        // Fall through to native device token.
+      }
+    }
+
+    if (!token) {
+      const deviceToken = await Notifications.getDevicePushTokenAsync();
+      token = String(deviceToken?.data ?? "");
+      platform = Platform.OS === "ios" ? "ios" : "android";
+    }
+
+    if (!token.trim()) return false;
+    if (lastRegisteredToken === token) return true;
+
+    await apiRequest("/devices/push-token", {
+      method: "POST",
+      body: JSON.stringify({ token, platform }),
+    });
+    lastRegisteredToken = token;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function unregisterRemotePushToken(): Promise<void> {
+  try {
+    if (Platform.OS === "web") return;
+    const { apiRequest } = await import("@/services/api");
+    await apiRequest("/devices/push-token", {
+      method: "DELETE",
+      body: JSON.stringify(
+        lastRegisteredToken ? { token: lastRegisteredToken } : {},
+      ),
+    });
+  } catch {
+    // Best-effort cleanup on logout.
+  } finally {
+    lastRegisteredToken = null;
+  }
 }
 
 async function sendActivityNotification(input: {

@@ -13,6 +13,7 @@ import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PlatformModule } from './platform/platform.module';
+import { PushModule } from './push/push.module';
 import { RecaudosModule } from './recaudos/recaudos.module';
 
 @Module({
@@ -41,6 +42,7 @@ import { RecaudosModule } from './recaudos/recaudos.module';
     RecaudosModule,
     PaymentsModule,
     MailModule,
+    PushModule,
     HealthModule,
   ],
 })

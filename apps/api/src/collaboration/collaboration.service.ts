@@ -18,6 +18,7 @@ import {
   EntitlementService,
   PaymentRequiredException,
 } from '../billing/entitlement.service';
+import { PushService } from '../push/push.service';
 import {
   AcceptCollaborationInviteDto,
   CreateAccessRequestDto,
@@ -990,6 +991,7 @@ export class CalendarService {
     @InjectModel(User.name)
     private readonly users: Model<User>,
     private readonly entitlements: EntitlementService,
+    private readonly push: PushService,
   ) {}
 
   async create(dto: CreateCalendarDto, userId: string) {
@@ -1146,12 +1148,35 @@ export class CalendarService {
   async createItem(dto: CreateCalendarItemDto, userId: string) {
     await this.assertAccess(dto.calendarId, userId, ['owner', 'editor']);
     this.validateItemData(dto.data);
-    return this.items.create({
+    const created = await this.items.create({
       ...(dto.id ? { _id: new Types.ObjectId(dto.id) } : {}),
       calendarId: new Types.ObjectId(dto.calendarId),
       ownerId: new Types.ObjectId(userId),
       data: dto.data,
     });
+    const [actor, calendar] = await Promise.all([
+      this.users.findById(userId).select('name').lean(),
+      this.calendars.findById(dto.calendarId).select('name').lean(),
+    ]);
+    const who = actor?.name?.trim() || 'Un colaborador';
+    const calendarName = calendar?.name?.trim() || 'Calendario';
+    const title =
+      typeof dto.data.title === 'string' ? dto.data.title.trim() : 'Elemento';
+    const date =
+      typeof dto.data.date === 'string' ? dto.data.date : '';
+    const type = String(dto.data.type || 'event');
+    const kindLabel =
+      type === 'task' ? 'tarea' : type === 'birthday' ? 'cumpleaños' : 'evento';
+    this.push.notifyCalendarMembers(dto.calendarId, userId, {
+      title: 'Calendario compartido',
+      body: `${who} agregó ${kindLabel} «${title}»${date ? ` · ${date}` : ''} · ${calendarName}`,
+      data: {
+        kind: 'calendar',
+        route: '/(tabs)/calendario',
+        notificationId: `cal-${dto.calendarId}-${String(created._id)}`,
+      },
+    });
+    return created;
   }
 
   async updateItem(id: string, dto: UpdateCalendarItemDto, userId: string) {

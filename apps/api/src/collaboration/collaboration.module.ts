@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { MailModule } from '../mail/mail.module';
+import { PushModule } from '../push/push.module';
 import {
   CalendarController,
   CollaborationController,
@@ -28,6 +29,7 @@ import { CalendarService, CollaborationService } from './collaboration.service';
     AuthModule,
     BillingModule,
     MailModule,
+    PushModule,
     MongooseModule.forFeature([
       { name: CollaborationInvite.name, schema: CollaborationInviteSchema },
       { name: CollaborationSeat.name, schema: CollaborationSeatSchema },

@@ -18,6 +18,7 @@ import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSpring } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Colors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { useAppRefresh } from '@/hooks/use-app-refresh';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { useTabBarScrollHandler } from '@/hooks/use-tab-bar-scroll';
@@ -95,13 +96,38 @@ export function useAppTheme() {
   return Colors[scheme === 'dark' ? 'dark' : 'light'];
 }
 
-export function Screen({ children, title, subtitle, right, refreshing, onRefresh, withTabBar = true, floating }: PropsWithChildren<{
-  title?: ReactNode; subtitle?: string; right?: ReactNode; refreshing?: boolean; onRefresh?: () => void; withTabBar?: boolean; floating?: ReactNode;
+export function Screen({
+  children,
+  title,
+  subtitle,
+  right,
+  refreshing,
+  onRefresh,
+  enableRefresh = true,
+  withTabBar = true,
+  floating,
+}: PropsWithChildren<{
+  title?: ReactNode;
+  subtitle?: string;
+  right?: ReactNode;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  /** Pull-to-refresh (default on for all product screens). */
+  enableRefresh?: boolean;
+  withTabBar?: boolean;
+  floating?: ReactNode;
 }>) {
   const theme = useAppTheme();
   const { tabsBottom, stackBottom } = useSafeLayout();
   const { onScroll, useAnimatedScrollView } = useTabBarScrollHandler();
+  const appRefresh = useAppRefresh();
   const ScrollComponent = useAnimatedScrollView ? AnimatedScrollView : ScrollView;
+  const isRefreshing = enableRefresh
+    ? (refreshing ?? appRefresh.refreshing)
+    : Boolean(refreshing);
+  const handleRefresh = enableRefresh
+    ? (onRefresh ?? appRefresh.onRefresh)
+    : onRefresh;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
@@ -118,8 +144,13 @@ export function Screen({ children, title, subtitle, right, refreshing, onRefresh
         scrollEventThrottle={16}
         onScroll={onScroll}
         refreshControl={
-          onRefresh ? (
-            <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} />
+          handleRefresh ? (
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={theme.primary}
+              colors={[theme.primary]}
+            />
           ) : undefined
         }>
         {(title || subtitle || right) && (

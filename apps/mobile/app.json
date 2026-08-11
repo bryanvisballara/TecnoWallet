@@ -17,6 +17,9 @@
       "bundleIdentifier": "com.tecnowallet.mobile",
       "googleServicesFile": "./GoogleService-Info.plist",
       "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      },
       "config": {
         "usesNonExemptEncryption": false
       }

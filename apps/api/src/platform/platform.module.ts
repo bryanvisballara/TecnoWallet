@@ -62,6 +62,8 @@ import {
 import { BrevoMailer } from '../mail/brevo';
 import { inviteEmailHtml, inviteEmailSubject } from '../mail/invite-email';
 import { MailModule } from '../mail/mail.module';
+import { PushModule } from '../push/push.module';
+import { PushService } from '../push/push.service';
 
 const resourceKinds = [
   'category',
@@ -935,8 +937,13 @@ class TransactionController {
   constructor(
     private readonly ledger: LedgerService,
     private readonly access: WorkspaceAccessService,
+    private readonly push: PushService,
     @InjectModel(LedgerTransaction.name)
     private readonly transactions: Model<LedgerTransaction>,
+    @InjectModel(User.name)
+    private readonly users: Model<User>,
+    @InjectModel(Workspace.name)
+    private readonly workspaces: Model<Workspace>,
   ) {}
 
   @Post()
@@ -945,7 +952,42 @@ class TransactionController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     await this.access.assertMember(dto.workspaceId, user.userId);
-    return this.ledger.create(dto, user.userId);
+    if (dto.private) {
+      return this.ledger.create(dto, user.userId);
+    }
+    const created = await this.ledger.create(dto, user.userId);
+    const [actor, workspace] = await Promise.all([
+      this.users.findById(user.userId).select('name').lean(),
+      this.workspaces.findById(dto.workspaceId).select('name').lean(),
+    ]);
+    const who = actor?.name?.trim() || 'Un colaborador';
+    const book = workspace?.name?.trim() || 'Libro';
+    const isIncome = dto.kind === 'income';
+    const amountLabel = dto.entries
+      ?.find((entry) => entry.amountMinor !== 0)
+      ?.amountMinor;
+    const absMinor = amountLabel ? Math.abs(amountLabel) : 0;
+    const money =
+      absMinor > 0
+        ? (absMinor / 100).toLocaleString('es-CO', {
+            style: 'currency',
+            currency: 'COP',
+            maximumFractionDigits: 0,
+          })
+        : '';
+    this.push.notifyWorkspaceMembers(dto.workspaceId, user.userId, {
+      title: isIncome ? 'Ingreso del equipo' : 'Gasto del equipo',
+      body: money
+        ? `${who} registró ${dto.description} · ${money} · ${book}`
+        : `${who} registró ${dto.description} · ${book}`,
+      data: {
+        kind: isIncome ? 'income' : 'expense',
+        route: '/(tabs)/movimientos',
+        notificationId: `tx-${dto.workspaceId}-${String(created._id)}`,
+      },
+      sound: isIncome ? 'default' : 'default',
+    });
+    return created;
   }
 
   @Get()
@@ -1308,6 +1350,7 @@ function escapeRegex(value: string): string {
     BillingModule,
     CollaborationModule,
     MailModule,
+    PushModule,
     MongooseModule.forFeature([
       { name: FinanceResource.name, schema: FinanceResourceSchema },
       { name: LedgerTransaction.name, schema: LedgerTransactionSchema },

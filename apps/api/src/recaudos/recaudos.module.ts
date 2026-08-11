@@ -51,6 +51,8 @@ import {
 } from 'mongoose';
 import { AuthModule, CurrentUser, Membership, User } from '../auth/auth.module';
 import type { AuthPrincipal } from '../auth/auth.module';
+import { PushModule } from '../push/push.module';
+import { PushService } from '../push/push.service';
 
 const planFrequencies = ['daily', 'weekly', 'biweekly', 'monthly'] as const;
 const paymentModes = ['manual', 'card_simulated', 'bank_ach'] as const;
@@ -506,6 +508,7 @@ export class RecaudosService {
     @InjectModel(User.name) private readonly users: Model<User>,
     private readonly mailer: RecaudoMailer,
     private readonly config: ConfigService,
+    private readonly push: PushService,
   ) {}
 
   async create(dto: CreateRecaudoDto, principal: AuthPrincipal) {
@@ -806,6 +809,13 @@ export class RecaudosService {
             : undefined,
         idempotencyKey,
       });
+      void this.notifyRecaudoActivity({
+        recaudo,
+        actorUserId: principal.userId,
+        amountMinor: dto.amountMinor,
+        withdrawal: false,
+        contributionId: contribution._id.toString(),
+      });
       return {
         contribution,
         ...(await this.totals(recaudo)),
@@ -879,6 +889,13 @@ export class RecaudosService {
         currency: recaudo.currency,
         note: dto.note,
         idempotencyKey,
+      });
+      void this.notifyRecaudoActivity({
+        recaudo,
+        actorUserId: principal.userId,
+        amountMinor: dto.amountMinor,
+        withdrawal: true,
+        contributionId: withdrawal._id.toString(),
       });
       const totals = await this.totals(recaudo);
       if (totals.collectedMinor <= 0) {
@@ -1050,6 +1067,44 @@ export class RecaudosService {
     );
   }
 
+  private async notifyRecaudoActivity(input: {
+    recaudo: HydratedDocument<Recaudo>;
+    actorUserId: string;
+    amountMinor: number;
+    withdrawal: boolean;
+    contributionId: string;
+  }) {
+    const participants = await this.participants
+      .find({ recaudoId: input.recaudo._id })
+      .select('userId')
+      .lean();
+    const recipientIds = participants
+      .map((item) => item.userId.toString())
+      .filter((id) => id !== input.actorUserId);
+    if (!recipientIds.length) return;
+    const actor = await this.users
+      .findById(input.actorUserId)
+      .select('name')
+      .lean();
+    const who = actor?.name?.trim() || 'Un colaborador';
+    const amount = (input.amountMinor / 100).toLocaleString('es-CO', {
+      style: 'currency',
+      currency: input.recaudo.currency || 'COP',
+      maximumFractionDigits: 0,
+    });
+    this.push.notifyUsers(recipientIds, input.actorUserId, {
+      title: input.withdrawal ? 'Retiro del recaudo' : 'Aporte del equipo',
+      body: input.withdrawal
+        ? `${who} retiró ${amount} de ${input.recaudo.title}`
+        : `${who} aportó ${amount} a ${input.recaudo.title}`,
+      data: {
+        kind: 'recaudo',
+        route: `/(tabs)/recaudo/${input.recaudo._id.toString()}`,
+        notificationId: `rec-${input.recaudo._id.toString()}-${input.contributionId}`,
+      },
+    });
+  }
+
   private async totals(recaudo: HydratedDocument<Recaudo>) {
     const collectedMinor = await this.collected(recaudo._id.toString());
     return {
@@ -1206,6 +1261,7 @@ function escapeHtml(value: string): string {
 @Module({
   imports: [
     AuthModule,
+    PushModule,
     MongooseModule.forFeature([
       { name: Recaudo.name, schema: RecaudoSchema },
       { name: Participant.name, schema: ParticipantSchema },

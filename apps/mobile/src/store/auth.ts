@@ -397,6 +397,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // Local sign-out must still finish when the API is unavailable.
       }
     }
+    void import('@/services/push-notifications').then(
+      ({ unregisterRemotePushToken }) =>
+        unregisterRemotePushToken().catch(() => undefined),
+    );
     await clearLocalSession();
     await useLedgerStore.getState().hydrate();
     set({ authenticated: false, demo: false });

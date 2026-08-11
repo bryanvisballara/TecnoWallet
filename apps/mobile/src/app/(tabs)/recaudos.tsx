@@ -146,9 +146,7 @@ export default function RecaudosScreen() {
   const copy = useAppCopy();
   const recaudos = useRecaudosStore((state) => state.recaudos);
   const hydrated = useRecaudosStore((state) => state.hydrated);
-  const loading = useRecaudosStore((state) => state.loading);
   const hydrate = useRecaudosStore((state) => state.hydrate);
-  const refresh = useRecaudosStore((state) => state.refresh);
 
   useEffect(() => {
     if (!hydrated) void hydrate();
@@ -167,8 +165,6 @@ export default function RecaudosScreen() {
           ? copy.collections.activeCount(active.length)
           : copy.collections.subtitle
       }
-      refreshing={loading}
-      onRefresh={() => void refresh()}
       floating={
         <ScalePressable
           accessibilityRole="button"

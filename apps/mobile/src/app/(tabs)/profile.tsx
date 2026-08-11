@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,11 +20,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppIcon, Pill, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
+import { useAppRefresh } from '@/hooks/use-app-refresh';
 import { useAuthStore } from '@/store/auth';
 
 export default function ProfileScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const { refreshing, onRefresh } = useAppRefresh();
   const demo = useAuthStore((state) => state.demo);
   const profile = useAuthStore((state) => state.profile);
   const updateProfile = useAuthStore((state) => state.updateProfile);
@@ -141,7 +144,15 @@ export default function ProfileScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.primary}
+              colors={[theme.primary]}
+            />
+          }>
           <View style={[styles.avatarCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <ScalePressable accessibilityLabel={copy.profile.changePhotoA11y} onPress={() => void pickAvatar()}>
               <Image

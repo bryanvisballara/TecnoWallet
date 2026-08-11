@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,6 +29,7 @@ import {
 } from '@/data/calendar';
 import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
 import { dateLocale } from '@/i18n/locale-format';
+import { useAppRefresh } from '@/hooks/use-app-refresh';
 import { useTabBarScrollHandler } from '@/hooks/use-tab-bar-scroll';
 import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
 import { useLanguageStore } from '@/store/language';
@@ -46,6 +48,7 @@ export default function CalendarScreen() {
   const toggleTask = useCalendarStore((state) => state.toggleTask);
   const { onScroll, useAnimatedScrollView } = useTabBarScrollHandler();
   const VerticalScroll = useAnimatedScrollView ? AnimatedScrollView : ScrollView;
+  const { refreshing, onRefresh } = useAppRefresh();
   const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
   const weekStartJs = weekStartsOnJsDay(weekStartsOn);
   const weekDays = useMemo(() => weekDayLabels(weekStartJs, locale), [weekStartJs, locale]);
@@ -171,7 +174,15 @@ export default function CalendarScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingBottom: tabsBottom + 24 }]}
         scrollEventThrottle={16}
-        onScroll={onScroll}>
+        onScroll={onScroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.primary}
+            colors={[theme.primary]}
+          />
+        }>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={view === 'month' ? copy.calendar.viewDay : copy.calendar.viewMonth}
