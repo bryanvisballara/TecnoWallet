@@ -75,6 +75,13 @@ export default function CalendarsScreen() {
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
+  useEffect(() => {
+    if (shareMode && !hasPaidPlan(plusAccess)) {
+      openPaywall('SHARING_REQUIRED');
+      safeGoBack('/(tabs)/calendario');
+    }
+  }, [shareMode, plusAccess, openPaywall]);
+
   const initialId =
     params.focus && calendars.some((item) => item.id === params.focus)
       ? params.focus
@@ -275,6 +282,10 @@ export default function CalendarsScreen() {
     setNewCalendarName('');
     setSelectedId(id);
   };
+
+  if (shareMode && !hasPaidPlan(plusAccess)) {
+    return null;
+  }
 
   return (
     <Screen

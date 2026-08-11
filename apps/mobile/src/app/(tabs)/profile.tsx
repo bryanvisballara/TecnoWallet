@@ -22,15 +22,25 @@ import { AppIcon, Pill, PrimaryButton, ScalePressable, useAppTheme } from '@/com
 import { useAppCopy } from '@/i18n/app-copy';
 import { useAppRefresh } from '@/hooks/use-app-refresh';
 import { useAuthStore } from '@/store/auth';
+import { useLanguageStore } from '@/store/language';
+import {
+  hasPaidPlan,
+  planDisplayLabel,
+  planDisplaySubtitle,
+  usePlusStore,
+} from '@/store/plus';
 
 export default function ProfileScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { refreshing, onRefresh } = useAppRefresh();
   const demo = useAuthStore((state) => state.demo);
   const profile = useAuthStore((state) => state.profile);
   const updateProfile = useAuthStore((state) => state.updateProfile);
   const changePassword = useAuthStore((state) => state.changePassword);
+  const plusAccess = usePlusStore((state) => state.access);
+  const openPaywall = usePlusStore((state) => state.openPaywall);
 
   const [name, setName] = useState(profile.name);
   const [email, setEmail] = useState(profile.email);
@@ -135,7 +145,19 @@ export default function ProfileScreen() {
           <Text style={[styles.title, { color: theme.text }]}>{copy.profile.title}</Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>{copy.profile.subtitle}</Text>
         </View>
-        {demo ? <Pill tone="blue">Demo</Pill> : <View style={styles.back} />}
+        <View style={styles.headerBadges}>
+          {demo ? <Pill tone="blue">Demo</Pill> : null}
+          <Pill
+            tone={
+              plusAccess === 'business'
+                ? 'blue'
+                : hasPaidPlan(plusAccess)
+                  ? 'green'
+                  : 'neutral'
+            }>
+            {planDisplayLabel(plusAccess, locale)}
+          </Pill>
+        </View>
       </View>
 
       <KeyboardAvoidingView
@@ -165,6 +187,26 @@ export default function ProfileScreen() {
               </View>
             </ScalePressable>
             <Text style={[styles.avatarHint, { color: theme.muted }]}>{copy.profile.tapToChangePhoto}</Text>
+            <View style={styles.planRow}>
+              <Pill
+                tone={
+                  plusAccess === 'business'
+                    ? 'blue'
+                    : hasPaidPlan(plusAccess)
+                      ? 'green'
+                      : 'neutral'
+                }>
+                {planDisplayLabel(plusAccess, locale)}
+              </Pill>
+              <Text style={[styles.planSubtitle, { color: theme.muted }]}>
+                {planDisplaySubtitle(plusAccess, locale)}
+              </Text>
+            </View>
+            {!hasPaidPlan(plusAccess) ? (
+              <PrimaryButton onPress={() => openPaywall('UPGRADE', { plan: 'plus' })}>
+                Pasarme a Plus
+              </PrimaryButton>
+            ) : null}
             {profile.avatarUri ? (
               <Pressable onPress={() => void removeAvatar()}>
                 <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>
@@ -266,6 +308,7 @@ const styles = StyleSheet.create({
   },
   back: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   headerCopy: { flex: 1, gap: 2 },
+  headerBadges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 28, fontWeight: '700', letterSpacing: -0.8 },
   subtitle: { fontSize: 13 },
   content: { padding: 18, gap: 12, paddingBottom: 40 },
@@ -275,6 +318,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     paddingVertical: 22,
+    paddingHorizontal: 18,
   },
   avatar: { width: 96, height: 96, borderRadius: 28 },
   cameraBadge: {
@@ -288,6 +332,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarHint: { fontSize: 13 },
+  planRow: { alignItems: 'center', gap: 6, marginTop: 2 },
+  planSubtitle: { fontSize: 13, textAlign: 'center' },
   section: { fontSize: 18, fontWeight: '700', marginTop: 8 },
   card: {
     borderRadius: 20,

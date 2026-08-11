@@ -1,7 +1,7 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
+import { AppLinearGradient } from '@/components/app-linear-gradient';
 import { AppIcon } from '@/components/ui';
 import { getActiveMoneyCurrency, moneyAmount } from '@/data/demo';
 
@@ -69,7 +69,7 @@ export function HeroNetWorthBanner({
 
   return (
     <View style={style}>
-      <LinearGradient
+      <AppLinearGradient
         colors={['#3B8BFF', '#1E6FE8', '#0A3A9C']}
         locations={[0, 0.42, 1]}
         start={{ x: 0, y: 0 }}
@@ -132,7 +132,7 @@ export function HeroNetWorthBanner({
             </View>
           ))}
         </View>
-      </LinearGradient>
+      </AppLinearGradient>
     </View>
   );
 }

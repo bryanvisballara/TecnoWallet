@@ -103,7 +103,10 @@ export function CalendarSwitcher({ compact = false }: Props) {
         accessibilityRole="button"
         accessibilityLabel={copy.calendar.activeA11y(activeName)}
         accessibilityHint={copy.calendar.openHint}
-        onPress={() => setOpen(true)}
+        onPress={() => {
+          setOpen(true);
+          void hydrateCalendars();
+        }}
         style={({ pressed }) => [
           styles.trigger,
           compact && styles.triggerCompactPad,

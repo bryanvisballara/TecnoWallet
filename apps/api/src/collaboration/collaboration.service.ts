@@ -327,6 +327,37 @@ export class CollaborationService {
     });
   }
 
+  private async notifyRequesterAccessGranted(input: {
+    ownerUserId: string;
+    requesterUserId: string;
+    requestId: string;
+    resourceType: 'workspace' | 'calendar';
+    resourceId: string;
+    resourceName: string;
+  }) {
+    const who = await this.push.userDisplayName(input.ownerUserId);
+    const isCalendar = input.resourceType === 'calendar';
+    const targetLabel = isCalendar ? 'calendario' : 'libro';
+    const fallbackName = isCalendar ? 'Calendario' : 'Libro';
+    const name = input.resourceName.trim() || fallbackName;
+    const route = isCalendar
+      ? `/(tabs)/calendario`
+      : `/(tabs)/inicio`;
+    this.push.notifyUsers([input.requesterUserId], input.ownerUserId, {
+      title: 'Solicitud aceptada',
+      body: `${who} te otorgó acceso al ${targetLabel} «${name}»`,
+      data: {
+        kind: 'invite',
+        route,
+        notificationId: `access-accepted-${input.requestId}`,
+        accessRequestId: input.requestId,
+        resourceType: input.resourceType,
+        resourceId: input.resourceId,
+      },
+      sound: 'sobres.wav',
+    });
+  }
+
   async listAccessRequests(
     query: ListAccessRequestsQueryDto,
     principal: AuthPrincipal,
@@ -564,10 +595,21 @@ export class CollaborationService {
       request.resolvedAt = new Date();
       await request.save();
 
+      const calendarId = request.calendarId.toString();
+      const calendarName = await this.push.calendarName(calendarId);
+      void this.notifyRequesterAccessGranted({
+        ownerUserId: principal.userId,
+        requesterUserId: request.requesterUserId.toString(),
+        requestId: request._id.toString(),
+        resourceType: 'calendar',
+        resourceId: calendarId,
+        resourceName: calendarName,
+      });
+
       return {
         accepted: true,
         resourceType: 'calendar' as const,
-        calendarId: request.calendarId.toString(),
+        calendarId,
       };
     }
 
@@ -636,10 +678,21 @@ export class CollaborationService {
     request.resolvedAt = new Date();
     await request.save();
 
+    const workspaceId = request.workspaceId.toString();
+    const workspaceName = await this.push.workspaceName(workspaceId);
+    void this.notifyRequesterAccessGranted({
+      ownerUserId: principal.userId,
+      requesterUserId: request.requesterUserId.toString(),
+      requestId: request._id.toString(),
+      resourceType: 'workspace',
+      resourceId: workspaceId,
+      resourceName: workspaceName,
+    });
+
     return {
       accepted: true,
       resourceType: 'workspace' as const,
-      workspaceId: request.workspaceId.toString(),
+      workspaceId,
     };
   }
 
@@ -1362,7 +1415,7 @@ export class CalendarService {
     return calendar;
   }
 
-  async list(query: ListCalendarsQueryDto, userId: string) {
+  async list(_query: ListCalendarsQueryDto, userId: string) {
     const memberships = await this.memberships.find({ userId }).lean();
     const allowedIds: Types.ObjectId[] = [];
     for (const membership of memberships) {
@@ -1387,11 +1440,12 @@ export class CalendarService {
         allowedIds.push(membership.calendarId);
       }
     }
+    // Membership-scoped, not workspace-scoped: collaborators must see their
+    // own calendars (on their Hogar) plus shared ones (on the owner's book).
     return this.calendars
       .find({
         _id: { $in: allowedIds },
         deletedAt: { $exists: false },
-        ...(query.workspaceId ? { workspaceId: query.workspaceId } : {}),
       })
       .sort({ updatedAt: -1 })
       .lean();

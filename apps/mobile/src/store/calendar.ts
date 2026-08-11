@@ -104,6 +104,19 @@ function workspaceId() {
   return useLedgerStore.getState().activeLedgerId;
 }
 
+/** Prefer a book the user owns (Hogar) so collaborators can still create calendars. */
+function ownedWorkspaceId() {
+  const { ledgers, activeLedgerId } = useLedgerStore.getState();
+  const owns = (ledger: (typeof ledgers)[number]) =>
+    ledger.members.some((member) => member.role === 'owner');
+  const active = ledgers.find((item) => item.id === activeLedgerId);
+  if (active && owns(active)) return active.id;
+  const personal = ledgers.find((item) => item.type === 'personal' && owns(item));
+  if (personal) return personal.id;
+  const anyOwned = ledgers.find(owns);
+  return anyOwned?.id ?? activeLedgerId;
+}
+
 function clientObjectId() {
   const timestamp = Math.floor(Date.now() / 1000)
     .toString(16)
@@ -130,9 +143,8 @@ function deterministicObjectId(value: string) {
 
 async function persist(state: PersistedCalendarState) {
   const demo = await localStorage.get('demo-session', false);
-  const ws = workspaceId();
-  if (demo || !ws) return;
-  await localStorage.set(`calendar-active-${ws}`, state.activeCalendarId);
+  if (demo) return;
+  await localStorage.set('calendar-active', state.activeCalendarId);
 }
 
 function calendarBook(calendar: ApiCalendar, members: CalendarMember[] = []): CalendarBook {
@@ -189,7 +201,31 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         calendarId: item.calendarId ?? data.activeCalendarId ?? 'personal',
       }));
 
-      let remoteCalendars = await listCalendars(ws);
+      let remoteCalendars = await listCalendars();
+      const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
+      const ownsAny = selfUserId
+        ? remoteCalendars.some(
+            (calendar) => String(calendar.ownerId) === String(selfUserId),
+          )
+        : remoteCalendars.some((calendar) => !calendar.migrationSourceId);
+      // Collaborators joining a shared calendar must still keep their own default.
+      if (!ownsAny || remoteCalendars.length === 0) {
+        const homeWs = ownedWorkspaceId();
+        if (homeWs) {
+          try {
+            const created = await createCalendarApi({
+              workspaceId: homeWs,
+              name: 'Mi calendario',
+              color: '#0878F9',
+              icon: 'calendar',
+              migrationSourceId: 'personal',
+            });
+            remoteCalendars = [...remoteCalendars, created];
+          } catch {
+            // Shared-book members without an owned workspace cannot create yet.
+          }
+        }
+      }
       if (
         remoteCalendars.length === 0 ||
         remoteCalendars.some((calendar) => calendar.migrationSourceId)
@@ -202,9 +238,19 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           ) {
             continue;
           }
+          if (
+            selfUserId &&
+            remoteCalendars.some(
+              (calendar) =>
+                String(calendar.ownerId) === String(selfUserId) &&
+                calendar.name.trim().toLowerCase() === legacy.name.trim().toLowerCase(),
+            )
+          ) {
+            continue;
+          }
           try {
             const created = await createCalendarApi({
-              workspaceId: ws,
+              workspaceId: ownedWorkspaceId() || ws,
               name: legacy.name,
               color: legacy.color,
               icon: legacy.icon,
@@ -264,6 +310,23 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           );
         }),
       );
+      // Own calendars first, then shared — keeps the default personal calendar visible.
+      calendars.sort((a, b) => {
+        const aOwned = a.members.some(
+          (member) =>
+            member.role === 'owner' &&
+            (member.id === 'me' ||
+              (selfUserId && String(member.id) === String(selfUserId))),
+        );
+        const bOwned = b.members.some(
+          (member) =>
+            member.role === 'owner' &&
+            (member.id === 'me' ||
+              (selfUserId && String(member.id) === String(selfUserId))),
+        );
+        if (aOwned === bOwned) return a.name.localeCompare(b.name, 'es');
+        return aOwned ? -1 : 1;
+      });
       const nameByUserId = new Map<string, string>();
       for (const calendar of calendars) {
         for (const member of calendar.members) {
@@ -278,12 +341,19 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           createdBy: nameByUserId.get(authorId) ?? item.createdBy,
         };
       });
-      const savedActive = await localStorage.get(
-        `calendar-active-${ws}`,
-        '',
-      );
+      const savedActive =
+        (await localStorage.get('calendar-active', '')) ||
+        (await localStorage.get(`calendar-active-${ws}`, ''));
       const migratedActive = legacyToRemote.get(
         data.activeCalendarId ?? 'personal',
+      );
+      const preferredOwn = calendars.find((calendar) =>
+        calendar.members.some(
+          (member) =>
+            member.role === 'owner' &&
+            (member.id === 'me' ||
+              (selfUserId && String(member.id) === String(selfUserId))),
+        ),
       );
       const activeCalendarId = calendars.some(
         (calendar) => calendar.id === savedActive,
@@ -291,7 +361,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         ? savedActive
         : calendars.some((calendar) => calendar.id === migratedActive)
           ? (migratedActive as string)
-          : calendars[0]?.id ?? '';
+          : preferredOwn?.id ?? calendars[0]?.id ?? '';
       set({ calendars, activeCalendarId, items, hydrated: true });
       void import('@/services/collaboration-api').then(
         ({ notifyNewTeamCalendarItems }) =>
@@ -314,7 +384,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   },
 
   createCalendar: async (name, color) => {
-    const ws = workspaceId();
+    const ws = ownedWorkspaceId();
     if (!ws) throw new Error('Selecciona un libro primero.');
     const created = await createCalendarApi({
       workspaceId: ws,

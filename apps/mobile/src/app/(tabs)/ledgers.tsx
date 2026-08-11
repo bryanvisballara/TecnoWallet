@@ -66,6 +66,13 @@ export default function LedgersScreen() {
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
+  useEffect(() => {
+    if (shareMode && !hasPaidPlan(plusAccess)) {
+      openPaywall('SHARING_REQUIRED');
+      safeGoBack('/(tabs)/inicio');
+    }
+  }, [shareMode, plusAccess, openPaywall]);
+
   const initialId = params.focus && ledgers.some((item) => item.id === params.focus)
     ? params.focus
     : activeLedgerId;
@@ -298,6 +305,10 @@ export default function LedgersScreen() {
       { text: 'Borrar libro', style: 'destructive', onPress: () => void remove() },
     ]);
   };
+
+  if (shareMode && !hasPaidPlan(plusAccess)) {
+    return null;
+  }
 
   return (
     <Screen

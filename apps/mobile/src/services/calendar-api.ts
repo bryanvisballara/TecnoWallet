@@ -37,11 +37,10 @@ function mapApiCalendarItem(record: ApiCalendarItem): CalendarItem {
   };
 }
 
-export async function listCalendars(workspaceId: string) {
+export async function listCalendars(_workspaceId?: string) {
   try {
-    return await apiRequest<ApiCalendar[]>(
-      `/calendars?workspaceId=${encodeURIComponent(workspaceId)}`,
-    );
+    // Calendars are membership-scoped (own + shared), not filtered by active book.
+    return await apiRequest<ApiCalendar[]>('/calendars');
   } catch (error) {
     // Older API deploys may not expose /calendars yet — treat as empty.
     if (error instanceof ApiError && error.status === 404) return [];

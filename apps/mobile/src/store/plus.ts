@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import {
   getBillingStatus,
   hasPaidPlan,
+  planDisplayLabel,
+  planDisplaySubtitle,
   type BillingStatus,
   type PlusAccess,
 } from '@/services/plus-api';
@@ -94,7 +96,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   setBilling: (billing) => set({ billing, access: billing.access }),
 }));
 
-export { hasPaidPlan };
+export { hasPaidPlan, planDisplayLabel, planDisplaySubtitle };
 
 export function isPlusRequiredError(error: unknown): error is {
   code?: string;

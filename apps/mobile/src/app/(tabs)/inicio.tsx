@@ -23,6 +23,7 @@ import { useLanguageStore } from '@/store/language';
 import { buildNotificationFeed, unreadCount, useNotificationsStore } from '@/store/notifications';
 import { usePeriodStore } from '@/store/period';
 import { usePreferencesStore } from '@/store/preferences';
+import { hasPaidPlan, usePlusStore } from '@/store/plus';
 
 const movementFilterKeys: MovementFilterKey[] = ['all', 'expenses', 'income', 'recurring'];
 
@@ -31,6 +32,8 @@ export default function DashboardScreen() {
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
   const profile = useAuthStore((state) => state.profile);
+  const openPaywall = usePlusStore((state) => state.openPaywall);
+  const plusAccess = usePlusStore((state) => state.access);
   const [authUserId, setAuthUserId] = useState('');
   const { summary, transactions, upcoming, ledger, envelopes, accounts } = useActiveLedger();
   const ledgers = useLedgerStore((state) => state.ledgers);
@@ -165,12 +168,16 @@ export default function DashboardScreen() {
           <IconButton
             icon="person.badge.plus"
             label={copy.common.inviteTo(ledgerLabel)}
-            onPress={() =>
+            onPress={() => {
+              if (!hasPaidPlan(plusAccess)) {
+                openPaywall('SHARING_REQUIRED');
+                return;
+              }
               router.push({
                 pathname: '/(tabs)/ledgers',
                 params: { focus: ledger.id, tab: 'share' },
-              })
-            }
+              });
+            }}
           />
           <IconButton
             icon="bell"

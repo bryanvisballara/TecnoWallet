@@ -33,7 +33,8 @@ export function pushSoundForKind(
     value === 'planning' ||
     value === 'create' ||
     value === 'invite' ||
-    value === 'access_request'
+    value === 'access_request' ||
+    value === 'access_granted'
   ) {
     return PUSH_SOUND.recaudo;
   }

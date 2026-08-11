@@ -1,7 +1,7 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
 
+import { AppLinearGradient } from '@/components/app-linear-gradient';
 import { AppIcon, ScalePressable } from '@/components/ui';
 import { getActiveMoneyCurrency, moneyAmount } from '@/data/demo';
 
@@ -121,7 +121,7 @@ export function HeroBalanceBanner({
 
   return (
     <View style={style}>
-      <LinearGradient
+      <AppLinearGradient
         colors={['#3B8BFF', '#1E6FE8', '#0A3A9C']}
         locations={[0, 0.42, 1]}
         start={{ x: 0, y: 0 }}
@@ -166,7 +166,7 @@ export function HeroBalanceBanner({
             {body}
           </View>
         )}
-      </LinearGradient>
+      </AppLinearGradient>
     </View>
   );
 }

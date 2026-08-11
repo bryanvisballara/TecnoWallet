@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { HeroGoalsBanner } from '@/components/hero-goals-banner';
 import { AppIcon, Card, Pill, ScalePressable, Screen, useAppTheme } from '@/components/ui';
 import { formatDayLabel, parseDateKey } from '@/data/calendar';
 import { money } from '@/data/demo';
@@ -135,26 +136,31 @@ export default function MetasScreen() {
           </Pressable>
         </View>
       }>
-      <Card style={[styles.hero, { backgroundColor: '#F79009' }]}>
-        <Text style={styles.heroLabel}>{copy.goals.yourGoals}</Text>
-        <Text style={styles.heroValue}>
-          {goals.length === 0 ? copy.goals.none : `${goals.length} meta${goals.length === 1 ? '' : 's'}`}
-        </Text>
-        <Text style={styles.heroHint}>
-          {completedCount > 0
+      <HeroGoalsBanner
+        label={copy.goals.yourGoals}
+        title={
+          goals.length === 0
+            ? copy.goals.none
+            : `${goals.length} meta${goals.length === 1 ? '' : 's'}`
+        }
+        hint={
+          completedCount > 0
             ? `${completedCount} completada${completedCount === 1 ? '' : 's'}`
-            : 'Metas con opcional sobre de ahorros'}
-        </Text>
-      </Card>
+            : 'Metas con opcional sobre de ahorros'
+        }
+      />
 
       {goals.length === 0 ? (
-        <Card>
+        <Card style={styles.emptyCard}>
           <Text style={[styles.empty, { color: theme.muted }]}>
             {copy.goals.empty}
           </Text>
           <ScalePressable
             onPress={() => router.push('/add-goal')}
             style={[styles.createCta, { backgroundColor: theme.primary }]}>
+            <View style={styles.createCtaIcon}>
+              <AppIcon name="plus" color={theme.primary} size={14} />
+            </View>
             <Text style={styles.createCtaText}>{copy.goals.create}</Text>
           </ScalePressable>
         </Card>
@@ -179,15 +185,23 @@ export default function MetasScreen() {
 const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', gap: 8 },
   back: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  hero: { borderWidth: 0, gap: 6 },
-  heroLabel: { color: '#FFF4E5', fontSize: 13 },
-  heroValue: { color: '#FFFFFF', fontSize: 30, fontWeight: '700', letterSpacing: -0.8 },
-  heroHint: { color: '#FFF4E5', fontSize: 13 },
+  emptyCard: { gap: 16, paddingVertical: 22 },
   empty: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   createCta: {
-    marginTop: 14,
-    minHeight: 46,
-    borderRadius: 14,
+    alignSelf: 'center',
+    minHeight: 48,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  createCtaIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, { FadeInDown, FadeOut, ZoomIn } from 'react-native-reanimated';
@@ -35,6 +36,7 @@ import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
 import { useLanguageStore } from '@/store/language';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { usePreferencesStore, weekStartsOnJsDay } from '@/store/preferences';
+import { hasPaidPlan, usePlusStore } from '@/store/plus';
 
 const AnimatedScrollView = Animated.ScrollView;
 
@@ -42,8 +44,13 @@ export default function CalendarScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
+  const { height: windowHeight } = useWindowDimensions();
+  /** iPhone Pro / compact heights need a denser month grid so the day list can scroll into view. */
+  const compact = windowHeight < 900;
   const typeLabels = useMemo(() => localizedTypeLabels(locale), [locale]);
   const { tabsBottom, fabBottom } = useSafeLayout();
+  const plusAccess = usePlusStore((state) => state.access);
+  const openPaywall = usePlusStore((state) => state.openPaywall);
   const { items, calendar, activeCalendarId } = useActiveCalendar();
   const toggleTask = useCalendarStore((state) => state.toggleTask);
   const { onScroll, useAnimatedScrollView } = useTabBarScrollHandler();
@@ -101,9 +108,9 @@ export default function CalendarScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
       {fabOpen ? <Pressable style={styles.fabScrim} onPress={() => setFabOpen(false)} /> : null}
-      <View style={styles.header}>
+      <View style={[styles.header, compact && styles.headerCompact]}>
         <View style={styles.headerCopy}>
-          <CalendarSwitcher />
+          <CalendarSwitcher compact={compact} />
           <Pressable
             onPress={() => setView(view === 'month' ? 'day' : 'month')}
             onLongPress={() => {
@@ -112,7 +119,12 @@ export default function CalendarScreen() {
               setView('day');
             }}
             style={styles.monthButton}>
-            <Text style={[styles.monthTitle, { color: theme.text }]}>
+            <Text
+              style={[
+                styles.monthTitle,
+                compact && styles.monthTitleCompact,
+                { color: theme.text },
+              ]}>
               {formatMonthTitle(anchor, locale)}
             </Text>
             <AppIcon name="chevron" color={theme.muted} size={14} />
@@ -134,12 +146,16 @@ export default function CalendarScreen() {
         </View>
         <ScalePressable
           accessibilityLabel={copy.common.inviteTo(calendarTitle)}
-          onPress={() =>
+          onPress={() => {
+            if (!hasPaidPlan(plusAccess)) {
+              openPaywall('SHARING_REQUIRED');
+              return;
+            }
             router.push({
               pathname: '/(tabs)/calendars',
               params: { focus: activeCalendarId, tab: 'share' },
-            })
-          }
+            });
+          }}
           style={[styles.iconBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <AppIcon name="person.badge.plus" color={theme.primary} size={20} />
         </ScalePressable>
@@ -149,7 +165,7 @@ export default function CalendarScreen() {
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.monthPills}
-        style={styles.monthStrip}>
+        style={[styles.monthStrip, compact && styles.monthStripCompact]}>
         {months.map((month) => {
           const active = month.getMonth() === anchor.getMonth() && month.getFullYear() === anchor.getFullYear();
           const label = new Intl.DateTimeFormat(dateLocale(locale), { month: 'short' })
@@ -161,6 +177,7 @@ export default function CalendarScreen() {
               onPress={() => setAnchor(new Date(month.getFullYear(), month.getMonth(), 1))}
               style={[
                 styles.monthPill,
+                compact && styles.monthPillCompact,
                 {
                   backgroundColor: active ? theme.primary : theme.surface,
                   borderColor: active ? theme.primary : theme.border,
@@ -175,8 +192,13 @@ export default function CalendarScreen() {
       </ScrollView>
 
       <VerticalScroll
+        style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, { paddingBottom: tabsBottom + 24 }]}
+        contentContainerStyle={[
+          styles.content,
+          compact && styles.contentCompact,
+          { paddingBottom: tabsBottom + 36 },
+        ]}
         scrollEventThrottle={16}
         onScroll={onScroll}
         refreshControl={
@@ -191,23 +213,30 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel={view === 'month' ? copy.calendar.viewDay : copy.calendar.viewMonth}
           onPress={() => setView(view === 'month' ? 'day' : 'month')}
-          style={styles.viewToggle}>
+          style={[styles.viewToggle, compact && styles.viewToggleCompact]}>
           <Text style={{ color: theme.primary, fontWeight: '600' }}>
             {view === 'month' ? copy.calendar.viewDay : copy.calendar.viewMonth}
           </Text>
         </Pressable>
 
         {view === 'month' ? (
-          <View style={[styles.monthCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <View
+            style={[
+              styles.monthCard,
+              compact && styles.monthCardCompact,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}>
             <View style={styles.weekRow}>
               {weekDays.map((day, index) => (
-                <Text key={`${day}-${index}`} style={[styles.weekDay, { color: theme.muted }]}>{day}</Text>
+                <Text key={`${day}-${index}`} style={[styles.weekDay, { color: theme.muted }]}>
+                  {day}
+                </Text>
               ))}
             </View>
             <View style={styles.grid}>
               {matrix.map((cell) => {
                 const selected = cell.key === selectedKey;
-                const isToday = cell.key === toDateKey(today);
+                const isToday = cell.key === todayKey;
                 const dayEvents = itemsByDay.get(cell.key) ?? [];
                 return (
                   <Pressable
@@ -217,35 +246,58 @@ export default function CalendarScreen() {
                       if (!cell.inMonth) {
                         setAnchor(new Date(cell.date.getFullYear(), cell.date.getMonth(), 1));
                       }
+                    }}
+                    onLongPress={() => {
+                      setSelectedKey(cell.key);
+                      if (!cell.inMonth) {
+                        setAnchor(new Date(cell.date.getFullYear(), cell.date.getMonth(), 1));
+                      }
                       setView('day');
                     }}
-                    style={styles.cell}>
+                    style={[styles.cell, compact && styles.cellCompact]}>
                     <View
                       style={[
                         styles.dayNumberWrap,
+                        compact && styles.dayNumberWrapCompact,
                         selected && { backgroundColor: theme.primary },
                         !selected && isToday && { borderColor: theme.primary, borderWidth: 1.5 },
                       ]}>
                       <Text
                         style={[
                           styles.dayNumber,
+                          compact && styles.dayNumberCompact,
                           { color: cell.inMonth ? theme.text : theme.border },
-                          (selected || isToday) && selected && { color: '#FFFFFF' },
+                          selected && { color: '#FFFFFF' },
                           isToday && !selected && { color: theme.primary, fontWeight: '700' },
                         ]}>
                         {cell.date.getDate()}
                       </Text>
                     </View>
-                    <View style={styles.chips}>
-                      {dayEvents.slice(0, 2).map((item) => (
-                        <View key={item.id} style={[styles.chip, { backgroundColor: item.color }]}>
-                          <Text numberOfLines={1} style={styles.chipText}>{item.title}</Text>
-                        </View>
-                      ))}
-                      {dayEvents.length > 2 ? (
-                        <Text style={[styles.more, { color: theme.muted }]}>+{dayEvents.length - 2}</Text>
-                      ) : null}
-                    </View>
+                    {compact ? (
+                      <View style={styles.dots}>
+                        {dayEvents.slice(0, 3).map((item) => (
+                          <View
+                            key={item.id}
+                            style={[styles.dot, { backgroundColor: item.color }]}
+                          />
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.chips}>
+                        {dayEvents.slice(0, 2).map((item) => (
+                          <View key={item.id} style={[styles.chip, { backgroundColor: item.color }]}>
+                            <Text numberOfLines={1} style={styles.chipText}>
+                              {item.title}
+                            </Text>
+                          </View>
+                        ))}
+                        {dayEvents.length > 2 ? (
+                          <Text style={[styles.more, { color: theme.muted }]}>
+                            +{dayEvents.length - 2}
+                          </Text>
+                        ) : null}
+                      </View>
+                    )}
                   </Pressable>
                 );
               })}
@@ -257,20 +309,21 @@ export default function CalendarScreen() {
             items={dayItems}
             theme={theme}
             locale={locale}
+            compact={compact}
             onOpenItem={openItem}
             onToggleTask={toggleTask}
           />
         )}
 
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+          <Text style={[styles.sectionTitle, compact && styles.sectionTitleCompact, { color: theme.text }]}>
             {view === 'month' ? copy.calendar.selectedDay : copy.calendar.dayAgenda}
           </Text>
         </View>
 
         {dayItems.length === 0 ? (
-          <View style={[styles.empty, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <AppIcon name="calendar" color={theme.muted} size={28} />
+          <View style={[styles.empty, compact && styles.emptyCompact, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <AppIcon name="calendar" color={theme.muted} size={compact ? 22 : 28} />
             <Text style={[styles.emptyTitle, { color: theme.text }]}>{copy.calendar.emptyDay}</Text>
             <Text style={[styles.emptyText, { color: theme.muted }]}>
               {copy.calendar.emptyDayHint}
@@ -339,9 +392,17 @@ export default function CalendarScreen() {
             void Haptics.selectionAsync();
             setFabOpen((open) => !open);
           }}
-          style={[styles.fab, { backgroundColor: fabOpen ? theme.primary : theme.primarySoft }]}>
+          style={[
+            styles.fab,
+            compact && styles.fabCompact,
+            { backgroundColor: fabOpen ? theme.primary : theme.primarySoft },
+          ]}>
           <Animated.View key={fabOpen ? 'x' : 'plus'} entering={ZoomIn.duration(160)}>
-            <AppIcon name={fabOpen ? 'xmark' : 'plus'} color={fabOpen ? '#FFFFFF' : theme.primary} size={26} />
+            <AppIcon
+              name={fabOpen ? 'xmark' : 'plus'}
+              color={fabOpen ? '#FFFFFF' : theme.primary}
+              size={compact ? 24 : 26}
+            />
           </Animated.View>
         </ScalePressable>
       </View>
@@ -354,6 +415,7 @@ function DayTimeline({
   items,
   theme,
   locale,
+  compact = false,
   onOpenItem,
   onToggleTask,
 }: {
@@ -361,11 +423,13 @@ function DayTimeline({
   items: CalendarItem[];
   theme: ReturnType<typeof useAppTheme>;
   locale: string;
+  compact?: boolean;
   onOpenItem: (id: string) => void;
   onToggleTask: (id: string) => void;
 }) {
   // Cover early/late hours so timed items (e.g. 6:00) stay visible.
   const hours = Array.from({ length: 18 }, (_, index) => index + 5);
+  const hourHeight = compact ? 44 : 56;
   const timed = items.filter((item) => !item.allDay && item.startHour != null);
   const allDay = items.filter((item) => item.allDay);
 
@@ -403,7 +467,7 @@ function DayTimeline({
       {hours.map((hour) => {
         const blocks = timed.filter((item) => Math.floor(item.startHour ?? 0) === hour);
         return (
-          <View key={hour} style={styles.hourRow}>
+          <View key={hour} style={[styles.hourRow, { minHeight: hourHeight }]}>
             <Text style={[styles.hourLabel, { color: theme.muted }]}>
               {formatHour(hour).replace(':00', '')}
             </Text>
@@ -419,8 +483,11 @@ function DayTimeline({
                     styles.eventBlock,
                     {
                       backgroundColor: block.color,
-                      top: ((block.startHour ?? hour) - hour) * 56,
-                      height: Math.max(44, ((block.endHour ?? hour + 1) - (block.startHour ?? hour)) * 56),
+                      top: ((block.startHour ?? hour) - hour) * hourHeight,
+                      height: Math.max(
+                        compact ? 36 : 44,
+                        ((block.endHour ?? hour + 1) - (block.startHour ?? hour)) * hourHeight,
+                      ),
                       left: 8 + index * 8,
                       right: 8,
                     },
@@ -439,6 +506,7 @@ function DayTimeline({
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  scroll: { flex: 1 },
   header: {
     paddingHorizontal: 18,
     paddingTop: 10,
@@ -447,10 +515,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 12,
+    flexShrink: 0,
   },
-  headerCopy: { flex: 1, minWidth: 0, gap: 8 },
+  headerCompact: {
+    paddingTop: 4,
+    paddingBottom: 6,
+  },
+  headerCopy: { flex: 1, minWidth: 0, gap: 6 },
   monthButton: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   monthTitle: { fontSize: 26, fontWeight: '700', letterSpacing: -0.8 },
+  monthTitleCompact: { fontSize: 22, letterSpacing: -0.5 },
   subtitle: { fontSize: 13, marginTop: 2 },
   iconBtn: {
     width: 40,
@@ -461,7 +535,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 2,
   },
-  monthStrip: { maxHeight: 56, flexGrow: 0 },
+  monthStrip: { maxHeight: 56, flexGrow: 0, flexShrink: 0 },
+  monthStripCompact: { maxHeight: 48 },
   monthPills: {
     paddingHorizontal: 18,
     paddingVertical: 4,
@@ -476,6 +551,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  monthPillCompact: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+  },
   monthPillText: {
     fontSize: 13,
     fontWeight: '700',
@@ -484,15 +563,21 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
   },
   content: { padding: 18, gap: 14 },
+  contentCompact: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 14, gap: 10 },
   monthCard: {
     borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 10,
   },
+  monthCardCompact: {
+    borderRadius: 18,
+    padding: 8,
+  },
   weekRow: { flexDirection: 'row', marginBottom: 6 },
   weekDay: { width: `${100 / 7}%` as unknown as number, textAlign: 'center', fontSize: 11, fontWeight: '700' },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: `${100 / 7}%` as unknown as number, minHeight: 72, padding: 2 },
+  cellCompact: { minHeight: 48, paddingVertical: 1, paddingHorizontal: 1 },
   dayNumberWrap: {
     alignSelf: 'center',
     width: 26,
@@ -502,25 +587,55 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 2,
   },
+  dayNumberWrapCompact: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginBottom: 1,
+  },
   dayNumber: { fontSize: 12, fontWeight: '600' },
+  dayNumberCompact: { fontSize: 11 },
   chips: { gap: 2 },
   chip: { borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 },
   chipText: { color: '#FFFFFF', fontSize: 8, fontWeight: '700' },
   more: { fontSize: 9, textAlign: 'center' },
+  dots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 3,
+    minHeight: 8,
+    marginTop: 1,
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
   viewToggle: {
     alignSelf: 'flex-start',
     paddingVertical: 4,
     paddingRight: 12,
     marginBottom: 4,
   },
+  viewToggleCompact: {
+    paddingVertical: 2,
+    marginBottom: 0,
+  },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   sectionTitle: { fontSize: 18, fontWeight: '700' },
+  sectionTitleCompact: { fontSize: 16 },
   empty: {
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 22,
     alignItems: 'center',
     gap: 8,
+  },
+  emptyCompact: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 6,
   },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
   emptyText: { fontSize: 13, textAlign: 'center', lineHeight: 18 },
@@ -620,6 +735,11 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
+  },
+  fabCompact: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
   },
   fabScrim: {
     position: 'absolute',

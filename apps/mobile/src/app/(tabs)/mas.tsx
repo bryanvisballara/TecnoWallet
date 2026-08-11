@@ -23,7 +23,7 @@ import { currencies, currencyLabel } from '@/lib/currencies';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
-import { usePlusStore, hasPaidPlan } from '@/store/plus';
+import { usePlusStore, hasPaidPlan, planDisplayLabel, planDisplaySubtitle } from '@/store/plus';
 import { isBusinessPlan } from '@/services/plus-api';
 import {
   appearanceLabel,
@@ -335,8 +335,23 @@ export default function MoreScreen() {
             <View style={[uiStyles.row, uiStyles.gap8]}>
               <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>{profile.name}</Text>
               {demo ? <Pill tone="blue">Demo</Pill> : null}
+              <Pill
+                tone={
+                  plusAccess === 'business'
+                    ? 'blue'
+                    : hasPaidPlan(plusAccess)
+                      ? 'green'
+                      : 'neutral'
+                }>
+                {planDisplayLabel(plusAccess, locale)}
+              </Pill>
             </View>
-            <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>{profile.email}</Text>
+            <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
+              {profile.email}
+            </Text>
+            <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
+              {planDisplaySubtitle(plusAccess, locale)}
+            </Text>
           </View>
           <AppIcon name="chevron" color={theme.muted} size={16} />
         </Card>
