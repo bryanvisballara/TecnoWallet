@@ -19,6 +19,7 @@ import {
   acceptAccessRequest,
   listAccessRequests,
   listCollaborationInvites,
+  listOwnedAccessRequests,
   rejectAccessRequest,
   revokeCollaborationInvite,
   type CollaborationAccessRequest,
@@ -111,15 +112,35 @@ export default function CalendarsScreen() {
   }, []);
 
   const loadAccessRequests = useCallback(async (resourceId?: string) => {
-    if (!resourceId) {
-      setAccessRequests([]);
-      return;
-    }
     try {
+      // Inbox is keyed by ownerUserId — more reliable than per-calendar list
+      // (avoids empty UI when another calendar is selected or legacy rows
+      // have a mismatched resourceType).
+      const inbox = await listOwnedAccessRequests();
+      const calendarRows = inbox.filter(
+        (row) => row.resourceType === 'calendar' || Boolean(row.calendarId),
+      );
+      if (calendarRows.length) {
+        setAccessRequests(calendarRows);
+        return;
+      }
+      if (!resourceId) {
+        setAccessRequests([]);
+        return;
+      }
       const rows = await listAccessRequests({ calendarId: resourceId });
       setAccessRequests(rows);
     } catch {
-      setAccessRequests([]);
+      if (!resourceId) {
+        setAccessRequests([]);
+        return;
+      }
+      try {
+        const rows = await listAccessRequests({ calendarId: resourceId });
+        setAccessRequests(rows);
+      } catch {
+        setAccessRequests([]);
+      }
     }
   }, []);
 
@@ -137,6 +158,14 @@ export default function CalendarsScreen() {
     void loadInvites(selected?.id);
     void loadAccessRequests(selected?.id);
   }, [selected?.id, loadInvites, loadAccessRequests]);
+
+  useEffect(() => {
+    // When opening from a push/deep link, re-fetch solicitudes even if the
+    // selected calendar id did not change.
+    if (params.tab === 'share' || params.focus) {
+      void loadAccessRequests(params.focus || selected?.id);
+    }
+  }, [params.tab, params.focus, loadAccessRequests, selected?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,12 +235,14 @@ export default function CalendarsScreen() {
   const onAcceptRequest = async (request: CollaborationAccessRequest) => {
     try {
       await acceptAccessRequest(request.id);
+      if (request.calendarId) {
+        setSelectedId(request.calendarId);
+      }
       await Promise.all([
         hydrateCalendars(),
-        loadAccessRequests(selected.id),
-        loadInvites(selected.id),
+        loadAccessRequests(request.calendarId || selected.id),
+        loadInvites(request.calendarId || selected.id),
       ]);
-      setSelectedId(selected.id);
     } catch (error) {
       if (isPlusRequiredError(error)) {
         openPaywall(plusReasonFromError(error), {
@@ -456,34 +487,49 @@ export default function CalendarsScreen() {
           <Card style={styles.block}>
             <Text style={[styles.section, { color: theme.text }]}>Solicitudes</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Personas que pidieron unirse con el ID del calendario.
+              Personas que pidieron unirse con el ID de tus calendarios.
             </Text>
             {accessRequests.length === 0 ? (
               <Text style={[styles.small, { color: theme.muted }]}>
                 No hay solicitudes pendientes.
               </Text>
             ) : (
-              accessRequests.map((request) => (
-                <View key={request.id} style={styles.memberRow}>
-                  <View style={[styles.memberAvatar, { backgroundColor: theme.primarySoft }]}>
-                    <AppIcon name="person.badge.plus" color={theme.primary} />
+              accessRequests.map((request) => {
+                const forOther =
+                  Boolean(request.calendarId) && request.calendarId !== selected.id;
+                const calendarName =
+                  request.calendarName ||
+                  calendars.find((item) => item.id === request.calendarId)?.name ||
+                  'Calendario';
+                return (
+                  <View key={request.id} style={styles.memberRow}>
+                    <View style={[styles.memberAvatar, { backgroundColor: theme.primarySoft }]}>
+                      <AppIcon name="person.badge.plus" color={theme.primary} />
+                    </View>
+                    <View style={styles.copy}>
+                      <Text style={[styles.memberName, { color: theme.text }]}>
+                        {request.name}
+                      </Text>
+                      <Text style={[styles.small, { color: theme.muted }]}>
+                        {request.email}
+                        {forOther ? ` · ${calendarName}` : ''}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => void onRejectRequest(request)}
+                      style={{ marginRight: 8 }}>
+                      <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
+                        Rechazar
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => void onAcceptRequest(request)}>
+                      <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
+                        Aceptar
+                      </Text>
+                    </Pressable>
                   </View>
-                  <View style={styles.copy}>
-                    <Text style={[styles.memberName, { color: theme.text }]}>{request.name}</Text>
-                    <Text style={[styles.small, { color: theme.muted }]}>{request.email}</Text>
-                  </View>
-                  <Pressable onPress={() => void onRejectRequest(request)} style={{ marginRight: 8 }}>
-                    <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
-                      Rechazar
-                    </Text>
-                  </Pressable>
-                  <Pressable onPress={() => void onAcceptRequest(request)}>
-                    <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
-                      Aceptar
-                    </Text>
-                  </Pressable>
-                </View>
-              ))
+                );
+              })
             )}
           </Card>
 

@@ -267,6 +267,11 @@ export class CollaborationService {
         ownerUserId: calendar.ownerId,
         status: 'pending',
       });
+      // Guard against schema default flipping resourceType on older documents.
+      if (created.resourceType !== 'calendar') {
+        created.resourceType = 'calendar';
+        await created.save();
+      }
       void this.notifyOwnerAccessRequest({
         ownerUserId: calendar.ownerId.toString(),
         requesterUserId: principal.userId,
@@ -331,8 +336,13 @@ export class CollaborationService {
       const rows = await this.accessRequests
         .find({
           calendarId: new Types.ObjectId(query.calendarId),
-          resourceType: 'calendar',
           status: 'pending',
+          $or: [
+            { resourceType: 'calendar' },
+            { resourceType: { $exists: false } },
+            // Legacy rows may have defaulted to workspace while still holding calendarId.
+            { resourceType: 'workspace', calendarId: { $exists: true } },
+          ],
         })
         .sort({ createdAt: -1 })
         .lean();
@@ -402,6 +412,21 @@ export class CollaborationService {
       .lean();
     if (!rows.length) return { requests: [] as const };
 
+    // Repair legacy calendar rows that were stored with the default resourceType.
+    const legacyCalendarIds = rows
+      .filter(
+        (row) =>
+          Boolean(row.calendarId) &&
+          row.resourceType !== 'calendar',
+      )
+      .map((row) => row._id);
+    if (legacyCalendarIds.length) {
+      await this.accessRequests.updateMany(
+        { _id: { $in: legacyCalendarIds } },
+        { $set: { resourceType: 'calendar' } },
+      );
+    }
+
     const workspaceIds = rows
       .map((row) => row.workspaceId)
       .filter((id): id is Types.ObjectId => Boolean(id));
@@ -422,7 +447,9 @@ export class CollaborationService {
       requests: rows.map((row) => {
         const user = users.find((item) => item._id.equals(row.requesterUserId));
         const isCalendar =
-          row.resourceType === 'calendar' || Boolean(row.calendarId);
+          row.resourceType === 'calendar' ||
+          Boolean(row.calendarId) ||
+          legacyCalendarIds.some((id) => id.equals(row._id));
         if (isCalendar) {
           const calendar = calendars.find(
             (item) => row.calendarId && item._id.equals(row.calendarId),
@@ -1122,8 +1149,18 @@ export class CollaborationService {
       .findOne({ _id: resourceId, deletedAt: { $exists: false } })
       .lean();
     if (!calendar) throw new NotFoundException('Calendar not found');
-    if (calendar.ownerId.toString() !== sponsorUserId) {
-      throw new ForbiddenException('Only the calendar owner can invite');
+    const isDocumentOwner = calendar.ownerId.toString() === sponsorUserId;
+    if (!isDocumentOwner) {
+      const membership = await this.calendarMemberships
+        .findOne({
+          calendarId: resourceId,
+          userId: sponsorUserId,
+          role: 'owner',
+        })
+        .lean();
+      if (!membership) {
+        throw new ForbiddenException('Only the calendar owner can invite');
+      }
     }
     return calendar.name;
   }
