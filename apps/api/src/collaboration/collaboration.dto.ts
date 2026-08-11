@@ -43,8 +43,13 @@ export class CreateAccessRequestDto {
 }
 
 export class ListAccessRequestsQueryDto {
+  @IsOptional()
   @IsMongoId()
-  workspaceId!: string;
+  workspaceId?: string;
+
+  @IsOptional()
+  @IsMongoId()
+  calendarId?: string;
 }
 
 export class ListCollaborationInvitesQueryDto {

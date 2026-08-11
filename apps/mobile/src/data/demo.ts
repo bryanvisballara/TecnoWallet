@@ -27,6 +27,9 @@ export type Account = {
   icon: string;
   color: string;
   lastFour: string;
+  createdByUserId?: string;
+  createdBy?: string;
+  createdAt?: string;
 };
 
 export type Envelope = {
@@ -41,6 +44,10 @@ export type Envelope = {
   rule: string;
   /** Meta que creó este sobre de ahorros (solo kind === 'savings'). */
   goalId?: string;
+  /** User id that created the envelope (workspace ownerId on the resource). */
+  createdByUserId?: string;
+  createdBy?: string;
+  createdAt?: string;
 };
 
 export const summary = {

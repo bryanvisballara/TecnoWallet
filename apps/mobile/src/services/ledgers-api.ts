@@ -34,8 +34,10 @@ export type ApiResource = {
   _id?: string;
   id?: string;
   name: string;
+  ownerId?: string;
   data?: Record<string, unknown>;
   version?: number;
+  createdAt?: string;
 };
 
 export type ApiTransaction = {
@@ -116,6 +118,7 @@ export function mapApiMember(member: ApiMember, selfUserId?: string | null): Led
 export function mapAccountResource(resource: ApiResource): Account | null {
   const data = resource.data ?? {};
   if (data.system === true || resource.name === CLEARING_NAME) return null;
+  const ownerId = resource.ownerId ? String(resource.ownerId) : undefined;
   return {
     id: objectId(resource),
     name: resource.name,
@@ -124,6 +127,9 @@ export function mapAccountResource(resource: ApiResource): Account | null {
     icon: asString(data.icon, 'creditcard.fill'),
     color: asString(data.color, '#0878F9'),
     lastFour: asString(data.lastFour, '—') || '—',
+    createdByUserId: ownerId,
+    createdAt:
+      typeof resource.createdAt === 'string' ? resource.createdAt : undefined,
   };
 }
 
@@ -134,6 +140,7 @@ export function mapEnvelopeResource(resource: ApiResource): Envelope {
     kindRaw === 'income' || kindRaw === 'savings' || kindRaw === 'expense'
       ? kindRaw
       : 'expense';
+  const ownerId = resource.ownerId ? String(resource.ownerId) : undefined;
   return {
     id: objectId(resource),
     name: resource.name,
@@ -145,6 +152,9 @@ export function mapEnvelopeResource(resource: ApiResource): Envelope {
     rollover: asBool(data.rollover, kind !== 'income'),
     rule: asString(data.rule, 'Sin regla aún'),
     goalId: asString(data.goalId) || undefined,
+    createdByUserId: ownerId,
+    createdAt:
+      typeof resource.createdAt === 'string' ? resource.createdAt : undefined,
   };
 }
 
@@ -190,6 +200,9 @@ export function mapPlanningResource(
     bucket,
     icon: asString(data.icon, defaultIcon),
     subtitle: asString(data.subtitle, defaultSubtitle) || defaultSubtitle,
+    createdByUserId: resource.ownerId ? String(resource.ownerId) : undefined,
+    createdAt:
+      typeof resource.createdAt === 'string' ? resource.createdAt : undefined,
   };
 }
 
@@ -554,20 +567,42 @@ export async function loadWorkspaceSnapshot(
       listTransactions(workspaceId),
     ]);
 
-  const accounts = accountResources
-    .map(mapAccountResource)
-    .filter((item): item is Account => Boolean(item));
-  const accountsById = new Map(accounts.map((item) => [item.id, item]));
-  const envelopes = envelopeResources.map(mapEnvelopeResource);
-  const envelopesById = new Map(envelopes.map((item) => [item.id, item]));
-  const planning = [
-    ...billResources.map((item) => mapPlanningResource(item, 'bill')),
-    ...subscriptionResources.map((item) => mapPlanningResource(item, 'subscription')),
-  ];
   const authors = authorNameByUserId(
     options?.members ?? [],
     options?.selfUserId,
   );
+  const accounts = accountResources
+    .map(mapAccountResource)
+    .filter((item): item is Account => Boolean(item))
+    .map((item) => ({
+      ...item,
+      createdBy: item.createdByUserId
+        ? authors.get(item.createdByUserId)?.trim() || undefined
+        : undefined,
+    }));
+  const accountsById = new Map(accounts.map((item) => [item.id, item]));
+  const envelopes = envelopeResources.map((resource) => {
+    const mapped = mapEnvelopeResource(resource);
+    const authorId = mapped.createdByUserId;
+    return {
+      ...mapped,
+      createdBy: authorId
+        ? authors.get(authorId)?.trim() || undefined
+        : undefined,
+    };
+  });
+  const envelopesById = new Map(envelopes.map((item) => [item.id, item]));
+  const planning = [
+    ...billResources.map((item) => mapPlanningResource(item, 'bill')),
+    ...subscriptionResources.map((item) =>
+      mapPlanningResource(item, 'subscription'),
+    ),
+  ].map((item) => ({
+    ...item,
+    createdBy: item.createdByUserId
+      ? authors.get(item.createdByUserId)?.trim() || undefined
+      : undefined,
+  }));
   const mappedTx = transactions
     .filter((tx) => {
       if (tx.reversedById) return false;

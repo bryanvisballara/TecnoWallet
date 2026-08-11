@@ -1,28 +1,18 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '@/polyfills/web-dom-props';
 import '@/global.css';
-import { AffiliateWelcomeModal } from '@/components/affiliate-welcome-modal';
-import { AppLockGate } from '@/components/app-lock-gate';
 import { BrandSplashOverlay } from '@/components/brand-splash-overlay';
-import { PlusPaywallModal } from '@/components/plus-paywall-modal';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ensureAuthSession, flushOfflineQueue } from '@/services/api';
-import {
-  claimPendingAffiliate,
-  initBranchAttribution,
-  setBranchIdentity,
-} from '@/services/branch';
 import { localStorage } from '@/services/persistence';
-import { configurePurchases } from '@/services/purchases';
-import { configureActivityNotifications } from '@/services/push-notifications';
 import { useAuthStore } from '@/store/auth';
 import { useFinanceStore } from '@/store/finance';
 import { useLanguageStore } from '@/store/language';
@@ -59,6 +49,7 @@ export default function RootLayout() {
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
   const scheme = useColorScheme();
   const palette = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const [bootExtras, setBootExtras] = useState(false);
 
   // Auth alone is not enough — wait for core stores so the splash progress can finish.
   const appReady =
@@ -69,33 +60,37 @@ export default function RootLayout() {
 
   useEffect(() => {
     void (async () => {
-      // Auth → ledgers (Mongo workspaces) → dependent stores.
+      // Local prefs first so the branded overlay can move immediately.
+      const localBoot = Promise.all([
+        hydrateLanguage(),
+        hydratePreferences(),
+        hydrateNotifications(),
+      ]);
+
       await hydrateAuth();
+      await localBoot;
+
       const isAuthed = useAuthStore.getState().authenticated;
       if (isAuthed) {
-        const userId = await localStorage.get('auth-user-id', '');
-        if (userId) {
-          await configurePurchases(userId).catch(() => undefined);
-        }
+        // Purchases / push / Branch must never gate ledger or first paint.
+        void localStorage.get('auth-user-id', '').then((userId) => {
+          if (!userId) return;
+          void import('@/services/purchases').then(({ configurePurchases }) =>
+            configurePurchases(userId).catch(() => undefined),
+          );
+        });
+
         await hydrateLedger();
         await Promise.all([
           hydratePlus(),
           hydrateCalendar(),
           hydrateFinance(),
-          hydrateLanguage(),
-          hydratePreferences(),
-          hydrateNotifications(),
           hydrateGoals(),
           hydrateRecaudos(),
         ]);
       } else {
         usePlusStore.getState().reset();
-        await Promise.all([
-          hydrateLanguage(),
-          hydratePreferences(),
-          hydrateNotifications(),
-          hydrateFinance(),
-        ]);
+        await hydrateFinance();
         // Mark empty product stores so the UI does not wait forever.
         useLedgerStore.setState({ hydrated: true, ledgers: [], activeLedgerId: '' });
         useRecaudosStore.setState({ hydrated: true, recaudos: [] });
@@ -117,35 +112,50 @@ export default function RootLayout() {
   ]);
 
   useEffect(() => {
-    if (hydrated) void SplashScreen.hideAsync().catch(() => undefined);
-  }, [hydrated]);
-
-  // Failsafe: never leave the native splash stuck if hydration is slow.
-  useEffect(() => {
+    // Hide native splash as soon as React is alive (overlay owns the rest).
+    void SplashScreen.hideAsync().catch(() => undefined);
     const t = setTimeout(() => {
       void SplashScreen.hideAsync().catch(() => undefined);
-    }, 2500);
+    }, 1200);
     return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
+    if (!appReady) return;
+    // Mount heavier chrome only after the first interactive shell is ready.
+    setBootExtras(true);
+  }, [appReady]);
+
+  useEffect(() => {
     let cleanup: (() => void) | undefined;
-    try {
-      cleanup = initBranchAttribution();
-    } catch {
-      // Branch requires a custom native build; web and Expo Go keep working.
-    }
+    void import('@/services/branch')
+      .then(({ initBranchAttribution }) => {
+        try {
+          cleanup = initBranchAttribution();
+        } catch {
+          // Branch requires a custom native build; web and Expo Go keep working.
+        }
+      })
+      .catch(() => undefined);
     return () => cleanup?.();
   }, []);
 
   useEffect(() => {
     if (hydrated && authenticated) {
       void localStorage.get('auth-user-id', '').then((userId) => {
-        if (userId) void setBranchIdentity(userId).catch(() => undefined);
+        if (!userId) return;
+        void import('@/services/branch').then(({ setBranchIdentity }) =>
+          setBranchIdentity(userId).catch(() => undefined),
+        );
       });
-      void claimPendingAffiliate().catch(() => undefined);
-      void configureActivityNotifications().then(() =>
-        useNotificationsStore.getState().syncBadge(),
+      void import('@/services/branch').then(({ claimPendingAffiliate }) =>
+        claimPendingAffiliate().catch(() => undefined),
+      );
+      void import('@/services/push-notifications').then(
+        ({ configureActivityNotifications }) =>
+          configureActivityNotifications().then(() =>
+            useNotificationsStore.getState().syncBadge(),
+          ),
       );
       void refreshRecaudos();
     }
@@ -179,8 +189,11 @@ export default function RootLayout() {
         )
         .catch(() => undefined);
     };
-    pollAccessRequests();
-    pollSharedCollaborators();
+    // Defer collaborator polling so it never competes with first paint / ledger hydrate.
+    const bootPoll = setTimeout(() => {
+      pollAccessRequests();
+      pollSharedCollaborators();
+    }, 2500);
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void ensureAuthSession().then(() =>
@@ -196,7 +209,10 @@ export default function RootLayout() {
         void useNotificationsStore.getState().syncBadge();
       }
     });
-    return () => subscription.remove();
+    return () => {
+      clearTimeout(bootPoll);
+      subscription.remove();
+    };
   }, [hydrated, authenticated, refreshRecaudos, hydrateLedger, hydrateCalendar]);
 
   return (
@@ -254,13 +270,48 @@ export default function RootLayout() {
               <Stack.Screen name="invite/[token]" />
               <Stack.Screen name="r/[code]" />
             </Stack>
-            <PlusPaywallModal />
-            <AffiliateWelcomeModal />
-            <AppLockGate />
+            {bootExtras ? <BootExtras /> : null}
             <BrandSplashOverlay ready={appReady} />
           </ThemeProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+function BootExtras() {
+  const [mods, setMods] = useState<{
+    PlusPaywallModal: ComponentType;
+    AffiliateWelcomeModal: ComponentType;
+    AppLockGate: ComponentType;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      import('@/components/plus-paywall-modal'),
+      import('@/components/affiliate-welcome-modal'),
+      import('@/components/app-lock-gate'),
+    ]).then(([plus, affiliate, lock]) => {
+      if (cancelled) return;
+      setMods({
+        PlusPaywallModal: plus.PlusPaywallModal,
+        AffiliateWelcomeModal: affiliate.AffiliateWelcomeModal,
+        AppLockGate: lock.AppLockGate,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!mods) return null;
+  const { PlusPaywallModal, AffiliateWelcomeModal, AppLockGate } = mods;
+  return (
+    <>
+      <PlusPaywallModal />
+      <AffiliateWelcomeModal />
+      <AppLockGate />
+    </>
   );
 }

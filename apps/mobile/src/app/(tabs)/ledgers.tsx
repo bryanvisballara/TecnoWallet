@@ -106,7 +106,7 @@ export default function LedgersScreen() {
       return;
     }
     try {
-      const rows = await listAccessRequests(resourceId);
+      const rows = await listAccessRequests({ workspaceId: resourceId });
       setAccessRequests(rows);
     } catch {
       setAccessRequests([]);

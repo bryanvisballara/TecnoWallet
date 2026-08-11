@@ -162,8 +162,22 @@ export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number];
 export class CollaborationAccessRequest {
   _id!: Types.ObjectId;
 
-  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, index: true })
-  workspaceId!: Types.ObjectId;
+  /** Present for book (workspace) join requests. */
+  @Prop({ type: MongooseSchema.Types.ObjectId, index: true })
+  workspaceId?: Types.ObjectId;
+
+  /** Present for calendar join requests. */
+  @Prop({ type: MongooseSchema.Types.ObjectId, index: true })
+  calendarId?: Types.ObjectId;
+
+  @Prop({
+    required: true,
+    type: String,
+    enum: COLLABORATION_RESOURCE_TYPES,
+    default: 'workspace',
+    index: true,
+  })
+  resourceType!: CollaborationResourceType;
 
   @Prop({ required: true, type: MongooseSchema.Types.ObjectId, index: true })
   requesterUserId!: Types.ObjectId;
@@ -194,8 +208,24 @@ CollaborationAccessRequestSchema.index(
   { workspaceId: 1, requesterUserId: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: 'pending' },
+    partialFilterExpression: {
+      status: 'pending',
+      resourceType: 'workspace',
+      workspaceId: { $exists: true },
+    },
     name: 'one_pending_access_request_per_workspace_user',
+  },
+);
+CollaborationAccessRequestSchema.index(
+  { calendarId: 1, requesterUserId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: 'pending',
+      resourceType: 'calendar',
+      calendarId: { $exists: true },
+    },
+    name: 'one_pending_access_request_per_calendar_user',
   },
 );
 
@@ -220,6 +250,10 @@ export class Calendar {
 
   @Prop({ trim: true, sparse: true })
   migrationSourceId?: string;
+
+  /** Short public code for join-by-ID (e.g. TC8F3K2M1Q). */
+  @Prop({ trim: true, uppercase: true, sparse: true, unique: true })
+  shareCode?: string;
 
   @Prop({ index: true })
   deletedAt?: Date;

@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { HeroNetWorthBanner } from '@/components/hero-net-worth-banner';
 import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { getActiveMoneyCurrency, money, moneyAmount, type Account } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
@@ -15,6 +16,7 @@ import { buildRecurringCashflow, type RecurringLine } from '@/lib/recurring-cash
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
+import { usePreferencesStore } from '@/store/preferences';
 
 function AccountRow({ account }: { account: Account }) {
   const theme = useAppTheme();
@@ -168,6 +170,13 @@ export default function SaludFinancieraScreen() {
     [recurring.bills, recurring.subscriptions, recurring.recurrings],
   );
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
+  const hideBalances = usePreferencesStore((state) => state.hideBalances);
+  const setHideBalances = usePreferencesStore((state) => state.setHideBalances);
+  const [hidden, setHidden] = useState(hideBalances);
+
+  useEffect(() => {
+    setHidden(hideBalances);
+  }, [hideBalances]);
 
   if (!ledger) {
     return <Screen withTabBar title={copy.health.title} />;
@@ -185,27 +194,25 @@ export default function SaludFinancieraScreen() {
           <AppIcon name="arrow.left" color={theme.text} />
         </Pressable>
       }>
-      <Card style={[styles.patrimonioCard, { backgroundColor: '#0B1D3A' }]}>
-        <Text style={styles.heroLabel}>{copy.health.netWorth}</Text>
-        <Text style={styles.heroValue}>{money(patrimonio)}</Text>
-        <Text style={styles.patrimonioHint}>{copy.health.netWorthHint}</Text>
-        <View style={styles.heroStats}>
-          <View>
-            <Text style={styles.heroSmall}>{copy.accounts.liquidity}</Text>
-            <Text style={styles.heroStat}>{money(liquidez, true)}</Text>
-          </View>
-          <View style={styles.divider} />
-          <View>
-            <Text style={styles.heroSmall}>{copy.health.assets}</Text>
-            <Text style={styles.heroStat}>{money(bienes, true)}</Text>
-          </View>
-          <View style={styles.divider} />
-          <View>
-            <Text style={styles.heroSmall}>{copy.health.debts}</Text>
-            <Text style={styles.heroStat}>{money(deudas, true)}</Text>
-          </View>
-        </View>
-      </Card>
+      <HeroNetWorthBanner
+        label={copy.health.netWorth}
+        amount={patrimonio}
+        formula={copy.health.netWorthHint}
+        hidden={hidden}
+        onToggleHidden={() => {
+          setHidden((prev) => {
+            const next = !prev;
+            void setHideBalances(next);
+            return next;
+          });
+        }}
+        toggleA11yLabel={copy.home.toggleBalances}
+        stats={[
+          { label: copy.accounts.liquidity, amount: liquidez, tone: 'positive' },
+          { label: copy.health.assets, amount: bienes, tone: 'positive', prefix: '+' },
+          { label: copy.health.debts, amount: deudas, tone: 'negative', prefix: '−' },
+        ]}
+      />
 
       <Card style={styles.health}>
         <View style={uiStyles.between}>
@@ -367,14 +374,6 @@ export default function SaludFinancieraScreen() {
 
 const styles = StyleSheet.create({
   back: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  patrimonioCard: { gap: 8, borderWidth: 0 },
-  patrimonioHint: { color: '#DCEBFF', fontSize: 12 },
-  heroLabel: { color: '#DCEBFF', fontSize: 13 },
-  heroValue: { color: '#FFFFFF', fontSize: 38, fontWeight: '700', letterSpacing: -1.3 },
-  heroStats: { flexDirection: 'row', gap: 18, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' },
-  heroSmall: { color: '#DCEBFF', fontSize: 11 },
-  heroStat: { color: '#FFFFFF', fontSize: 17, fontWeight: '700', marginTop: 2 },
-  divider: { height: 32, width: StyleSheet.hairlineWidth, backgroundColor: '#FFFFFF66' },
   cardTitle: { fontSize: 18, fontWeight: '700' },
   small: { fontSize: 12, lineHeight: 17 },
   planCopy: { fontSize: 12, lineHeight: 18, marginTop: -2, marginBottom: 2 },

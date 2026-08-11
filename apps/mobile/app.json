@@ -8,7 +8,7 @@
     "scheme": "tecnowallet",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/images/splash-solid.png",
+      "image": "./assets/images/splash-screen.png",
       "resizeMode": "cover",
       "backgroundColor": "#002787"
     },
@@ -79,8 +79,9 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#002787",
-          "image": "./assets/images/splash-solid.png",
-          "resizeMode": "cover"
+          "image": "./assets/images/splash-screen.png",
+          "resizeMode": "cover",
+          "enableFullScreenImage_legacy": true
         }
       ]
     ],

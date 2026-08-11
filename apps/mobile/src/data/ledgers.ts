@@ -39,6 +39,9 @@ export type PlanningItem = {
   bucket: PlanningBucket;
   icon: string;
   subtitle?: string;
+  createdByUserId?: string;
+  createdBy?: string;
+  createdAt?: string;
 };
 
 export type LedgerSnapshot = {

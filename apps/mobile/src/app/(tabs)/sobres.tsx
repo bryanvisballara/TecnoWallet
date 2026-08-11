@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
+import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Envelope } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
@@ -11,6 +12,7 @@ import { localStorage } from '@/services/persistence';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
+import { usePreferencesStore } from '@/store/preferences';
 
 export default function EnvelopesScreen() {
   const theme = useAppTheme();
@@ -57,6 +59,13 @@ export default function EnvelopesScreen() {
   const usedRatio = expenseBudget > 0 ? expenseSpent / expenseBudget : 0;
   const showNoBudgetBanner = expenseBudget <= 0 && !hideNoBudgetBanner;
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
+  const hideBalances = usePreferencesStore((state) => state.hideBalances);
+  const setHideBalances = usePreferencesStore((state) => state.setHideBalances);
+  const [hidden, setHidden] = useState(hideBalances);
+
+  useEffect(() => {
+    setHidden(hideBalances);
+  }, [hideBalances]);
 
   useEffect(() => {
     if (!ledger?.id) return;
@@ -84,49 +93,49 @@ export default function EnvelopesScreen() {
   return (
     <Screen withTabBar title={copy.envelopes.title} subtitle={copy.envelopes.budgetMonth(ledgerLabel)}>
       <MonthSwitcher />
-      <Card style={[styles.hero, { backgroundColor: theme.primary }]}>
-        <View style={uiStyles.between}>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroLabel}>
-              {expenseBudget > 0
-                ? copy.envelopes.availableMonth(monthLabel)
-                : copy.envelopes.expensesMonth(monthLabel)}
-            </Text>
-            <Text style={styles.heroValue}>
-              {money(expenseBudget > 0 ? available : expenseSpent)}
-            </Text>
+      <HeroBalanceBanner
+        label={
+          expenseBudget > 0
+            ? copy.envelopes.availableMonth(monthLabel)
+            : copy.envelopes.expensesMonth(monthLabel)
+        }
+        amount={expenseBudget > 0 ? available : expenseSpent}
+        hidden={hidden}
+        onToggleHidden={() => {
+          setHidden((prev) => {
+            const next = !prev;
+            void setHideBalances(next);
+            return next;
+          });
+        }}
+        toggleA11yLabel={copy.home.toggleBalances}
+        ledgerLabel={ledgerLabel}
+        ledgerIcon={ledger.icon || 'house.fill'}
+        actionLabel={
+          expenseEnvelopes.length === 1
+            ? '1 sobre'
+            : `${expenseEnvelopes.length} sobres`
+        }
+      />
+      {expenseBudget <= 0 && showNoBudgetBanner ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${copy.envelopes.noMonthlyBudget}. ${copy.common.hide}`}
+          onPress={dismissNoBudgetBanner}
+          style={({ pressed }) => [
+            styles.noBudgetButton,
+            {
+              backgroundColor: pressed ? theme.primary : theme.primary,
+              opacity: pressed ? 0.88 : 1,
+            },
+          ]}>
+          <View style={styles.noBudgetCopy}>
+            <AppIcon name="circle" color="#FFFFFF" size={12} />
+            <Text style={styles.noBudgetLabel}>{copy.envelopes.noMonthlyBudget}</Text>
           </View>
-          <View style={styles.heroIcon}>
-            <AppIcon name="wallet.pass.fill" color="#FFFFFF" size={28} />
-          </View>
-        </View>
-        {expenseBudget > 0 ? (
-          <>
-            <View style={styles.heroProgress}>
-              <View style={[styles.heroFill, { width: `${Math.min(usedRatio, 1) * 100}%` }]} />
-            </View>
-            <View style={uiStyles.between}>
-              <Text style={styles.heroSmall}>{money(expenseSpent)} en gastos</Text>
-              <Text style={styles.heroSmall}>{money(expenseBudget)} asignados</Text>
-            </View>
-          </>
-        ) : showNoBudgetBanner ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${copy.envelopes.noMonthlyBudget}. ${copy.common.hide}`}
-            onPress={dismissNoBudgetBanner}
-            style={({ pressed }) => [
-              styles.noBudgetButton,
-              { backgroundColor: pressed ? '#FFFFFF30' : '#FFFFFF20' },
-            ]}>
-            <View style={styles.noBudgetCopy}>
-              <AppIcon name="circle" color="#FFFFFF" size={12} />
-              <Text style={styles.noBudgetLabel}>{copy.envelopes.noMonthlyBudget}</Text>
-            </View>
-            <Text style={styles.noBudgetAction}>{copy.common.hide}</Text>
-          </Pressable>
-        ) : null}
-      </Card>
+          <Text style={styles.noBudgetAction}>{copy.common.hide}</Text>
+        </Pressable>
+      ) : null}
 
       <View style={styles.summaryRow}>
         <Card style={[styles.summaryCard, { backgroundColor: theme.successSoft, borderWidth: 0 }]}>
@@ -358,24 +367,9 @@ function EnvelopeSection({
 }
 
 const styles = StyleSheet.create({
-  hero: { gap: 14, borderWidth: 0 },
-  heroCopy: { flex: 1, paddingRight: 12 },
-  heroLabel: { color: '#DCEBFF', fontSize: 13, fontWeight: '600' },
-  heroValue: { color: '#FFFFFF', fontSize: 36, fontWeight: '700', marginTop: 3, letterSpacing: -1, fontVariant: ['tabular-nums'] },
-  heroIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF24',
-  },
-  heroProgress: { height: 8, backgroundColor: '#FFFFFF30', borderRadius: 4, overflow: 'hidden' },
-  heroFill: { height: 8, borderRadius: 4, backgroundColor: '#FFFFFF' },
-  heroSmall: { color: '#DCEBFF', fontSize: 12 },
   noBudgetButton: {
     minHeight: 46,
-    borderRadius: 14,
+    borderRadius: 16,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',

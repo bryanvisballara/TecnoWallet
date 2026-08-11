@@ -156,7 +156,10 @@ export class CollaborationController {
 @ApiBearerAuth()
 @Controller('calendars')
 export class CalendarController {
-  constructor(private readonly calendars: CalendarService) {}
+  constructor(
+    private readonly calendars: CalendarService,
+    private readonly collaboration: CollaborationService,
+  ) {}
 
   @Get()
   list(
@@ -183,6 +186,18 @@ export class CalendarController {
   @Delete(':id')
   remove(@Param() params: MongoIdParamDto, @CurrentUser() user: AuthPrincipal) {
     return this.calendars.remove(params.id, user.userId);
+  }
+
+  @Get(':id/share-code')
+  async shareCode(
+    @Param() params: MongoIdParamDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    await this.calendars.requireOwner(params.id, user.userId);
+    const shareCode = await this.collaboration.ensureCalendarShareCode(
+      params.id,
+    );
+    return { shareCode };
   }
 
   @Get(':id/members')

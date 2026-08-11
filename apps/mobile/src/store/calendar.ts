@@ -61,7 +61,8 @@ type CalendarState = PersistedCalendarState & {
     name?: string,
   ) => Promise<void>;
   removeMember: (calendarId: string, memberId: string) => Promise<void>;
-  addItem: (item: Omit<CalendarItem, 'id'> & { id?: string }) => string;
+  addItem: (item: Omit<CalendarItem, 'id'> & { id?: string }) => Promise<string>;
+  updateItem: (item: CalendarItem) => Promise<void>;
   toggleTask: (id: string) => void;
   removeItem: (id: string) => void;
 };
@@ -387,8 +388,11 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     await persist(next);
   },
 
-  addItem: (item) => {
+  addItem: async (item) => {
     const calendarId = item.calendarId ?? get().activeCalendarId;
+    if (!calendarId) {
+      throw new Error('No hay un calendario activo.');
+    }
     const nextItem: CalendarItem = {
       ...item,
       id: item.id ?? clientObjectId(),
@@ -396,20 +400,60 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     };
     const items = [nextItem, ...get().items];
     set({ items });
-    void createCalendarItem(nextItem).catch(() => {
+    try {
+      const created = await createCalendarItem(nextItem);
+      set({
+        items: get().items.map((current) =>
+          current.id === nextItem.id ? { ...created, calendarId } : current,
+        ),
+      });
+      const typeLabel = typeLabels[created.type] ?? 'Elemento';
+      void recordActivity({
+        kind: 'calendar',
+        title: `${typeLabel} agregado`,
+        body: created.reminder
+          ? `${created.title} · ${created.date} · con recordatorio`
+          : `${created.title} · ${created.date}`,
+        icon: typeIcons[created.type] ?? 'calendar',
+        route: '/(tabs)/calendario',
+      });
+      return created.id;
+    } catch (error) {
       set({ items: get().items.filter((current) => current.id !== nextItem.id) });
+      throw error instanceof Error
+        ? error
+        : new Error('No se pudo guardar en el calendario.');
+    }
+  },
+
+  updateItem: async (item) => {
+    const previous = get().items.find((current) => current.id === item.id);
+    set({
+      items: get().items.map((current) =>
+        current.id === item.id ? item : current,
+      ),
     });
-    const typeLabel = typeLabels[nextItem.type] ?? 'Elemento';
-    void recordActivity({
-      kind: 'calendar',
-      title: `${typeLabel} agregado`,
-      body: nextItem.reminder
-        ? `${nextItem.title} · ${nextItem.date} · con recordatorio`
-        : `${nextItem.title} · ${nextItem.date}`,
-      icon: typeIcons[nextItem.type] ?? 'calendar',
-      route: '/(tabs)/calendario',
-    });
-    return nextItem.id;
+    try {
+      const saved = await updateCalendarItem(item);
+      set({
+        items: get().items.map((current) =>
+          current.id === item.id
+            ? { ...saved, calendarId: item.calendarId }
+            : current,
+        ),
+      });
+    } catch (error) {
+      if (previous) {
+        set({
+          items: get().items.map((current) =>
+            current.id === item.id ? previous : current,
+          ),
+        });
+      }
+      throw error instanceof Error
+        ? error
+        : new Error('No se pudo actualizar el elemento.');
+    }
   },
 
   toggleTask: (id) => {

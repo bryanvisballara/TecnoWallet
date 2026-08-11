@@ -7,10 +7,14 @@ const SEEN_ACCESS_REQUESTS_KEY = 'seen-access-request-ids';
 const SEEN_TEAM_TX_KEY = 'seen-team-transaction-ids';
 const SEEN_TEAM_CAL_KEY = 'seen-team-calendar-item-ids';
 const SEEN_TEAM_RECAUDO_KEY = 'seen-team-recaudo-activity-ids';
+const SEEN_TEAM_ENV_KEY = 'seen-team-envelope-ids';
+const SEEN_TEAM_ACC_KEY = 'seen-team-account-ids';
+const SEEN_TEAM_GOAL_KEY = 'seen-team-goal-ids';
+const SEEN_TEAM_PLAN_KEY = 'seen-team-planning-ids';
 
 type SharedPushCandidate = {
   key: string;
-  kind: 'income' | 'expense' | 'calendar' | 'recaudo';
+  kind: 'income' | 'expense' | 'calendar' | 'recaudo' | 'envelope' | 'account' | 'goal' | 'planning';
   title: string;
   body: string;
   route: string;
@@ -46,12 +50,13 @@ async function notifyFreshSharedPushes(
   const { notifyActivity } = await import('@/services/push-notifications');
   const { recordActivity } = await import('@/store/notifications');
   for (const item of fresh) {
-    if (item.kind === 'income' || item.kind === 'expense') {
+    if (item.kind === 'income' || item.kind === 'expense' || item.kind === 'envelope') {
       // In-app row comes from buildNotificationFeed; only fire OS push here.
       await notifyActivity({
         kind: item.kind,
         title: item.title,
         body: item.body,
+        sound: item.sound,
         data: { route: item.route, notificationId: item.key },
       });
     } else {
@@ -59,7 +64,16 @@ async function notifyFreshSharedPushes(
         kind: item.kind,
         title: item.title,
         body: item.body,
-        icon: item.kind === 'calendar' ? 'calendar' : 'person.3.fill',
+        icon:
+          item.kind === 'calendar'
+            ? 'calendar'
+            : item.kind === 'goal'
+              ? 'flag.fill'
+              : item.kind === 'account'
+                ? 'creditcard.fill'
+                : item.kind === 'planning'
+                  ? 'heart.fill'
+                  : 'person.3.fill',
         sound: item.sound,
         route: item.route,
       });
@@ -95,8 +109,11 @@ export type CollaborationResourceInvite = {
 
 export type CollaborationAccessRequest = {
   id: string;
-  workspaceId: string;
+  resourceType?: 'workspace' | 'calendar';
+  workspaceId?: string;
   workspaceName?: string;
+  calendarId?: string;
+  calendarName?: string;
   requesterUserId: string;
   name: string;
   email: string;
@@ -144,8 +161,11 @@ export function acceptCollaborationInvite(token: string) {
 export function createAccessRequest(shareCode: string) {
   return apiRequest<{
     id: string;
-    workspaceId: string;
-    workspaceName: string;
+    resourceType?: 'workspace' | 'calendar';
+    workspaceId?: string;
+    workspaceName?: string;
+    calendarId?: string;
+    calendarName?: string;
     status: 'pending';
     createdAt: string;
   }>('/collaboration/access-requests', {
@@ -154,8 +174,13 @@ export function createAccessRequest(shareCode: string) {
   });
 }
 
-export function listAccessRequests(workspaceId: string) {
-  const query = new URLSearchParams({ workspaceId });
+export function listAccessRequests(input: {
+  workspaceId?: string;
+  calendarId?: string;
+}) {
+  const query = new URLSearchParams();
+  if (input.calendarId) query.set('calendarId', input.calendarId);
+  else if (input.workspaceId) query.set('workspaceId', input.workspaceId);
   return apiRequest<{ requests: CollaborationAccessRequest[] }>(
     `/collaboration/access-requests?${query.toString()}`,
   ).then((result) => result.requests ?? []);
@@ -205,14 +230,22 @@ export async function notifyNewAccessRequests(
 
   const { recordActivity } = await import('@/store/notifications');
   for (const request of fresh) {
+    const isCalendar =
+      request.resourceType === 'calendar' || Boolean(request.calendarId);
+    const targetName = isCalendar
+      ? request.calendarName ?? 'tu calendario'
+      : request.workspaceName ?? 'tu libro';
+    const route = isCalendar
+      ? `/(tabs)/calendars?focus=${encodeURIComponent(request.calendarId ?? '')}&tab=share`
+      : `/(tabs)/ledgers?focus=${encodeURIComponent(request.workspaceId ?? '')}&tab=share`;
     await recordActivity({
       kind: 'invite',
       sound: 'sobres',
       title: 'Solicitud de acceso',
-      body: `${request.name} quiere unirse a ${request.workspaceName ?? 'tu libro'}`,
+      body: `${request.name} quiere unirse a ${targetName}`,
       icon: 'person.badge.plus',
       tone: 'blue',
-      route: `/(tabs)/ledgers?focus=${encodeURIComponent(request.workspaceId)}&tab=share`,
+      route,
     });
   }
 
@@ -357,12 +390,165 @@ export async function notifyNewTeamRecaudoActivity() {
   await notifyFreshSharedPushes(SEEN_TEAM_RECAUDO_KEY, teamKeys, candidates);
 }
 
+/** Push when someone else creates an envelope on a shared book. */
+export async function notifyNewTeamEnvelopes() {
+  const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
+  if (!selfUserId) return;
+
+  const { useLedgerStore } = await import('@/store/ledger');
+  const { ledgers, snapshots } = useLedgerStore.getState();
+  const shared = ledgers.filter((ledger) => ledger.type === 'shared');
+  if (!shared.length) return;
+
+  const teamKeys: string[] = [];
+  const candidates: SharedPushCandidate[] = [];
+
+  for (const ledger of shared) {
+    const envelopes = snapshots[ledger.id]?.envelopes ?? [];
+    for (const envelope of envelopes) {
+      const authorId = envelope.createdByUserId?.trim();
+      if (!authorId || authorId === selfUserId) continue;
+      const key = `env-${ledger.id}-${envelope.id}`;
+      teamKeys.push(key);
+      const who = envelope.createdBy?.trim() || 'Un colaborador';
+      candidates.push({
+        key,
+        kind: 'envelope',
+        title: 'Sobre del equipo',
+        body: `${who} creó el sobre «${envelope.name}» · ${ledger.name}`,
+        route: `/(tabs)/envelope/${envelope.id}`,
+        sound: 'sobres',
+      });
+    }
+  }
+
+  await notifyFreshSharedPushes(SEEN_TEAM_ENV_KEY, teamKeys, candidates);
+}
+
+/** Push when someone else creates an account on a shared book. */
+export async function notifyNewTeamAccounts() {
+  const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
+  if (!selfUserId) return;
+
+  const { useLedgerStore } = await import('@/store/ledger');
+  const { ledgers, snapshots } = useLedgerStore.getState();
+  const shared = ledgers.filter((ledger) => ledger.type === 'shared');
+  if (!shared.length) return;
+
+  const teamKeys: string[] = [];
+  const candidates: SharedPushCandidate[] = [];
+
+  for (const ledger of shared) {
+    const accounts = snapshots[ledger.id]?.accounts ?? [];
+    for (const account of accounts) {
+      const authorId = account.createdByUserId?.trim();
+      if (!authorId || authorId === selfUserId) continue;
+      const key = `acc-${ledger.id}-${account.id}`;
+      teamKeys.push(key);
+      const who = account.createdBy?.trim() || 'Un colaborador';
+      candidates.push({
+        key,
+        kind: 'account',
+        title: 'Cuenta del equipo',
+        body: `${who} agregó la cuenta «${account.name}» · ${ledger.name}`,
+        route: `/(tabs)/account/${account.id}`,
+        sound: 'sobres',
+      });
+    }
+  }
+
+  await notifyFreshSharedPushes(SEEN_TEAM_ACC_KEY, teamKeys, candidates);
+}
+
+/** Push when someone else creates a goal on a shared book. */
+export async function notifyNewTeamGoals() {
+  const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
+  if (!selfUserId) return;
+
+  const { useLedgerStore } = await import('@/store/ledger');
+  const { useGoalsStore } = await import('@/store/goals');
+  const { ledgers, activeLedgerId } = useLedgerStore.getState();
+  const shared = ledgers.filter((ledger) => ledger.type === 'shared');
+  if (!shared.length) return;
+
+  const goals = useGoalsStore.getState().goals;
+  const ledger =
+    ledgers.find((item) => item.id === activeLedgerId) ?? shared[0];
+  if (!ledger || ledger.type !== 'shared') return;
+
+  const teamKeys: string[] = [];
+  const candidates: SharedPushCandidate[] = [];
+  const memberName = new Map(
+    ledger.members.map((member) => [String(member.id === 'me' ? selfUserId : member.id), member.name]),
+  );
+
+  for (const goal of goals) {
+    const authorId = goal.createdByUserId?.trim();
+    if (!authorId || authorId === selfUserId) continue;
+    const key = `goal-${ledger.id}-${goal.id}`;
+    teamKeys.push(key);
+    const who =
+      goal.createdBy?.trim() ||
+      memberName.get(authorId)?.trim() ||
+      'Un colaborador';
+    candidates.push({
+      key,
+      kind: 'goal',
+      title: 'Meta del equipo',
+      body: `${who} creó la meta «${goal.title}» · ${ledger.name}`,
+      route: `/(tabs)/goal/${goal.id}`,
+      sound: 'sobres',
+    });
+  }
+
+  await notifyFreshSharedPushes(SEEN_TEAM_GOAL_KEY, teamKeys, candidates);
+}
+
+/** Push when someone else adds a salud financiera item on a shared book. */
+export async function notifyNewTeamPlanningItems() {
+  const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
+  if (!selfUserId) return;
+
+  const { useLedgerStore } = await import('@/store/ledger');
+  const { ledgers, snapshots } = useLedgerStore.getState();
+  const shared = ledgers.filter((ledger) => ledger.type === 'shared');
+  if (!shared.length) return;
+
+  const teamKeys: string[] = [];
+  const candidates: SharedPushCandidate[] = [];
+
+  for (const ledger of shared) {
+    const planning = snapshots[ledger.id]?.planning ?? [];
+    for (const item of planning) {
+      const authorId = item.createdByUserId?.trim();
+      if (!authorId || authorId === selfUserId) continue;
+      const key = `plan-${ledger.id}-${item.id}`;
+      teamKeys.push(key);
+      const who = item.createdBy?.trim() || 'Un colaborador';
+      candidates.push({
+        key,
+        kind: 'planning',
+        title: 'Salud financiera',
+        body: `${who} agregó «${item.name}» · ${ledger.name}`,
+        route: '/(tabs)/salud-financiera',
+        sound: 'sobres',
+      });
+    }
+  }
+
+  await notifyFreshSharedPushes(SEEN_TEAM_PLAN_KEY, teamKeys, candidates);
+}
+
 /** Fan-out local pushes for shared books, calendars, and recaudos. */
 export async function notifyAllSharedCollaborators() {
   await Promise.all([
     notifyNewTeamTransactions().catch(() => undefined),
     notifyNewTeamCalendarItems().catch(() => undefined),
     notifyNewTeamRecaudoActivity().catch(() => undefined),
+    notifyNewTeamEnvelopes().catch(() => undefined),
+    notifyNewTeamAccounts().catch(() => undefined),
+    notifyNewTeamGoals().catch(() => undefined),
+    notifyNewTeamPlanningItems().catch(() => undefined),
   ]);
   try {
     const { useNotificationsStore } = await import('@/store/notifications');

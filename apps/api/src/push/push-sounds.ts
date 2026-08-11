@@ -26,7 +26,12 @@ export function pushSoundForKind(
     value === 'aporte' ||
     value === 'withdrawal' ||
     value === 'retiro' ||
-    value === 'sobres'
+    value === 'sobres' ||
+    value === 'envelope' ||
+    value === 'account' ||
+    value === 'goal' ||
+    value === 'planning' ||
+    value === 'create'
   ) {
     return PUSH_SOUND.recaudo;
   }

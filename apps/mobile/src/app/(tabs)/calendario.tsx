@@ -90,6 +90,10 @@ export default function CalendarScreen() {
     router.push({ pathname: '/add-calendar-item', params: { type, date: selectedKey } });
   };
 
+  const openItem = (id: string) => {
+    router.push({ pathname: '/add-calendar-item', params: { id } });
+  };
+
   const calendarTitle = calendar?.name
     ? displayCalendarName(calendar.name, locale)
     : copy.calendar.myCalendar;
@@ -253,6 +257,7 @@ export default function CalendarScreen() {
             items={dayItems}
             theme={theme}
             locale={locale}
+            onOpenItem={openItem}
             onToggleTask={toggleTask}
           />
         )}
@@ -275,8 +280,12 @@ export default function CalendarScreen() {
           dayItems.map((item) => (
             <ScalePressable
               key={item.id}
-              onPress={() => {
-                if (item.type === 'task') toggleTask(item.id);
+              onPress={() => openItem(item.id)}
+              onLongPress={() => {
+                if (item.type === 'task') {
+                  void Haptics.selectionAsync();
+                  toggleTask(item.id);
+                }
               }}
               style={[styles.itemCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <View style={[styles.itemAccent, { backgroundColor: item.color }]} />
@@ -345,15 +354,18 @@ function DayTimeline({
   items,
   theme,
   locale,
+  onOpenItem,
   onToggleTask,
 }: {
   date: Date;
   items: CalendarItem[];
   theme: ReturnType<typeof useAppTheme>;
   locale: string;
+  onOpenItem: (id: string) => void;
   onToggleTask: (id: string) => void;
 }) {
-  const hours = Array.from({ length: 14 }, (_, index) => index + 7);
+  // Cover early/late hours so timed items (e.g. 6:00) stay visible.
+  const hours = Array.from({ length: 18 }, (_, index) => index + 5);
   const timed = items.filter((item) => !item.allDay && item.startHour != null);
   const allDay = items.filter((item) => item.allDay);
 
@@ -372,7 +384,13 @@ function DayTimeline({
         </View>
         <View style={styles.allDayStack}>
           {allDay.map((item) => (
-            <Pressable key={item.id} onPress={() => item.type === 'task' && onToggleTask(item.id)} style={[styles.allDayChip, { backgroundColor: `${item.color}22` }]}>
+            <Pressable
+              key={item.id}
+              onPress={() => onOpenItem(item.id)}
+              onLongPress={() => {
+                if (item.type === 'task') onToggleTask(item.id);
+              }}
+              style={[styles.allDayChip, { backgroundColor: `${item.color}22` }]}>
               <View style={[styles.allDayDot, { backgroundColor: item.color }]} />
               <Text numberOfLines={1} style={[styles.allDayText, { color: theme.text }, item.completed && styles.completed]}>
                 {item.title}
@@ -383,27 +401,34 @@ function DayTimeline({
       </View>
 
       {hours.map((hour) => {
-        const block = timed.find((item) => Math.floor(item.startHour ?? 0) === hour);
+        const blocks = timed.filter((item) => Math.floor(item.startHour ?? 0) === hour);
         return (
           <View key={hour} style={styles.hourRow}>
             <Text style={[styles.hourLabel, { color: theme.muted }]}>
               {formatHour(hour).replace(':00', '')}
             </Text>
             <View style={[styles.hourLine, { borderTopColor: theme.border }]}>
-              {block ? (
-                <View
+              {blocks.map((block, index) => (
+                <Pressable
+                  key={block.id}
+                  onPress={() => onOpenItem(block.id)}
+                  onLongPress={() => {
+                    if (block.type === 'task') onToggleTask(block.id);
+                  }}
                   style={[
                     styles.eventBlock,
                     {
                       backgroundColor: block.color,
                       top: ((block.startHour ?? hour) - hour) * 56,
                       height: Math.max(44, ((block.endHour ?? hour + 1) - (block.startHour ?? hour)) * 56),
+                      left: 8 + index * 8,
+                      right: 8,
                     },
                   ]}>
                   <Text numberOfLines={2} style={styles.eventBlockTitle}>{block.title}</Text>
                   {block.location ? <Text style={styles.eventBlockMeta}>{block.location}</Text> : null}
-                </View>
-              ) : null}
+                </Pressable>
+              ))}
             </View>
           </View>
         );

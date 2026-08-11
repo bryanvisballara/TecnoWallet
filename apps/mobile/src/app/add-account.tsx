@@ -4,6 +4,7 @@ import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -122,6 +123,44 @@ export default function AddAccountScreen() {
     return 'Nueva cuenta';
   }, [isEditing, mode]);
 
+  const entityLabel =
+    mode === 'debt' ? 'deuda' : mode === 'asset' ? 'activo' : 'cuenta';
+  const listFallback =
+    mode === 'asset' || mode === 'debt'
+      ? '/(tabs)/salud-financiera'
+      : '/(tabs)/mis-cuentas';
+
+  const showCreatedSuccess = (accountId: string, accountName: string) => {
+    const title = isEditing
+      ? mode === 'debt'
+        ? 'Deuda guardada'
+        : mode === 'asset'
+          ? 'Activo guardado'
+          : 'Cuenta guardada'
+      : mode === 'debt'
+        ? 'Deuda creada'
+        : mode === 'asset'
+          ? 'Activo creado'
+          : 'Cuenta creada';
+    const body = isEditing
+      ? `Los cambios de «${accountName}» se guardaron correctamente.`
+      : `«${accountName}» se creó correctamente y ya aparece en ${
+          mode === 'asset' || mode === 'debt' ? 'Salud financiera' : 'Mis cuentas'
+        }.`;
+    const openDetail = () => {
+      router.replace({
+        pathname: '/(tabs)/account/[id]',
+        params: { id: accountId },
+      });
+    };
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.alert(`${title}\n\n${body}`);
+      openDetail();
+      return;
+    }
+    Alert.alert(title, body, [{ text: 'Ver', onPress: openDetail }]);
+  };
+
   const normalizeBalance = (parsed: number) => {
     if (mode === 'debt') return parsed === 0 ? 0 : -Math.abs(parsed);
     if (mode === 'asset') return Math.abs(parsed);
@@ -147,11 +186,12 @@ export default function AddAccountScreen() {
     }
     const nextBalance = normalizeBalance(parsed);
     const nextLastFour = isOffAccount ? '' : lastFour;
+    const trimmedName = name.trim();
     setSaving(true);
     try {
       if (editing) {
         await updateAccount(editing.id, {
-          name: name.trim(),
+          name: trimmedName,
           kind,
           balance: nextBalance,
           icon,
@@ -159,11 +199,11 @@ export default function AddAccountScreen() {
           lastFour: nextLastFour,
         });
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        safeGoBack('/(tabs)/mis-cuentas');
+        showCreatedSuccess(editing.id, trimmedName);
         return;
       }
       const account = await addAccount({
-        name: name.trim(),
+        name: trimmedName,
         kind,
         balance: nextBalance,
         icon,
@@ -171,7 +211,7 @@ export default function AddAccountScreen() {
         lastFour: nextLastFour,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: '/(tabs)/account/[id]', params: { id: account.id } });
+      showCreatedSuccess(account.id, account.name);
     } catch (error) {
       Alert.alert(
         isEditing ? 'No se pudo guardar' : 'No se pudo crear',
@@ -184,10 +224,8 @@ export default function AddAccountScreen() {
 
   const confirmDelete = () => {
     if (!editing) return;
-    const label =
-      mode === 'debt' ? 'deuda' : mode === 'asset' ? 'activo' : 'cuenta';
     Alert.alert(
-      `Eliminar ${label}`,
+      `Eliminar ${entityLabel}`,
       `¿Seguro que quieres eliminar "${editing.name}"? Esta acción no se puede deshacer.`,
       [
         { text: 'Cancelar', style: 'cancel' },
@@ -206,9 +244,7 @@ export default function AddAccountScreen() {
     try {
       await removeAccount(editing.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      safeGoBack(
-        mode === 'asset' || mode === 'debt' ? '/(tabs)/salud-financiera' : '/(tabs)/mis-cuentas',
-      );
+      safeGoBack(listFallback);
     } catch (error) {
       Alert.alert(
         'No se pudo eliminar',
@@ -220,10 +256,13 @@ export default function AddAccountScreen() {
   };
 
   return (
-    <SheetScreen fallback="/(tabs)/mis-cuentas">
+    <SheetScreen fallback={listFallback}>
       <View style={styles.flex}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/mis-cuentas')} style={styles.close}>
+          <Pressable
+            accessibilityLabel="Cerrar"
+            onPress={() => safeGoBack(listFallback)}
+            style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />

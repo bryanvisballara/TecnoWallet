@@ -238,8 +238,10 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         useNotificationsStore.getState().syncBadge(),
       );
       void import('@/services/collaboration-api').then(
-        ({ notifyNewTeamTransactions }) =>
-          notifyNewTeamTransactions().catch(() => undefined),
+        ({ notifyNewTeamTransactions, notifyNewTeamEnvelopes }) => {
+          notifyNewTeamTransactions().catch(() => undefined);
+          notifyNewTeamEnvelopes().catch(() => undefined);
+        },
       );
     } catch (error) {
       const status =
@@ -530,6 +532,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       title: `${label} agregada`,
       body: `${mapped.name} · ${ledger?.name ?? 'Libro'}`,
       icon: mapped.icon || 'creditcard.fill',
+      sound: 'sobres',
       route: `/(tabs)/account/${mapped.id}`,
     });
     return mapped;
@@ -641,6 +644,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         title: 'Sobre creado',
         body: `${mapped.name} · ${ledger?.name ?? 'Libro'}`,
         icon: mapped.icon || 'envelope.fill',
+        sound: 'sobres',
         route: `/(tabs)/envelope/${mapped.id}`,
       });
     }
@@ -748,6 +752,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       title: isIncomePlan ? 'Ingreso recurrente creado' : 'Gasto recurrente creado',
       body: `${mapped.name} · ${money(Math.abs(value.amount))} · ${ledger?.name ?? 'Libro'}`,
       icon: mapped.icon || (isIncomePlan ? 'arrow.down.circle.fill' : 'repeat'),
+      sound: 'sobres',
       route: '/(tabs)/salud-financiera',
     });
     return mapped;

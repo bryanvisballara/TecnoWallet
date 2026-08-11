@@ -139,11 +139,21 @@ export async function configureActivityNotifications(): Promise<boolean> {
       if (notificationId) {
         void markSharedNotificationSeen(notificationId);
         // Remote collaborator pushes (not local recordActivity ids).
-        if (/^(tx|cal|rec)-/.test(notificationId)) {
-          if (notificationId.startsWith("tx-")) return; // feed synthesizes txs
+        if (/^(tx|cal|rec|env|acc|goal|plan)-/.test(notificationId)) {
+          // Transactions + envelopes are synthesized into the bell feed.
+          if (
+            notificationId.startsWith("tx-") ||
+            notificationId.startsWith("env-")
+          ) {
+            return;
+          }
           const rawKind = data.kind as ActivityKind | undefined;
           const kind: ActivityKind =
-            rawKind === "calendar" || rawKind === "recaudo"
+            rawKind === "calendar" ||
+            rawKind === "recaudo" ||
+            rawKind === "account" ||
+            rawKind === "goal" ||
+            rawKind === "planning"
               ? rawKind
               : "system";
           void import("@/store/notifications").then(({ recordActivity }) =>
@@ -151,8 +161,22 @@ export async function configureActivityNotifications(): Promise<boolean> {
               kind,
               title: content.title ?? "Novedad del equipo",
               body: content.body ?? "",
-              icon: kind === "calendar" ? "calendar" : "person.3.fill",
-              tone: kind === "calendar" ? "purple" : "green",
+              icon:
+                kind === "calendar"
+                  ? "calendar"
+                  : kind === "goal"
+                    ? "flag.fill"
+                    : kind === "account"
+                      ? "creditcard.fill"
+                      : kind === "planning"
+                        ? "heart.fill"
+                        : "person.3.fill",
+              tone:
+                kind === "calendar"
+                  ? "purple"
+                  : kind === "recaudo"
+                    ? "green"
+                    : "blue",
               route: data.route,
               push: false,
             }),
@@ -258,7 +282,15 @@ async function markSharedNotificationSeen(notificationId: string) {
       ? "seen-team-calendar-item-ids"
       : id.startsWith("rec-")
         ? "seen-team-recaudo-activity-ids"
-        : null;
+        : id.startsWith("env-")
+          ? "seen-team-envelope-ids"
+          : id.startsWith("acc-")
+            ? "seen-team-account-ids"
+            : id.startsWith("goal-")
+              ? "seen-team-goal-ids"
+              : id.startsWith("plan-")
+                ? "seen-team-planning-ids"
+                : null;
   if (!key) return;
   const seen = await localStorage.get<string[]>(key, []);
   if (seen.includes(id)) return;

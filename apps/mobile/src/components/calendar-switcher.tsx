@@ -1,12 +1,20 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
+import { createAccessRequest } from '@/services/collaboration-api';
 import { useCalendarStore } from '@/store/calendar';
 import { useLanguageStore } from '@/store/language';
+import {
+  hasPaidPlan,
+  isPlusRequiredError,
+  paywallPlanFromError,
+  plusReasonFromError,
+  usePlusStore,
+} from '@/store/plus';
 
 type Props = {
   compact?: boolean;
@@ -21,9 +29,15 @@ export function CalendarSwitcher({ compact = false }: Props) {
   const activeCalendarId = useCalendarStore((state) => state.activeCalendarId);
   const setActiveCalendar = useCalendarStore((state) => state.setActiveCalendar);
   const createCalendar = useCalendarStore((state) => state.createCalendar);
+  const hydrateCalendars = useCalendarStore((state) => state.hydrate);
+  const plusAccess = usePlusStore((state) => state.access);
+  const openPaywall = usePlusStore((state) => state.openPaywall);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [newName, setNewName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [joiningBusy, setJoiningBusy] = useState(false);
   const active = calendars.find((item) => item.id === activeCalendarId) ?? calendars[0];
   const activeName = active
     ? displayCalendarName(active.name, locale)
@@ -32,13 +46,55 @@ export function CalendarSwitcher({ compact = false }: Props) {
   const close = () => {
     setOpen(false);
     setCreating(false);
+    setJoining(false);
     setNewName('');
+    setJoinCode('');
+    setJoiningBusy(false);
   };
 
   const onCreate = async () => {
     if (!newName.trim()) return;
     await createCalendar(newName.trim());
     close();
+  };
+
+  const onRequestJoin = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (code.length < 6) {
+      Alert.alert('ID inválido', 'Revisa el código del calendario e inténtalo de nuevo.');
+      return;
+    }
+    setJoiningBusy(true);
+    try {
+      const result = await createAccessRequest(code);
+      close();
+      if (result.resourceType === 'workspace' || result.workspaceId) {
+        Alert.alert(
+          'Solicitud enviada',
+          `Pediste unirte a "${result.workspaceName ?? 'un libro'}". El dueño verá tu solicitud para aceptarla.`,
+        );
+        return;
+      }
+      void hydrateCalendars();
+      Alert.alert(
+        'Solicitud enviada',
+        `Pediste unirte a "${result.calendarName ?? 'un calendario'}". El dueño verá tu solicitud para aceptarla.`,
+      );
+    } catch (error) {
+      if (isPlusRequiredError(error)) {
+        close();
+        openPaywall(plusReasonFromError(error), {
+          plan: paywallPlanFromError(error),
+        });
+        return;
+      }
+      Alert.alert(
+        'No se pudo solicitar',
+        error instanceof Error ? error.message : 'Revisa el ID e inténtalo de nuevo.',
+      );
+    } finally {
+      setJoiningBusy(false);
+    }
   };
 
   return (
@@ -113,6 +169,10 @@ export function CalendarSwitcher({ compact = false }: Props) {
                     accessibilityLabel={copy.common.inviteTo(name)}
                     onPress={() => {
                       close();
+                      if (!hasPaidPlan(plusAccess)) {
+                        openPaywall('SHARING_REQUIRED');
+                        return;
+                      }
                       router.push({
                         pathname: '/(tabs)/calendars',
                         params: { focus: calendar.id, tab: 'share' },
@@ -161,13 +221,56 @@ export function CalendarSwitcher({ compact = false }: Props) {
                   </Pressable>
                 </View>
               </View>
+            ) : joining ? (
+              <View style={styles.createBox}>
+                <Text style={[styles.joinHint, { color: theme.muted }]}>
+                  Escribe el ID del calendario (ej. TC8F3K2M1Q) para solicitar ingreso.
+                </Text>
+                <TextInput
+                  autoFocus
+                  autoCapitalize="characters"
+                  value={joinCode}
+                  onChangeText={setJoinCode}
+                  placeholder="TCXXXXXXXX"
+                  placeholderTextColor={theme.muted}
+                  style={[
+                    styles.input,
+                    {
+                      color: theme.text,
+                      borderColor: theme.border,
+                      backgroundColor: theme.surfaceSecondary,
+                    },
+                  ]}
+                  onSubmitEditing={() => void onRequestJoin()}
+                />
+                <View style={styles.createActions}>
+                  <Pressable onPress={() => setJoining(false)} disabled={joiningBusy}>
+                    <Text style={{ color: theme.muted, fontWeight: '600' }}>{copy.common.cancel}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => void onRequestJoin()} disabled={joiningBusy}>
+                    <Text style={{ color: theme.primary, fontWeight: '700' }}>
+                      {joiningBusy ? 'Enviando…' : 'Solicitar ingreso'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             ) : (
-              <ScalePressable
-                onPress={() => setCreating(true)}
-                style={[styles.addRow, { borderTopColor: theme.border }]}>
-                <Text style={[styles.addText, { color: theme.primary }]}>{copy.calendar.addCalendar}</Text>
-                <AppIcon name="person.badge.plus" color={theme.success} size={20} />
-              </ScalePressable>
+              <>
+                <ScalePressable
+                  onPress={() => setCreating(true)}
+                  style={[styles.addRow, { borderTopColor: theme.border }]}>
+                  <Text style={[styles.addText, { color: theme.primary }]}>
+                    {copy.calendar.addCalendar}
+                  </Text>
+                  <AppIcon name="plus" color={theme.primary} size={20} />
+                </ScalePressable>
+                <ScalePressable
+                  onPress={() => setJoining(true)}
+                  style={[styles.addRow, { borderTopColor: theme.border }]}>
+                  <Text style={[styles.addText, { color: theme.text }]}>Unirse con ID</Text>
+                  <AppIcon name="person.badge.plus" color={theme.success} size={20} />
+                </ScalePressable>
+              </>
             )}
           </Pressable>
         </Pressable>
@@ -254,6 +357,7 @@ const styles = StyleSheet.create({
   },
   addText: { fontSize: 15, fontWeight: '700' },
   createBox: { padding: 14, gap: 10 },
+  joinHint: { fontSize: 13, lineHeight: 18 },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { money, type Transaction } from '@/data/demo';
+import { money, type Envelope, type Transaction } from '@/data/demo';
 import type { LedgerMeta } from '@/data/ledgers';
 import { localStorage } from '@/services/persistence';
 
@@ -255,12 +255,12 @@ function txSortKey(date: string, id: string, occurredAt?: string) {
 }
 
 /**
- * Feed = persisted activities + shared-ledger team movements (other members).
+ * Feed = persisted activities + shared-ledger team movements/envelopes (other members).
  */
 export function buildNotificationFeed(input: {
   activities: AppNotification[];
   ledgers: LedgerMeta[];
-  snapshots: Record<string, { transactions: Transaction[] }>;
+  snapshots: Record<string, { transactions: Transaction[]; envelopes?: Envelope[] }>;
   selfName: string;
   selfUserId?: string;
 }): AppNotification[] {
@@ -271,7 +271,8 @@ export function buildNotificationFeed(input: {
   input.ledgers
     .filter((ledger) => ledger.type === 'shared')
     .forEach((ledger) => {
-      const txs = input.snapshots[ledger.id]?.transactions ?? [];
+      const slice = input.snapshots[ledger.id];
+      const txs = slice?.transactions ?? [];
       txs.forEach((tx) => {
         const authorId = tx.createdByUserId?.trim();
         if (selfId && authorId && authorId === selfId) return;
@@ -292,6 +293,30 @@ export function buildNotificationFeed(input: {
           sortKey: txSortKey(tx.date, tx.id, tx.occurredAt),
           route: '/(tabs)/movimientos',
           createdAt: tx.occurredAt ?? new Date().toISOString(),
+        });
+      });
+
+      const envelopes = slice?.envelopes ?? [];
+      envelopes.forEach((envelope) => {
+        const authorId = envelope.createdByUserId?.trim();
+        if (selfId && authorId && authorId === selfId) return;
+        const author = envelope.createdBy?.trim();
+        if (!author && !authorId) return;
+        if (!authorId && self && author && author.toLowerCase() === self) return;
+
+        const who = author || 'Un colaborador';
+        const createdAt = envelope.createdAt ?? new Date().toISOString();
+        feed.push({
+          id: `env-${ledger.id}-${envelope.id}`,
+          kind: 'envelope',
+          title: 'Sobre del equipo',
+          body: `${who} creó el sobre «${envelope.name}» · ${ledger.name}`,
+          icon: envelope.icon || 'envelope.fill',
+          tone: 'blue',
+          when: whenLabel(createdAt),
+          sortKey: createdAt,
+          route: `/(tabs)/envelope/${envelope.id}`,
+          createdAt,
         });
       });
     });

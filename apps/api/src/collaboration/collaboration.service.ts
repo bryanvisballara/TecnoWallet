@@ -46,9 +46,9 @@ import { createHash, randomBytes } from 'node:crypto';
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SHARE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-function generateShareCode(): string {
+function generateShareCode(prefix: 'TW' | 'TC' = 'TW'): string {
   const bytes = randomBytes(8);
-  let code = 'TW';
+  let code = prefix;
   for (let i = 0; i < 8; i += 1) {
     code += SHARE_CODE_ALPHABET[bytes[i]! % SHARE_CODE_ALPHABET.length];
   }
@@ -105,11 +105,23 @@ export class CollaborationService {
 
   async allocateShareCode(): Promise<string> {
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const shareCode = generateShareCode();
+      const shareCode = generateShareCode('TW');
       const exists = await this.workspaces.exists({ shareCode });
       if (!exists) return shareCode;
     }
     throw new ConflictException('Could not allocate a share code');
+  }
+
+  async allocateCalendarShareCode(): Promise<string> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const shareCode = generateShareCode('TC');
+      const [onCalendar, onWorkspace] = await Promise.all([
+        this.calendars.exists({ shareCode }),
+        this.workspaces.exists({ shareCode }),
+      ]);
+      if (!onCalendar && !onWorkspace) return shareCode;
+    }
+    throw new ConflictException('Could not allocate a calendar share code');
   }
 
   async ensureShareCode(workspaceId: string): Promise<string> {
@@ -132,6 +144,26 @@ export class CollaborationService {
     throw new ConflictException('Could not allocate a share code');
   }
 
+  async ensureCalendarShareCode(calendarId: string): Promise<string> {
+    const calendar = await this.calendars.findOne({
+      _id: calendarId,
+      deletedAt: { $exists: false },
+    });
+    if (!calendar) throw new NotFoundException('Calendar not found');
+    if (calendar.shareCode) return calendar.shareCode;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const shareCode = await this.allocateCalendarShareCode();
+      try {
+        calendar.shareCode = shareCode;
+        await calendar.save();
+        return shareCode;
+      } catch (error) {
+        if (!this.isDuplicateKey(error)) throw error;
+      }
+    }
+    throw new ConflictException('Could not allocate a calendar share code');
+  }
+
   async createAccessRequest(
     dto: CreateAccessRequestDto,
     principal: AuthPrincipal,
@@ -141,8 +173,25 @@ export class CollaborationService {
       shareCode,
       deletedAt: { $exists: false },
     });
-    if (!workspace) throw new NotFoundException('Book ID not found');
+    if (workspace) {
+      return this.createWorkspaceAccessRequest(workspace, principal);
+    }
 
+    const calendar = await this.calendars.findOne({
+      shareCode,
+      deletedAt: { $exists: false },
+    });
+    if (calendar) {
+      return this.createCalendarAccessRequest(calendar, principal);
+    }
+
+    throw new NotFoundException('ID not found');
+  }
+
+  private async createWorkspaceAccessRequest(
+    workspace: { _id: Types.ObjectId; ownerId: Types.ObjectId; name: string },
+    principal: AuthPrincipal,
+  ) {
     const requesterId = new Types.ObjectId(principal.userId);
     if (workspace.ownerId.equals(requesterId)) {
       throw new BadRequestException('You already own this book');
@@ -159,6 +208,7 @@ export class CollaborationService {
 
     try {
       const created = await this.accessRequests.create({
+        resourceType: 'workspace',
         workspaceId: workspace._id,
         requesterUserId: requesterId,
         ownerUserId: workspace.ownerId,
@@ -166,6 +216,7 @@ export class CollaborationService {
       });
       return {
         id: created._id.toString(),
+        resourceType: 'workspace' as const,
         workspaceId: workspace._id.toString(),
         workspaceName: workspace.name,
         status: 'pending' as const,
@@ -181,14 +232,95 @@ export class CollaborationService {
     }
   }
 
+  private async createCalendarAccessRequest(
+    calendar: { _id: Types.ObjectId; ownerId: Types.ObjectId; name: string },
+    principal: AuthPrincipal,
+  ) {
+    const requesterId = new Types.ObjectId(principal.userId);
+    if (calendar.ownerId.equals(requesterId)) {
+      throw new BadRequestException('You already own this calendar');
+    }
+    const alreadyMember = await this.calendarMemberships.exists({
+      calendarId: calendar._id,
+      userId: requesterId,
+    });
+    if (alreadyMember) {
+      throw new ConflictException('You already have access to this calendar');
+    }
+
+    await this.assertSharingPlus(calendar.ownerId.toString(), 'access_request');
+
+    try {
+      const created = await this.accessRequests.create({
+        resourceType: 'calendar',
+        calendarId: calendar._id,
+        requesterUserId: requesterId,
+        ownerUserId: calendar.ownerId,
+        status: 'pending',
+      });
+      return {
+        id: created._id.toString(),
+        resourceType: 'calendar' as const,
+        calendarId: calendar._id.toString(),
+        calendarName: calendar.name,
+        status: 'pending' as const,
+        createdAt: created.createdAt,
+      };
+    } catch (error) {
+      if (this.isDuplicateKey(error)) {
+        throw new ConflictException(
+          'You already have a pending request for this calendar',
+        );
+      }
+      throw error;
+    }
+  }
+
   async listAccessRequests(
     query: ListAccessRequestsQueryDto,
     principal: AuthPrincipal,
   ) {
+    if (query.calendarId) {
+      await this.assertCanInvite('calendar', query.calendarId, principal.userId);
+      const rows = await this.accessRequests
+        .find({
+          calendarId: new Types.ObjectId(query.calendarId),
+          resourceType: 'calendar',
+          status: 'pending',
+        })
+        .sort({ createdAt: -1 })
+        .lean();
+      const users = await this.users
+        .find({ _id: { $in: rows.map((row) => row.requesterUserId) } })
+        .select('name email')
+        .lean();
+      return {
+        requests: rows.map((row) => {
+          const user = users.find((item) =>
+            item._id.equals(row.requesterUserId),
+          );
+          return {
+            id: row._id.toString(),
+            resourceType: 'calendar' as const,
+            calendarId: row.calendarId?.toString(),
+            requesterUserId: row.requesterUserId.toString(),
+            name: user?.name?.trim() || user?.email?.split('@')[0] || 'Usuario',
+            email: (user?.email || '').toLowerCase(),
+            status: row.status,
+            createdAt: row.createdAt,
+          };
+        }),
+      };
+    }
+
+    if (!query.workspaceId) {
+      throw new BadRequestException('workspaceId or calendarId is required');
+    }
     await this.assertCanInvite('workspace', query.workspaceId, principal.userId);
     const rows = await this.accessRequests
       .find({
         workspaceId: new Types.ObjectId(query.workspaceId),
+        $or: [{ resourceType: 'workspace' }, { resourceType: { $exists: false } }],
         status: 'pending',
       })
       .sort({ createdAt: -1 })
@@ -202,7 +334,8 @@ export class CollaborationService {
         const user = users.find((item) => item._id.equals(row.requesterUserId));
         return {
           id: row._id.toString(),
-          workspaceId: row.workspaceId.toString(),
+          resourceType: 'workspace' as const,
+          workspaceId: row.workspaceId?.toString(),
           requesterUserId: row.requesterUserId.toString(),
           name: user?.name?.trim() || user?.email?.split('@')[0] || 'Usuario',
           email: (user?.email || '').toLowerCase(),
@@ -223,26 +356,50 @@ export class CollaborationService {
       .lean();
     if (!rows.length) return { requests: [] as const };
 
-    const [users, workspaces] = await Promise.all([
+    const workspaceIds = rows
+      .map((row) => row.workspaceId)
+      .filter((id): id is Types.ObjectId => Boolean(id));
+    const calendarIds = rows
+      .map((row) => row.calendarId)
+      .filter((id): id is Types.ObjectId => Boolean(id));
+
+    const [users, workspaces, calendars] = await Promise.all([
       this.users
         .find({ _id: { $in: rows.map((row) => row.requesterUserId) } })
         .select('name email')
         .lean(),
-      this.workspaces
-        .find({ _id: { $in: rows.map((row) => row.workspaceId) } })
-        .select('name')
-        .lean(),
+      this.workspaces.find({ _id: { $in: workspaceIds } }).select('name').lean(),
+      this.calendars.find({ _id: { $in: calendarIds } }).select('name').lean(),
     ]);
 
     return {
       requests: rows.map((row) => {
         const user = users.find((item) => item._id.equals(row.requesterUserId));
-        const workspace = workspaces.find((item) =>
-          item._id.equals(row.workspaceId),
+        const isCalendar =
+          row.resourceType === 'calendar' || Boolean(row.calendarId);
+        if (isCalendar) {
+          const calendar = calendars.find(
+            (item) => row.calendarId && item._id.equals(row.calendarId),
+          );
+          return {
+            id: row._id.toString(),
+            resourceType: 'calendar' as const,
+            calendarId: row.calendarId?.toString(),
+            calendarName: calendar?.name ?? 'Calendario',
+            requesterUserId: row.requesterUserId.toString(),
+            name: user?.name?.trim() || user?.email?.split('@')[0] || 'Usuario',
+            email: (user?.email || '').toLowerCase(),
+            status: row.status,
+            createdAt: row.createdAt,
+          };
+        }
+        const workspace = workspaces.find(
+          (item) => row.workspaceId && item._id.equals(row.workspaceId),
         );
         return {
           id: row._id.toString(),
-          workspaceId: row.workspaceId.toString(),
+          resourceType: 'workspace' as const,
+          workspaceId: row.workspaceId?.toString(),
           workspaceName: workspace?.name ?? 'Libro',
           requesterUserId: row.requesterUserId.toString(),
           name: user?.name?.trim() || user?.email?.split('@')[0] || 'Usuario',
@@ -260,6 +417,90 @@ export class CollaborationService {
       status: 'pending',
     });
     if (!request) throw new NotFoundException('Access request not found');
+
+    const isCalendar =
+      request.resourceType === 'calendar' || Boolean(request.calendarId);
+    if (isCalendar) {
+      if (!request.calendarId) {
+        throw new BadRequestException('Calendar access request is incomplete');
+      }
+      await this.assertCanInvite(
+        'calendar',
+        request.calendarId.toString(),
+        principal.userId,
+      );
+      await this.assertSharingPlus(principal.userId, 'accept_access_request');
+
+      const requester = await this.users
+        .findById(request.requesterUserId)
+        .select('email')
+        .lean();
+      if (!requester?.email) {
+        throw new ConflictException('Requester account is no longer available');
+      }
+
+      const email = requester.email.toLowerCase();
+      await this.assertNoExistingAccess(
+        'calendar',
+        request.calendarId.toString(),
+        request.requesterUserId,
+      );
+
+      const resource: CollaborationResourceRef = {
+        resourceType: 'calendar',
+        resourceId: request.calendarId,
+        role: 'editor',
+      };
+      await this.reserveSeat(
+        principal.userId,
+        email,
+        request.requesterUserId,
+        resource,
+      );
+
+      await this.calendarMemberships.updateOne(
+        { calendarId: request.calendarId, userId: request.requesterUserId },
+        {
+          $setOnInsert: {
+            role: 'editor',
+            sponsorUserId: new Types.ObjectId(principal.userId),
+          },
+        },
+        { upsert: true },
+      );
+
+      await this.seats.updateOne(
+        {
+          sponsorUserId: principal.userId,
+          $or: [
+            { collaboratorUserId: request.requesterUserId },
+            { email },
+          ],
+          status: { $in: ['pending', 'active'] },
+        },
+        {
+          $set: {
+            collaboratorUserId: request.requesterUserId,
+            email,
+            status: 'active',
+          },
+        },
+      );
+
+      request.status = 'accepted';
+      request.resolvedAt = new Date();
+      await request.save();
+
+      return {
+        accepted: true,
+        resourceType: 'calendar' as const,
+        calendarId: request.calendarId.toString(),
+      };
+    }
+
+    if (!request.workspaceId) {
+      throw new BadRequestException('Workspace access request is incomplete');
+    }
     await this.assertCanInvite(
       'workspace',
       request.workspaceId.toString(),
@@ -324,6 +565,7 @@ export class CollaborationService {
 
     return {
       accepted: true,
+      resourceType: 'workspace' as const,
       workspaceId: request.workspaceId.toString(),
     };
   }
@@ -334,11 +576,27 @@ export class CollaborationService {
       status: 'pending',
     });
     if (!request) throw new NotFoundException('Access request not found');
-    await this.assertCanInvite(
-      'workspace',
-      request.workspaceId.toString(),
-      principal.userId,
-    );
+    const isCalendar =
+      request.resourceType === 'calendar' || Boolean(request.calendarId);
+    if (isCalendar) {
+      if (!request.calendarId) {
+        throw new BadRequestException('Calendar access request is incomplete');
+      }
+      await this.assertCanInvite(
+        'calendar',
+        request.calendarId.toString(),
+        principal.userId,
+      );
+    } else {
+      if (!request.workspaceId) {
+        throw new BadRequestException('Workspace access request is incomplete');
+      }
+      await this.assertCanInvite(
+        'workspace',
+        request.workspaceId.toString(),
+        principal.userId,
+      );
+    }
     request.status = 'rejected';
     request.resolvedAt = new Date();
     await request.save();
@@ -1083,6 +1341,11 @@ export class CalendarService {
       { $set: { deletedAt: new Date() } },
     );
     return { deleted: true, id };
+  }
+
+  /** Owner-only gate for viewing/creating the public share code. */
+  async requireOwner(id: string, userId: string) {
+    await this.assertAccess(id, userId, ['owner']);
   }
 
   async members(id: string, userId: string) {

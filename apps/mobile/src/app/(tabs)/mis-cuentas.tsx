@@ -1,13 +1,15 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { AppIcon, Card, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Account } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { isLiquidAccount, sumBalances } from '@/lib/accounts';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
+import { usePreferencesStore } from '@/store/preferences';
 
 function AccountRow({ account }: { account: Account }) {
   const theme = useAppTheme();
@@ -53,6 +55,13 @@ export default function MisCuentasScreen() {
   );
   const liquidez = sumBalances(liquidAccounts);
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
+  const hideBalances = usePreferencesStore((state) => state.hideBalances);
+  const setHideBalances = usePreferencesStore((state) => state.setHideBalances);
+  const [hidden, setHidden] = useState(hideBalances);
+
+  useEffect(() => {
+    setHidden(hideBalances);
+  }, [hideBalances]);
 
   if (!ledger) {
     return <Screen withTabBar title={copy.accounts.title} />;
@@ -70,21 +79,22 @@ export default function MisCuentasScreen() {
           <AppIcon name="arrow.left" color={theme.text} />
         </Pressable>
       }>
-      <Card style={[styles.hero, { backgroundColor: theme.primary }]}>
-        <Text style={styles.heroLabel}>{copy.accounts.liquidity}</Text>
-        <Text style={styles.heroValue}>{money(liquidez)}</Text>
-        <View style={styles.heroStats}>
-          <View>
-            <Text style={styles.heroSmall}>{copy.accounts.title}</Text>
-            <Text style={styles.heroStat}>{liquidAccounts.length}</Text>
-          </View>
-          <View style={styles.divider} />
-          <View>
-            <Text style={styles.heroSmall}>{copy.accounts.available}</Text>
-            <Text style={styles.heroStat}>{money(liquidez, true)}</Text>
-          </View>
-        </View>
-      </Card>
+      <HeroBalanceBanner
+        label={copy.accounts.liquidity}
+        amount={liquidez}
+        hidden={hidden}
+        onToggleHidden={() => {
+          setHidden((prev) => {
+            const next = !prev;
+            void setHideBalances(next);
+            return next;
+          });
+        }}
+        toggleA11yLabel={copy.home.toggleBalances}
+        ledgerLabel={ledgerLabel}
+        ledgerIcon={ledger.icon || 'house.fill'}
+        actionLabel={copy.home.liquidityFromAccounts(liquidAccounts.length)}
+      />
 
       <View style={styles.accountsHeader}>
         <Text accessibilityRole="header" style={[styles.accountsTitle, { color: theme.text }]}>
@@ -113,13 +123,6 @@ export default function MisCuentasScreen() {
 
 const styles = StyleSheet.create({
   back: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  hero: { backgroundColor: '#0878F9', gap: 8, borderWidth: 0 },
-  heroLabel: { color: '#DCEBFF', fontSize: 13 },
-  heroValue: { color: '#FFFFFF', fontSize: 38, fontWeight: '700', letterSpacing: -1.3 },
-  heroStats: { flexDirection: 'row', gap: 18, alignItems: 'center', marginTop: 12 },
-  heroSmall: { color: '#DCEBFF', fontSize: 11 },
-  heroStat: { color: '#FFFFFF', fontSize: 17, fontWeight: '700', marginTop: 2 },
-  divider: { height: 32, width: StyleSheet.hairlineWidth, backgroundColor: '#FFFFFF66' },
   small: { fontSize: 12, lineHeight: 17 },
   accountIcon: {
     width: 48,

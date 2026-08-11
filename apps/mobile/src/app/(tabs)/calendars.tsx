@@ -1,12 +1,27 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  Platform,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { CollaborationInvitesList } from '@/components/collaboration-invites-list';
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
+import { fetchCalendarShareCode } from '@/services/calendar-api';
 import {
+  acceptAccessRequest,
+  listAccessRequests,
   listCollaborationInvites,
+  rejectAccessRequest,
+  revokeCollaborationInvite,
+  type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
 import {
@@ -27,9 +42,27 @@ const roleLabels: Record<CalendarMemberRole, string> = {
   viewer: 'Solo ver',
 };
 
+async function copyText(value: string) {
+  try {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // fall through to Share
+  }
+  try {
+    await Share.share({ message: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function CalendarsScreen() {
   const theme = useAppTheme();
   const params = useLocalSearchParams<{ focus?: string; tab?: string }>();
+  const shareMode = params.tab === 'share';
   const calendars = useCalendarStore((state) => state.calendars);
   const activeCalendarId = useCalendarStore((state) => state.activeCalendarId);
   const setActiveCalendar = useCalendarStore((state) => state.setActiveCalendar);
@@ -37,6 +70,7 @@ export default function CalendarsScreen() {
   const inviteMember = useCalendarStore((state) => state.inviteMember);
   const removeMember = useCalendarStore((state) => state.removeMember);
   const renameCalendar = useCalendarStore((state) => state.renameCalendar);
+  const hydrateCalendars = useCalendarStore((state) => state.hydrate);
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
@@ -51,6 +85,9 @@ export default function CalendarsScreen() {
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor');
   const [newCalendarName, setNewCalendarName] = useState('');
   const [invites, setInvites] = useState<CollaborationResourceInvite[]>([]);
+  const [accessRequests, setAccessRequests] = useState<CollaborationAccessRequest[]>([]);
+  const [shareCode, setShareCode] = useState('');
+  const [shareCodeLoading, setShareCodeLoading] = useState(false);
 
   const selected = useMemo(
     () => calendars.find((item) => item.id === selectedId) ?? calendars[0],
@@ -73,6 +110,19 @@ export default function CalendarsScreen() {
     }
   }, []);
 
+  const loadAccessRequests = useCallback(async (resourceId?: string) => {
+    if (!resourceId) {
+      setAccessRequests([]);
+      return;
+    }
+    try {
+      const rows = await listAccessRequests({ calendarId: resourceId });
+      setAccessRequests(rows);
+    } catch {
+      setAccessRequests([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (selected) setName(selected.name);
   }, [selected?.id, selected?.name]);
@@ -85,7 +135,31 @@ export default function CalendarsScreen() {
 
   useEffect(() => {
     void loadInvites(selected?.id);
-  }, [selected?.id, loadInvites]);
+    void loadAccessRequests(selected?.id);
+  }, [selected?.id, loadInvites, loadAccessRequests]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const calendarId = selected?.id;
+    if (!calendarId) {
+      setShareCode('');
+      return;
+    }
+    setShareCodeLoading(true);
+    void fetchCalendarShareCode(calendarId)
+      .then((code) => {
+        if (!cancelled) setShareCode(code);
+      })
+      .catch(() => {
+        if (!cancelled) setShareCode('');
+      })
+      .finally(() => {
+        if (!cancelled) setShareCodeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
 
   const onInvite = async () => {
     if (!hasPaidPlan(plusAccess)) {
@@ -117,6 +191,53 @@ export default function CalendarsScreen() {
     }
   };
 
+  const onCancelInvite = async (invite: CollaborationResourceInvite) => {
+    try {
+      await revokeCollaborationInvite(invite.id);
+      await loadInvites(selected.id);
+    } catch (error) {
+      Alert.alert(
+        'No se pudo cancelar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
+  };
+
+  const onAcceptRequest = async (request: CollaborationAccessRequest) => {
+    try {
+      await acceptAccessRequest(request.id);
+      await Promise.all([
+        hydrateCalendars(),
+        loadAccessRequests(selected.id),
+        loadInvites(selected.id),
+      ]);
+      setSelectedId(selected.id);
+    } catch (error) {
+      if (isPlusRequiredError(error)) {
+        openPaywall(plusReasonFromError(error), {
+          plan: paywallPlanFromError(error),
+        });
+        return;
+      }
+      Alert.alert(
+        'No se pudo aceptar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
+  };
+
+  const onRejectRequest = async (request: CollaborationAccessRequest) => {
+    try {
+      await rejectAccessRequest(request.id);
+      await loadAccessRequests(selected.id);
+    } catch (error) {
+      Alert.alert(
+        'No se pudo rechazar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
+  };
+
   const onCreate = async () => {
     if (!newCalendarName.trim()) return;
     const id = await createCalendar(newCalendarName.trim());
@@ -127,7 +248,11 @@ export default function CalendarsScreen() {
   return (
     <Screen
       title="Calendarios"
-      subtitle="Nombra, cambia e invita a ver o editar"
+      subtitle={
+        shareMode
+          ? 'Comparte este calendario con otras personas'
+          : 'Nombra, cambia e invita a ver o editar'
+      }
       right={
         <Pressable
           onPress={() => safeGoBack('/(tabs)/calendario')}
@@ -167,70 +292,32 @@ export default function CalendarsScreen() {
         })}
       </Card>
 
-      <Card style={styles.block}>
-        <Text style={[styles.section, { color: theme.text }]}>Nuevo calendario</Text>
-        <Text style={[styles.hint, { color: theme.muted }]}>
-          Útil si gestionas el tuyo y el de otra persona (por ejemplo, como asistente).
-        </Text>
-        <TextInput
-          value={newCalendarName}
-          onChangeText={setNewCalendarName}
-          placeholder="Ej. Personal, Calendario de Ana"
-          placeholderTextColor={theme.muted}
-          style={[
-            styles.input,
-            {
-              color: theme.text,
-              borderColor: theme.border,
-              backgroundColor: theme.surfaceSecondary,
-            },
-          ]}
-        />
-        <PrimaryButton onPress={() => void onCreate()}>Crear calendario</PrimaryButton>
-      </Card>
+      {!shareMode ? (
+        <Card style={styles.block}>
+          <Text style={[styles.section, { color: theme.text }]}>Nuevo calendario</Text>
+          <Text style={[styles.hint, { color: theme.muted }]}>
+            Útil si gestionas el tuyo y el de otra persona (por ejemplo, como asistente).
+          </Text>
+          <TextInput
+            value={newCalendarName}
+            onChangeText={setNewCalendarName}
+            placeholder="Ej. Personal, Calendario de Ana"
+            placeholderTextColor={theme.muted}
+            style={[
+              styles.input,
+              {
+                color: theme.text,
+                borderColor: theme.border,
+                backgroundColor: theme.surfaceSecondary,
+              },
+            ]}
+          />
+          <PrimaryButton onPress={() => void onCreate()}>Crear calendario</PrimaryButton>
+        </Card>
+      ) : null}
 
       {selected ? (
         <>
-          <Card style={styles.block}>
-            <View style={uiStyles.between}>
-              <Text style={[styles.section, { color: theme.text }]}>
-                Ajustes de {selected.name}
-              </Text>
-              <Pill tone={selected.members.length > 1 ? 'blue' : 'neutral'}>
-                {selected.members.length > 1 ? 'Compartido' : 'Personal'}
-              </Pill>
-            </View>
-            <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              style={[
-                styles.input,
-                {
-                  color: theme.text,
-                  borderColor: theme.border,
-                  backgroundColor: theme.surfaceSecondary,
-                },
-              ]}
-            />
-            <PrimaryButton
-              onPress={async () => {
-                await renameCalendar(selected.id, name);
-                Alert.alert('Nombre actualizado');
-              }}>
-              Guardar nombre
-            </PrimaryButton>
-            {selected.id !== activeCalendarId ? (
-              <PrimaryButton
-                onPress={async () => {
-                  await setActiveCalendar(selected.id);
-                  safeGoBack('/(tabs)/calendario');
-                }}>
-                Usar este calendario
-              </PrimaryButton>
-            ) : null}
-          </Card>
-
           <Card style={styles.block}>
             <Text style={[styles.section, { color: theme.text }]}>Personas con acceso</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
@@ -335,7 +422,109 @@ export default function CalendarsScreen() {
             <CollaborationInvitesList
               invites={invites}
               emptyLabel="Cuando invites a alguien, verás aquí si está pendiente o aceptó."
+              onCancelPending={(invite) => void onCancelInvite(invite)}
             />
+
+            <Text style={[styles.label, { color: theme.muted, marginTop: 4 }]}>
+              ID del calendario
+            </Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Comparte este código para que pidan unirse desde “Unirse con ID”.
+            </Text>
+            <View
+              style={[
+                styles.codeBox,
+                { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
+              ]}>
+              <Text style={[styles.codeText, { color: theme.text }]}>
+                {shareCodeLoading ? 'Cargando…' : shareCode || '—'}
+              </Text>
+            </View>
+            <PrimaryButton
+              onPress={async () => {
+                if (!shareCode) {
+                  Alert.alert('ID no disponible', 'Espera un momento e inténtalo de nuevo.');
+                  return;
+                }
+                const ok = await copyText(shareCode);
+                if (ok) Alert.alert('Listo', `ID del calendario: ${shareCode}`);
+              }}>
+              Copiar / compartir ID
+            </PrimaryButton>
+          </Card>
+
+          <Card style={styles.block}>
+            <Text style={[styles.section, { color: theme.text }]}>Solicitudes</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Personas que pidieron unirse con el ID del calendario.
+            </Text>
+            {accessRequests.length === 0 ? (
+              <Text style={[styles.small, { color: theme.muted }]}>
+                No hay solicitudes pendientes.
+              </Text>
+            ) : (
+              accessRequests.map((request) => (
+                <View key={request.id} style={styles.memberRow}>
+                  <View style={[styles.memberAvatar, { backgroundColor: theme.primarySoft }]}>
+                    <AppIcon name="person.badge.plus" color={theme.primary} />
+                  </View>
+                  <View style={styles.copy}>
+                    <Text style={[styles.memberName, { color: theme.text }]}>{request.name}</Text>
+                    <Text style={[styles.small, { color: theme.muted }]}>{request.email}</Text>
+                  </View>
+                  <Pressable onPress={() => void onRejectRequest(request)} style={{ marginRight: 8 }}>
+                    <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
+                      Rechazar
+                    </Text>
+                  </Pressable>
+                  <Pressable onPress={() => void onAcceptRequest(request)}>
+                    <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
+                      Aceptar
+                    </Text>
+                  </Pressable>
+                </View>
+              ))
+            )}
+          </Card>
+
+          <Card style={styles.block}>
+            <View style={uiStyles.between}>
+              <Text style={[styles.section, { color: theme.text }]}>
+                Ajustes de {selected.name}
+              </Text>
+              <Pill tone={selected.members.length > 1 ? 'blue' : 'neutral'}>
+                {selected.members.length > 1 ? 'Compartido' : 'Personal'}
+              </Pill>
+            </View>
+            <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              style={[
+                styles.input,
+                {
+                  color: theme.text,
+                  borderColor: theme.border,
+                  backgroundColor: theme.surfaceSecondary,
+                },
+              ]}
+            />
+            <PrimaryButton
+              onPress={async () => {
+                await renameCalendar(selected.id, name);
+                Alert.alert('Nombre actualizado');
+              }}>
+              Guardar nombre
+            </PrimaryButton>
+            {selected.id !== activeCalendarId ? (
+              <PrimaryButton
+                onPress={async () => {
+                  await setActiveCalendar(selected.id);
+                  safeGoBack('/(tabs)/calendario');
+                }}>
+                Usar este calendario
+              </PrimaryButton>
+            ) : null}
           </Card>
         </>
       ) : null}
@@ -374,6 +563,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
   },
+  codeBox: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  codeText: { fontSize: 22, fontWeight: '800', letterSpacing: 1.4 },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 56 },
   memberAvatar: {
     width: 40,

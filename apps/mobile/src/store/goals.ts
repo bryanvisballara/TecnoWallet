@@ -21,6 +21,8 @@ export type UserGoal = {
   completedAt?: string;
   /** Sobre de ahorros vinculado (creado desde Metas/Ahorros). */
   envelopeId?: string;
+  createdByUserId?: string;
+  createdBy?: string;
 };
 
 type GoalsState = {
@@ -65,7 +67,9 @@ type ApiGoal = {
   _id?: string;
   id?: string;
   name: string;
+  ownerId?: string;
   data?: Record<string, unknown>;
+  createdAt?: string;
 };
 
 function workspaceIdOrThrow() {
@@ -80,6 +84,7 @@ function mapGoal(resource: ApiGoal): UserGoal {
   const period = (['week', 'month', 'year', 'date'].includes(periodRaw)
     ? periodRaw
     : 'month') as GoalPeriod;
+  const ownerId = resource.ownerId ? String(resource.ownerId) : undefined;
   return {
     id: objectId(resource),
     title: resource.name,
@@ -92,10 +97,15 @@ function mapGoal(resource: ApiGoal): UserGoal {
     completed: Boolean(data.completed),
     color: typeof data.color === 'string' ? data.color : COLORS[0],
     createdAt:
-      typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+      typeof data.createdAt === 'string'
+        ? data.createdAt
+        : typeof resource.createdAt === 'string'
+          ? resource.createdAt
+          : new Date().toISOString(),
     completedAt:
       typeof data.completedAt === 'string' ? data.completedAt : undefined,
     envelopeId: typeof data.envelopeId === 'string' ? data.envelopeId : undefined,
+    createdByUserId: ownerId,
   };
 }
 
@@ -129,10 +139,34 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
       const resources = await apiRequest<ApiGoal[]>(
         `/resources/goal?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`,
       );
+      const selfId = (await localStorage.get<string>('auth-user-id', '')) || '';
+      const ledger = useLedgerStore
+        .getState()
+        .ledgers.find((item) => item.id === workspaceId);
+      const authors = new Map<string, string>();
+      for (const member of ledger?.members ?? []) {
+        if (member.id === 'me') {
+          if (selfId) authors.set(selfId, member.name);
+        } else {
+          authors.set(String(member.id), member.name);
+        }
+      }
       set({
-        goals: resources.map(mapGoal),
+        goals: resources.map((resource) => {
+          const mapped = mapGoal(resource);
+          const authorId = mapped.createdByUserId;
+          return {
+            ...mapped,
+            createdBy: authorId
+              ? authors.get(authorId)?.trim() || undefined
+              : undefined,
+          };
+        }),
         hydrated: true,
       });
+      void import('@/services/collaboration-api').then(({ notifyNewTeamGoals }) =>
+        notifyNewTeamGoals().catch(() => undefined),
+      );
     } catch {
       set({ hydrated: true });
     }

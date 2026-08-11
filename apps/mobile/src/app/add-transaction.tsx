@@ -319,7 +319,7 @@ export default function AddTransactionScreen() {
               </Pressable>
             ))}
           </View>
-          <View style={styles.amountBlock}><Text style={[styles.currency, { color: theme.muted }]}>{(ledger?.baseCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase()}</Text><TextInput value={amount} onChangeText={(value) => { setAmount(value); if (formError) setFormError(''); }} onFocus={focusScrollToEnd(scrollRef, 120)} autoFocus keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.border} style={[styles.amountInput, { color: type === 'income' ? theme.success : theme.text }]} accessibilityLabel="Importe" /></View>
+          <View style={styles.amountBlock}><Text style={[styles.currency, { color: theme.muted }]}>{(ledger?.baseCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase()}</Text><TextInput value={amount} onChangeText={(value) => { setAmount(value); if (formError) setFormError(''); }} onFocus={focusScrollToEnd(scrollRef, 120)} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.border} style={[styles.amountInput, { color: type === 'income' ? theme.success : theme.text }]} accessibilityLabel="Importe" /></View>
           <Field label="Concepto"><TextInput value={title} onChangeText={(value) => { setTitle(value); if (formError) setFormError(''); }} onFocus={focusScrollToEnd(scrollRef)} placeholder="¿En qué fue?" placeholderTextColor={theme.muted} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field>
           <Field
             label={

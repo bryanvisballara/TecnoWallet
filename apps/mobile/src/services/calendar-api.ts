@@ -79,6 +79,12 @@ export function deleteCalendar(id: string) {
   );
 }
 
+export function fetchCalendarShareCode(calendarId: string) {
+  return apiRequest<{ shareCode: string }>(
+    `/calendars/${encodeURIComponent(calendarId)}/share-code`,
+  ).then((result) => result.shareCode?.trim().toUpperCase() || '');
+}
+
 export function listCalendarMembers(id: string) {
   return apiRequest<ApiCalendarMember[]>(`/calendars/${id}/members`);
 }

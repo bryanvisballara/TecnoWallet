@@ -3,10 +3,11 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert,
   Image,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -28,6 +29,7 @@ import {
   calendarRepeatOptions,
   formatDayLabel,
   formatReminderLabel,
+  hhmmFromHour,
   hourFromHhmm,
   parseDateKey,
   toDateKey,
@@ -57,6 +59,26 @@ function normalizeHhmm(value: string) {
   return `${match[1].padStart(2, '0')}:${match[2]}`;
 }
 
+/** Digits-only mask that always keeps the colon (HH:MM). */
+function maskHhmmInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 4);
+  if (!digits) return '';
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+function finalizeHhmm(value: string, fallback: string): string {
+  const digits = value.replace(/\D/g, '').padEnd(4, '0').slice(0, 4);
+  let hours = Number(digits.slice(0, 2));
+  let minutes = Number(digits.slice(2, 4));
+  if (!Number.isFinite(hours)) hours = 0;
+  if (!Number.isFinite(minutes)) minutes = 0;
+  hours = Math.min(23, Math.max(0, hours));
+  minutes = Math.min(59, Math.max(0, minutes));
+  const next = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  return normalizeHhmm(next) ?? fallback;
+}
+
 function pickOption(title: string, options: readonly string[], onPick: (value: string) => void) {
   Alert.alert(title, undefined, [
     ...options.map((option) => ({
@@ -72,35 +94,102 @@ export default function AddCalendarItemScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);
   const addItem = useCalendarStore((state) => state.addItem);
+  const updateItem = useCalendarStore((state) => state.updateItem);
+  const removeItem = useCalendarStore((state) => state.removeItem);
+  const calendarItems = useCalendarStore((state) => state.items);
   const profile = useAuthStore((state) => state.profile);
   const { ledger } = useActiveLedger();
   const { calendar, activeCalendarId } = useActiveCalendar();
-  const params = useLocalSearchParams<{ type?: string; date?: string }>();
+  const params = useLocalSearchParams<{ type?: string; date?: string; id?: string }>();
+  const editId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const existing = useMemo(
+    () =>
+      editId?.trim()
+        ? calendarItems.find((item) => item.id === editId.trim())
+        : undefined,
+    [calendarItems, editId],
+  );
+  const isEditing = Boolean(existing);
   const initialType = (['event', 'task', 'birthday'].includes(params.type ?? '')
     ? params.type
-    : 'event') as CalendarItemType;
-  const initialDate = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
-    ? params.date
-    : toDateKey(new Date());
+    : existing?.type ?? 'event') as CalendarItemType;
+  const initialDate =
+    existing?.date && /^\d{4}-\d{2}-\d{2}$/.test(existing.date)
+      ? existing.date
+      : params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
+        ? params.date
+        : toDateKey(new Date());
 
   const [type, setType] = useState<CalendarItemType>(initialType);
-  const [title, setTitle] = useState('');
-  const [notes, setNotes] = useState('');
-  const [location, setLocation] = useState('');
-  const [meetingLink, setMeetingLink] = useState('');
-  const [allDay, setAllDay] = useState(type !== 'event');
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [notes, setNotes] = useState(existing?.notes ?? '');
+  const [location, setLocation] = useState(existing?.location ?? '');
+  const [meetingLink, setMeetingLink] = useState(existing?.meetingLink ?? '');
+  const [allDay, setAllDay] = useState(existing?.allDay ?? type !== 'event');
   const [dateKey, setDateKey] = useState(initialDate);
-  const [startTime, setStartTime] = useState('16:00');
-  const [endTime, setEndTime] = useState('17:00');
-  const [color, setColor] = useState<string>(calendarColors[initialType]);
-  const [reminder, setReminder] = useState<string>(calendarReminderOptions[2]);
-  const [customReminderTime, setCustomReminderTime] = useState('13:50');
+  const [startTime, setStartTime] = useState(
+    hhmmFromHour(existing?.startHour, '09:00'),
+  );
+  const [endTime, setEndTime] = useState(
+    hhmmFromHour(existing?.endHour, '10:00'),
+  );
+  const [color, setColor] = useState<string>(
+    existing?.color ?? calendarColors[initialType],
+  );
+  const [reminder, setReminder] = useState<string>(
+    existing?.reminder?.startsWith('A las ')
+      ? CALENDAR_REMINDER_CUSTOM
+      : existing?.reminder ?? calendarReminderOptions[2],
+  );
+  const [customReminderTime, setCustomReminderTime] = useState(
+    existing?.reminder?.startsWith('A las ')
+      ? existing.reminder.slice(6)
+      : '13:50',
+  );
   const [showReminderPicker, setShowReminderPicker] = useState(false);
-  const [list, setList] = useState(type === 'task' ? 'Mis tareas' : 'Mi calendario');
-  const [repeat, setRepeat] = useState<string>(calendarRepeatOptions[0]);
-  const [assigneeName, setAssigneeName] = useState(profile.name);
-  const [assigneeEmail, setAssigneeEmail] = useState(profile.email);
-  const [attachments, setAttachments] = useState<CalendarAttachment[]>([]);
+  const [list, setList] = useState(
+    existing?.list ?? (type === 'task' ? 'Mis tareas' : 'Mi calendario'),
+  );
+  const [repeat, setRepeat] = useState<string>(
+    existing?.repeat ?? calendarRepeatOptions[0],
+  );
+  const [assigneeName, setAssigneeName] = useState(
+    existing?.assigneeName ?? profile.name,
+  );
+  const [assigneeEmail, setAssigneeEmail] = useState(
+    existing?.assigneeEmail ?? profile.email,
+  );
+  const [attachments, setAttachments] = useState<CalendarAttachment[]>(
+    existing?.attachments ?? [],
+  );
+  const [saving, setSaving] = useState(false);
+  const [hydratedEdit, setHydratedEdit] = useState(!editId);
+
+  useEffect(() => {
+    if (!editId || !existing || hydratedEdit) return;
+    setType(existing.type);
+    setTitle(existing.title);
+    setNotes(existing.notes ?? '');
+    setLocation(existing.location ?? '');
+    setMeetingLink(existing.meetingLink ?? '');
+    setAllDay(existing.allDay);
+    setDateKey(existing.date);
+    setStartTime(hhmmFromHour(existing.startHour, '09:00'));
+    setEndTime(hhmmFromHour(existing.endHour, '10:00'));
+    setColor(existing.color);
+    if (existing.reminder?.startsWith('A las ')) {
+      setReminder(CALENDAR_REMINDER_CUSTOM);
+      setCustomReminderTime(existing.reminder.slice(6));
+    } else {
+      setReminder(existing.reminder ?? calendarReminderOptions[2]);
+    }
+    setList(existing.list ?? (existing.type === 'task' ? 'Mis tareas' : 'Mi calendario'));
+    setRepeat(existing.repeat ?? calendarRepeatOptions[0]);
+    setAssigneeName(existing.assigneeName ?? profile.name);
+    setAssigneeEmail(existing.assigneeEmail ?? profile.email);
+    setAttachments(existing.attachments ?? []);
+    setHydratedEdit(true);
+  }, [editId, existing, hydratedEdit, profile.email, profile.name]);
 
   const people = useMemo(() => {
     const map = new Map<string, { name: string; email: string }>();
@@ -205,6 +294,7 @@ export default function AddCalendarItemScreen() {
   };
 
   const save = async () => {
+    if (saving) return;
     if (!title.trim()) {
       Alert.alert('Falta el título', 'Escribe un nombre para esta entrada.');
       return;
@@ -213,9 +303,13 @@ export default function AddCalendarItemScreen() {
     const isAllDay = type === 'birthday' ? true : allDay;
     let startHour: number | undefined;
     let endHour: number | undefined;
+    const startNormalized = finalizeHhmm(startTime, '09:00');
+    const endNormalized = finalizeHhmm(endTime, '10:00');
+    setStartTime(startNormalized);
+    setEndTime(endNormalized);
     if (!isAllDay) {
-      startHour = hourFromHhmm(startTime);
-      endHour = hourFromHhmm(endTime);
+      startHour = hourFromHhmm(startNormalized);
+      endHour = hourFromHhmm(endNormalized);
       if (startHour == null || endHour == null) {
         Alert.alert('Hora inválida', 'Usa el formato HH:mm para la hora de inicio y fin.');
         return;
@@ -230,8 +324,9 @@ export default function AddCalendarItemScreen() {
     if (reminder === CALENDAR_REMINDER_NONE) {
       reminderValue = undefined;
     } else if (reminderIsCustom) {
-      const custom = normalizeHhmm(customReminderTime);
-      if (!custom) {
+      const custom = finalizeHhmm(customReminderTime, '09:00');
+      setCustomReminderTime(custom);
+      if (!normalizeHhmm(custom)) {
         Alert.alert(
           'Recordatorio inválido',
           'Escribe la hora del push en formato HH:mm. Ej.: 13:50',
@@ -243,7 +338,7 @@ export default function AddCalendarItemScreen() {
       reminderValue = reminder;
     }
 
-    const itemId = addItem({
+    const payload = {
       type,
       title: title.trim(),
       date: dateKey,
@@ -259,33 +354,74 @@ export default function AddCalendarItemScreen() {
       repeat: repeat === 'No se repite' ? undefined : repeat,
       assigneeName,
       assigneeEmail,
-      completed: false,
+      completed: existing?.completed ?? false,
       attachments: attachments.length ? attachments : undefined,
-      calendarId: activeCalendarId,
-    });
+      calendarId: existing?.calendarId ?? activeCalendarId,
+    };
 
-    const reminderScheduled = reminderValue
-      ? await scheduleCalendarReminder({
-          itemId,
-          title: title.trim(),
-          typeLabel: typeLabels[type],
-          date: dateKey,
-          allDay: isAllDay,
-          startHour,
-          reminder: reminderValue,
-        })
-      : true;
+    setSaving(true);
+    try {
+      const itemId = isEditing && existing
+        ? (await updateItem({ ...existing, ...payload }), existing.id)
+        : await addItem(payload);
 
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const reminderScheduled = reminderValue
+        ? await scheduleCalendarReminder({
+            itemId,
+            title: title.trim(),
+            typeLabel: typeLabels[type],
+            date: dateKey,
+            allDay: isAllDay,
+            startHour,
+            reminder: reminderValue,
+          })
+        : true;
 
-    if (reminderValue && !reminderScheduled && Platform.OS !== 'web') {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      if (reminderValue && !reminderScheduled && Platform.OS !== 'web') {
+        Alert.alert(
+          'Guardado',
+          'El elemento se guardó, pero no se pudo programar el push. Revisa permisos de notificación o elige una hora futura.',
+        );
+      }
+
+      safeGoBack('/(tabs)/calendario');
+    } catch (error) {
       Alert.alert(
-        'Guardado',
-        'El elemento se creó, pero no se pudo programar el push. Revisa permisos de notificación o elige una hora futura.',
+        'No se pudo guardar',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
       );
+    } finally {
+      setSaving(false);
     }
+  };
 
-    safeGoBack('/(tabs)/calendario');
+  const confirmDelete = () => {
+    if (!existing || saving) return;
+    const run = async () => {
+      setSaving(true);
+      try {
+        removeItem(existing.id);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        safeGoBack('/(tabs)/calendario');
+      } catch (error) {
+        Alert.alert(
+          'No se pudo eliminar',
+          error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm(`¿Eliminar «${existing.title}»?`)) void run();
+      return;
+    }
+    Alert.alert('Eliminar', `¿Eliminar «${existing.title}» del calendario?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: () => void run() },
+    ]);
   };
 
   return (
@@ -296,8 +432,10 @@ export default function AddCalendarItemScreen() {
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
-          <ScalePressable onPress={() => void save()} style={[styles.save, { backgroundColor: theme.primary }]}>
-            <Text style={styles.saveText}>Guardar</Text>
+          <ScalePressable
+            onPress={saving ? undefined : () => void save()}
+            style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
+            <Text style={styles.saveText}>{saving ? '…' : 'Guardar'}</Text>
           </ScalePressable>
         </View>
 
@@ -309,7 +447,6 @@ export default function AddCalendarItemScreen() {
             placeholder={titlePlaceholder}
             placeholderTextColor={theme.muted}
             style={[styles.titleInput, { color: theme.text }]}
-            autoFocus
           />
 
           <View style={styles.typeRow}>
@@ -323,6 +460,7 @@ export default function AddCalendarItemScreen() {
                 <Pressable
                   key={item.key}
                   onPress={() => {
+                    Keyboard.dismiss();
                     setType(item.key);
                     setColor(calendarColors[item.key]);
                     setAllDay(item.key !== 'event');
@@ -372,11 +510,13 @@ export default function AddCalendarItemScreen() {
                 <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>Inicio</Text>
                 <TextInput
                   value={startTime}
-                  onChangeText={setStartTime}
+                  onChangeText={(value) => setStartTime(maskHhmmInput(value))}
+                  onBlur={() => setStartTime((current) => finalizeHhmm(current, '09:00'))}
                   onFocus={focusScrollToEnd(scrollRef, 120)}
-                  placeholder="16:00"
+                  placeholder="09:00"
                   placeholderTextColor={theme.muted}
-                  keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
+                  keyboardType="number-pad"
+                  maxLength={5}
                   autoCapitalize="none"
                   autoCorrect={false}
                   style={[styles.timeInput, { color: theme.text, borderColor: theme.border }]}
@@ -386,11 +526,13 @@ export default function AddCalendarItemScreen() {
                 <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>Fin</Text>
                 <TextInput
                   value={endTime}
-                  onChangeText={setEndTime}
+                  onChangeText={(value) => setEndTime(maskHhmmInput(value))}
+                  onBlur={() => setEndTime((current) => finalizeHhmm(current, '10:00'))}
                   onFocus={focusScrollToEnd(scrollRef, 120)}
-                  placeholder="17:00"
+                  placeholder="10:00"
                   placeholderTextColor={theme.muted}
-                  keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
+                  keyboardType="number-pad"
+                  maxLength={5}
                   autoCapitalize="none"
                   autoCorrect={false}
                   style={[styles.timeInput, { color: theme.text, borderColor: theme.border }]}
@@ -527,13 +669,15 @@ export default function AddCalendarItemScreen() {
                   </Text>
                   <TextInput
                     value={customReminderTime}
-                    onChangeText={setCustomReminderTime}
+                    onChangeText={(value) => setCustomReminderTime(maskHhmmInput(value))}
+                    onBlur={() =>
+                      setCustomReminderTime((current) => finalizeHhmm(current, '09:00'))
+                    }
                     onFocus={focusScrollToEnd(scrollRef, 120)}
                     placeholder="13:50"
                     placeholderTextColor={theme.muted}
-                    keyboardType={
-                      Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'
-                    }
+                    keyboardType="number-pad"
+                    maxLength={5}
                     autoCapitalize="none"
                     autoCorrect={false}
                     style={[
@@ -579,7 +723,7 @@ export default function AddCalendarItemScreen() {
             />
           </Row>
 
-          <Row icon="paperclip" last>
+          <Row icon="paperclip" last={!isEditing}>
             <View style={styles.attachBlock}>
               <Pressable
                 accessibilityRole="button"
@@ -622,6 +766,16 @@ export default function AddCalendarItemScreen() {
               ) : null}
             </View>
           </Row>
+
+          {isEditing ? (
+            <ScalePressable
+              onPress={saving ? undefined : confirmDelete}
+              style={[styles.deleteBtn, { borderColor: theme.danger }]}>
+              <Text style={[styles.deleteBtnText, { color: theme.danger }]}>
+                Eliminar
+              </Text>
+            </ScalePressable>
+          ) : null}
         </FormScrollView>
       </View>
     </SheetScreen>
@@ -773,6 +927,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  deleteBtn: {
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtnText: { fontSize: 16, fontWeight: '700' },
   attachName: { flex: 1, fontSize: 13, fontWeight: '600' },
   reminderPicker: {
     marginHorizontal: 12,

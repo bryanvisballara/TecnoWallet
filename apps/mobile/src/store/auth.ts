@@ -224,6 +224,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     let stillAuthed = demo;
     if (!demo && (token || refreshToken)) {
+      // Optimistic session from local tokens so boot is not stuck on network.
+      stillAuthed = true;
+      const accessHint = token || '';
+      const userIdHint = decodeJwtSub(accessHint);
+      if (userIdHint) await localStorage.set('auth-user-id', userIdHint);
+
+      set({
+        hydrated: true,
+        onboarded,
+        authenticated: true,
+        demo,
+        profile,
+      });
+
       if (refreshToken) {
         // Renew on launch; 401/403 clears tokens inside ensureAuthSession.
         await ensureAuthSession();
@@ -246,32 +260,50 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (!stillAuthed) {
         await clearLocalSession();
-      } else {
-        const access = (await tokenStorage.get()) || nextAccess;
-        const userId = decodeJwtSub(access);
-        if (userId) await localStorage.set('auth-user-id', userId);
-        else {
-          await clearLocalSession();
-          stillAuthed = false;
-        }
-        if (stillAuthed) {
-          try {
-            const me = await apiRequest<{
-              id: string;
-              email: string;
-              name: string;
-              platformRole?: 'user' | 'admin';
-            }>('/auth/me');
-            profile.name = me.name;
-            profile.email = me.email.toLowerCase();
-            profile.platformRole =
-              me.platformRole === 'admin' ? 'admin' : 'user';
-            await writeProfile(profile);
-          } catch {
-            // Keep cached profile if /me is unavailable.
-          }
-        }
+        set({
+          hydrated: true,
+          onboarded,
+          authenticated: false,
+          demo: false,
+          profile,
+        });
+        return;
       }
+
+      const access = (await tokenStorage.get()) || nextAccess;
+      const userId = decodeJwtSub(access);
+      if (userId) await localStorage.set('auth-user-id', userId);
+      else {
+        await clearLocalSession();
+        set({
+          hydrated: true,
+          onboarded,
+          authenticated: false,
+          demo: false,
+          profile,
+        });
+        return;
+      }
+
+      // Profile refresh is best-effort and must not block first paint / ledger hydrate.
+      void apiRequest<{
+        id: string;
+        email: string;
+        name: string;
+        platformRole?: 'user' | 'admin';
+      }>('/auth/me')
+        .then(async (me) => {
+          const next = {
+            ...useAuthStore.getState().profile,
+            name: me.name,
+            email: me.email.toLowerCase(),
+            platformRole:
+              me.platformRole === 'admin' ? ('admin' as const) : ('user' as const),
+          };
+          await writeProfile(next);
+          set({ profile: next });
+        })
+        .catch(() => undefined);
     }
 
     set({

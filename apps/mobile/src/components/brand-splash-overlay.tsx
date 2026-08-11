@@ -24,6 +24,7 @@ import { useRecaudosStore } from '@/store/recaudos';
 
 const GREEN = '#39E639';
 const BG = '#002787';
+const SPLASH_ART = require('@/assets/images/splash-screen.png');
 
 type BrandSplashOverlayProps = {
   /** When true, fill to 100% and fade out. */
@@ -32,7 +33,8 @@ type BrandSplashOverlayProps = {
 
 /**
  * Brand splash with live hydration progress.
- * Native preset is solid brand color only — this overlay owns the art + loader.
+ * Native launch screen already shows the same art; this overlay adds the loader
+ * and keeps continuity until stores are ready.
  */
 export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   const insets = useSafeAreaInsets();
@@ -80,7 +82,7 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   ]);
 
   useEffect(() => {
-    // Hide native solid splash as soon as this overlay mounts.
+    // Hide native splash as soon as this overlay mounts.
     void SplashScreen.hideAsync().catch(() => undefined);
   }, []);
 
@@ -131,10 +133,12 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   return (
     <Animated.View pointerEvents="none" style={[styles.overlay, fadeStyle]}>
       <Image
-        source={require('@/assets/images/splash-screen.png')}
+        source={SPLASH_ART}
         style={styles.image}
         contentFit="cover"
         transition={0}
+        cachePolicy="memory-disk"
+        priority="high"
       />
 
       <View style={[styles.loader, { bottom: Math.max(insets.bottom, 16) + 56 }]}>

@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { buildWeeklySpend, DonutChart, WeeklyBars } from '@/components/charts';
+import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { LedgerSwitcher } from '@/components/ledger-switcher';
 import { MonthSwitcher } from '@/components/month-switcher';
-import { AppIcon, Card, IconButton, Pill, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
+import { AppIcon, Card, IconButton, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { getActiveMoneyCurrency, money, moneyAmount } from '@/data/demo';
 import {
   displayLedgerName,
@@ -185,48 +186,27 @@ export default function DashboardScreen() {
         </View>
       }>
       <MonthSwitcher />
-      <Card style={[styles.balanceCard, { backgroundColor: theme.primary }]}>
-        <View style={uiStyles.between}>
-          <ScalePressable
-            accessibilityRole="button"
-            accessibilityLabel={copy.home.liquidityA11y(
-              money(liquidezTotal),
-              liquidAccounts.length,
-            )}
-            style={styles.balancePress}
-            onPress={() => router.push('/(tabs)/mis-cuentas')}>
-            <Text style={styles.balanceLabel}>{copy.home.totalLiquidity}</Text>
-          </ScalePressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={copy.home.toggleBalances}
-            hitSlop={12}
-            onPress={() => {
-              setHidden((prev) => {
-                const next = !prev;
-                void setHideBalances(next);
-                return next;
-              });
-            }}>
-            <AppIcon name={hidden ? 'eye.slash.fill' : 'eye.fill'} color="#FFFFFF" size={19} />
-          </Pressable>
-        </View>
-        <ScalePressable
-          accessibilityRole="button"
-          accessibilityLabel={copy.home.liquidityA11y(
-            money(liquidezTotal),
-            liquidAccounts.length,
-          )}
-          onPress={() => router.push('/(tabs)/mis-cuentas')}>
-          <Text style={styles.balance}>{value(liquidezTotal)}</Text>
-          <View style={styles.balanceFooter}>
-            <Pill tone="neutral">{ledgerLabel}</Pill>
-            <Text style={styles.updated}>
-              {copy.home.liquidityFromAccounts(liquidAccounts.length)}
-            </Text>
-          </View>
-        </ScalePressable>
-      </Card>
+      <HeroBalanceBanner
+        label={copy.home.totalLiquidity}
+        amount={liquidezTotal}
+        hidden={hidden}
+        onToggleHidden={() => {
+          setHidden((prev) => {
+            const next = !prev;
+            void setHideBalances(next);
+            return next;
+          });
+        }}
+        toggleA11yLabel={copy.home.toggleBalances}
+        ledgerLabel={ledgerLabel}
+        ledgerIcon={ledger.icon || 'house.fill'}
+        actionLabel={copy.home.liquidityFromAccounts(liquidAccounts.length)}
+        accessibilityLabel={copy.home.liquidityA11y(
+          money(liquidezTotal),
+          liquidAccounts.length,
+        )}
+        onPress={() => router.push('/(tabs)/mis-cuentas')}
+      />
 
       <View style={styles.metrics}>
         <View style={styles.metricSlot}>
@@ -530,12 +510,6 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  balanceCard: { padding: 22, gap: 12, borderWidth: 0 },
-  balancePress: { flex: 1 },
-  balanceLabel: { color: '#DCEBFF', fontSize: 14, fontWeight: '600' },
-  balance: { color: '#FFFFFF', fontSize: 40, fontWeight: '700', letterSpacing: -1.7, fontVariant: ['tabular-nums'] },
-  balanceFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  updated: { color: '#DCEBFF', fontSize: 11 },
   metrics: { flexDirection: 'row', gap: 10 },
   metricSlot: { flex: 1, minWidth: 0 },
   metricPress: { flex: 1, width: '100%' },

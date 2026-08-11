@@ -329,6 +329,7 @@ class ResourceService {
     private readonly access: WorkspaceAccessService,
     private readonly ocr: OcrProvider,
     private readonly entitlements: EntitlementService,
+    private readonly push: PushService,
   ) {}
 
   assertKind(kind: string): asserts kind is ResourceKind {
@@ -342,13 +343,113 @@ class ResourceService {
     await this.access.assertMember(dto.workspaceId, principal.userId);
     this.validatePayload(kind, dto.data);
     if (kind === 'envelope') {
-      return this.createEnvelopeWithPlanLimit(dto, principal);
+      const created = await this.createEnvelopeWithPlanLimit(dto, principal);
+      this.notifyTeamResourceCreated(created, principal);
+      return created;
     }
-    return this.resources.create({
+    const created = await this.resources.create({
       ...dto,
       kind,
       ownerId: principal.userId,
     });
+    this.notifyTeamResourceCreated(created, principal);
+    return created;
+  }
+
+  /** Push to other workspace members for collaborative creates. */
+  private notifyTeamResourceCreated(
+    created: FinanceResource,
+    principal: AuthPrincipal,
+  ) {
+    const kind = created.kind;
+    if (
+      kind !== 'envelope' &&
+      kind !== 'account' &&
+      kind !== 'goal' &&
+      kind !== 'bill' &&
+      kind !== 'subscription'
+    ) {
+      return;
+    }
+    // Never ping for system/clearing accounts.
+    if (
+      kind === 'account' &&
+      (created.name === '__clearing__' || created.data?.system === true)
+    ) {
+      return;
+    }
+
+    const workspaceId = created.workspaceId.toString();
+    const resourceId = created._id.toString();
+    const name = created.name?.trim() || 'Elemento';
+    const copy = this.teamCreateCopy(kind, name, resourceId);
+
+    void (async () => {
+      const [who, book] = await Promise.all([
+        this.push.userDisplayName(principal.userId),
+        this.push.workspaceName(workspaceId),
+      ]);
+      this.push.notifyWorkspaceMembers(workspaceId, principal.userId, {
+        title: copy.title,
+        body: `${who} ${copy.verb} «${name}» · ${book}`,
+        data: {
+          kind: copy.dataKind,
+          route: copy.route,
+          notificationId: `${copy.idPrefix}-${workspaceId}-${resourceId}`,
+        },
+        sound: 'sobres.wav',
+      });
+    })().catch(() => {
+      // Push must never roll back resource create.
+    });
+  }
+
+  private teamCreateCopy(
+    kind: ResourceKind,
+    _name: string,
+    resourceId: string,
+  ): {
+    title: string;
+    verb: string;
+    dataKind: string;
+    route: string;
+    idPrefix: string;
+  } {
+    if (kind === 'envelope') {
+      return {
+        title: 'Sobre del equipo',
+        verb: 'creó el sobre',
+        dataKind: 'envelope',
+        route: `/(tabs)/envelope/${resourceId}`,
+        idPrefix: 'env',
+      };
+    }
+    if (kind === 'account') {
+      return {
+        title: 'Cuenta del equipo',
+        verb: 'agregó la cuenta',
+        dataKind: 'account',
+        route: `/(tabs)/account/${resourceId}`,
+        idPrefix: 'acc',
+      };
+    }
+    if (kind === 'goal') {
+      return {
+        title: 'Meta del equipo',
+        verb: 'creó la meta',
+        dataKind: 'goal',
+        route: `/(tabs)/goal/${resourceId}`,
+        idPrefix: 'goal',
+      };
+    }
+    // bill / subscription → salud financiera
+    return {
+      title: 'Salud financiera',
+      verb: 'agregó',
+      dataKind: 'planning',
+      route: '/(tabs)/salud-financiera',
+      idPrefix: 'plan',
+    };
   }
 
   private async createEnvelopeWithPlanLimit(
