@@ -101,6 +101,7 @@ export class CollaborationService {
     private readonly memberships: Model<Membership>,
     private readonly entitlements: EntitlementService,
     private readonly config: ConfigService,
+    private readonly push: PushService,
   ) {}
 
   async allocateShareCode(): Promise<string> {
@@ -214,6 +215,14 @@ export class CollaborationService {
         ownerUserId: workspace.ownerId,
         status: 'pending',
       });
+      void this.notifyOwnerAccessRequest({
+        ownerUserId: workspace.ownerId.toString(),
+        requesterUserId: principal.userId,
+        requestId: created._id.toString(),
+        resourceType: 'workspace',
+        resourceId: workspace._id.toString(),
+        resourceName: workspace.name,
+      });
       return {
         id: created._id.toString(),
         resourceType: 'workspace' as const,
@@ -258,6 +267,14 @@ export class CollaborationService {
         ownerUserId: calendar.ownerId,
         status: 'pending',
       });
+      void this.notifyOwnerAccessRequest({
+        ownerUserId: calendar.ownerId.toString(),
+        requesterUserId: principal.userId,
+        requestId: created._id.toString(),
+        resourceType: 'calendar',
+        resourceId: calendar._id.toString(),
+        resourceName: calendar.name,
+      });
       return {
         id: created._id.toString(),
         resourceType: 'calendar' as const,
@@ -274,6 +291,35 @@ export class CollaborationService {
       }
       throw error;
     }
+  }
+
+  private async notifyOwnerAccessRequest(input: {
+    ownerUserId: string;
+    requesterUserId: string;
+    requestId: string;
+    resourceType: 'workspace' | 'calendar';
+    resourceId: string;
+    resourceName: string;
+  }) {
+    const who = await this.push.userDisplayName(input.requesterUserId);
+    const isCalendar = input.resourceType === 'calendar';
+    const targetLabel = isCalendar ? 'calendario' : 'libro';
+    const route = isCalendar
+      ? `/(tabs)/calendars?focus=${encodeURIComponent(input.resourceId)}&tab=share`
+      : `/(tabs)/ledgers?focus=${encodeURIComponent(input.resourceId)}&tab=share`;
+    this.push.notifyUsers([input.ownerUserId], input.requesterUserId, {
+      title: 'Solicitud de acceso',
+      body: `${who} quiere unirse a tu ${targetLabel} «${input.resourceName.trim() || (isCalendar ? 'Calendario' : 'Libro')}»`,
+      data: {
+        kind: 'invite',
+        route,
+        notificationId: `access-${input.requestId}`,
+        accessRequestId: input.requestId,
+        resourceType: input.resourceType,
+        resourceId: input.resourceId,
+      },
+      sound: 'sobres.wav',
+    });
   }
 
   async listAccessRequests(

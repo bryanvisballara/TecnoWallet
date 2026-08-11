@@ -153,9 +153,16 @@ export async function configureActivityNotifications(): Promise<boolean> {
             rawKind === "recaudo" ||
             rawKind === "account" ||
             rawKind === "goal" ||
-            rawKind === "planning"
+            rawKind === "planning" ||
+            rawKind === "invite"
               ? rawKind
               : "system";
+          if (typeof data.accessRequestId === "string" && data.accessRequestId) {
+            void import("@/services/collaboration-api").then(
+              ({ markAccessRequestSeen }) =>
+                markAccessRequestSeen(data.accessRequestId as string),
+            );
+          }
           void import("@/store/notifications").then(({ recordActivity }) =>
             recordActivity({
               kind,
@@ -170,7 +177,9 @@ export async function configureActivityNotifications(): Promise<boolean> {
                       ? "creditcard.fill"
                       : kind === "planning"
                         ? "heart.fill"
-                        : "person.3.fill",
+                        : kind === "invite"
+                          ? "person.badge.plus"
+                          : "person.3.fill",
               tone:
                 kind === "calendar"
                   ? "purple"
@@ -193,9 +202,16 @@ export async function configureActivityNotifications(): Promise<boolean> {
         rawKind === "account" ||
         rawKind === "envelope" ||
         rawKind === "planning" ||
-        rawKind === "goal"
+        rawKind === "goal" ||
+        rawKind === "invite"
           ? rawKind
           : "system";
+      if (typeof data.accessRequestId === "string" && data.accessRequestId) {
+        void import("@/services/collaboration-api").then(
+          ({ markAccessRequestSeen }) =>
+            markAccessRequestSeen(data.accessRequestId as string),
+        );
+      }
       void import("@/store/notifications").then(({ recordActivity }) =>
         recordActivity({
           kind,
@@ -204,9 +220,11 @@ export async function configureActivityNotifications(): Promise<boolean> {
           icon:
             kind === "calendar"
               ? "calendar"
-              : kind === "recaudo"
-                ? "person.3.fill"
-                : "bell.fill",
+              : kind === "invite"
+                ? "person.badge.plus"
+                : kind === "recaudo"
+                  ? "person.3.fill"
+                  : "bell.fill",
           tone: kind === "calendar" ? "purple" : kind === "recaudo" ? "green" : "blue",
           route: data.route,
           push: false,

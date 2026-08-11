@@ -31,7 +31,9 @@ export function pushSoundForKind(
     value === 'account' ||
     value === 'goal' ||
     value === 'planning' ||
-    value === 'create'
+    value === 'create' ||
+    value === 'invite' ||
+    value === 'access_request'
   ) {
     return PUSH_SOUND.recaudo;
   }

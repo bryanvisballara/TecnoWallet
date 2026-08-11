@@ -219,6 +219,14 @@ export async function claimPendingCollaborationInvite() {
   return result;
 }
 
+export async function markAccessRequestSeen(requestId: string) {
+  const id = requestId.trim();
+  if (!id) return;
+  const seen = await localStorage.get<string[]>(SEEN_ACCESS_REQUESTS_KEY, []);
+  if (seen.includes(id)) return;
+  await localStorage.set(SEEN_ACCESS_REQUESTS_KEY, [...seen, id].slice(-200));
+}
+
 export async function notifyNewAccessRequests(
   requests: CollaborationAccessRequest[],
 ) {
