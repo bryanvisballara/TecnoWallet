@@ -51,6 +51,8 @@ export type ApiTransaction = {
     envelopeId?: string;
   }>;
   ownerId?: string;
+  /** Set when this transaction was corrected/voided via reverse. */
+  reversedById?: string;
 };
 
 const CLEARING_NAME = '__clearing__';
@@ -434,6 +436,22 @@ export async function createLedgerTransaction(input: {
   });
 }
 
+/** Ledger rows are immutable — corrections create an opposite refund entry. */
+export async function reverseLedgerTransaction(
+  transactionId: string,
+  description?: string,
+) {
+  return apiRequest<ApiTransaction>(
+    `/transactions/${encodeURIComponent(transactionId)}/reverse`,
+    {
+      method: 'POST',
+      body: JSON.stringify(
+        description?.trim() ? { description: description.trim() } : {},
+      ),
+    },
+  );
+}
+
 /** Ensure cash + envelopes + clearing exist in Mongo for a book. */
 export async function ensureWorkspaceDefaults(workspaceId: string, currency: string) {
   const [accounts, envelopes] = await Promise.all([
@@ -551,7 +569,11 @@ export async function loadWorkspaceSnapshot(
     options?.selfUserId,
   );
   const mappedTx = transactions
-    .filter((tx) => !tx.entries.every((entry) => String(entry.accountId) === clearingId))
+    .filter((tx) => {
+      if (tx.reversedById) return false;
+      if (tx.kind === 'refund') return false;
+      return !tx.entries.every((entry) => String(entry.accountId) === clearingId);
+    })
     .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors));
 
   // Derive envelope spent from ledger entries so UI stays correct even if

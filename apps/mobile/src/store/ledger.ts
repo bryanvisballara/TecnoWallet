@@ -29,6 +29,7 @@ import {
   mapApiMember,
   mapWorkspaceToLedger,
   objectId,
+  reverseLedgerTransaction,
   toMinor,
   deleteResource,
   updateResource,
@@ -88,6 +89,13 @@ type LedgerState = {
   renameLedger: (ledgerId: string, name: string) => Promise<void>;
   setLedgerCurrency: (currency: string) => Promise<void>;
   addTransaction: (value: NewTransaction) => Promise<Transaction>;
+  /** Correct a movement: reverse the ledger row and create the replacement. */
+  updateTransaction: (
+    transactionId: string,
+    value: NewTransaction,
+  ) => Promise<Transaction>;
+  /** Void a movement (reverse only). */
+  voidTransaction: (transactionId: string) => Promise<void>;
   addAccount: (value: NewAccount) => Promise<Account>;
   updateAccount: (
     accountId: string,
@@ -450,6 +458,45 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       route: '/(tabs)/movimientos',
     });
     return result;
+  },
+
+  updateTransaction: async (transactionId, value) => {
+    const id = transactionId.trim();
+    if (!id) throw new Error('Movimiento no válido.');
+    await get().voidTransaction(id);
+    return get().addTransaction(value);
+  },
+
+  voidTransaction: async (transactionId) => {
+    const id = transactionId.trim();
+    if (!id) throw new Error('Movimiento no válido.');
+    const ledgerId = get().activeLedgerId;
+    const slice = activeSlice(get());
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const currency = await currencyFor(ledger);
+    const existing = slice.transactions.find((item) => item.id === id);
+    if (!existing) throw new Error('No encontramos ese movimiento.');
+
+    await reverseLedgerTransaction(
+      id,
+      `Anulación: ${existing.title.trim() || 'Movimiento'}`,
+    );
+
+    // Account balances live on resources (not derived from the ledger).
+    const account = slice.accounts.find((item) => item.name === existing.account);
+    if (account) {
+      await updateResource('account', account.id, {
+        balanceMinor: toMinor(account.balance - existing.amount),
+        currency,
+        kind: account.kind,
+        icon: account.icon,
+        color: account.color,
+        lastFour: account.lastFour,
+      });
+    }
+
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
   },
 
   addAccount: async (value) => {

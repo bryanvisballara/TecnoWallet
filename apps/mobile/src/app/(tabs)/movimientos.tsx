@@ -137,7 +137,15 @@ export default function TransactionsScreen() {
 
       <Card style={styles.list}>
         {visible.map((item, index) => (
-          <ScalePressable key={item.id} haptic={false}>
+          <ScalePressable
+            key={item.id}
+            haptic={false}
+            onPress={() =>
+              router.push({
+                pathname: '/add-transaction',
+                params: { id: item.id },
+              })
+            }>
             <View style={[styles.row, index > 0 && { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
               <View style={[styles.rowIcon, { backgroundColor: item.amount > 0 ? theme.successSoft : theme.surfaceSecondary }]}>
                 <AppIcon name={item.icon} color={item.amount > 0 ? theme.success : theme.primary} />

@@ -443,8 +443,15 @@ export default function DashboardScreen() {
           </Text>
         ) : (
           filteredMovements.slice(0, 4).map((item, index) => (
-            <View
+            <ScalePressable
               key={item.id}
+              haptic={false}
+              onPress={() =>
+                router.push({
+                  pathname: '/add-transaction',
+                  params: { id: item.id },
+                })
+              }
               style={[
                 styles.transaction,
                 index > 0 && {
@@ -479,7 +486,7 @@ export default function DashboardScreen() {
                 {item.amount > 0 ? '+' : ''}
                 {value(item.amount)}
               </Text>
-            </View>
+            </ScalePressable>
           ))
         )}
       </Card>

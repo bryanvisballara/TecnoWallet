@@ -44,11 +44,16 @@ function initialTransactionType(raw: string | string[] | undefined): 'expense' |
 export default function AddTransactionScreen() {
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
-  const params = useLocalSearchParams<{ type?: string }>();
+  const params = useLocalSearchParams<{ type?: string; id?: string }>();
+  const editId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const isEditing = Boolean(editId?.trim());
   const locale = useLanguageStore((state) => state.locale);
   const profile = useAuthStore((state) => state.profile);
   const { accounts, envelopes, ledger } = useActiveLedger();
+  const transactions = useFinanceStore((state) => state.transactions);
   const addTransaction = useFinanceStore((state) => state.addTransaction);
+  const updateTransaction = useFinanceStore((state) => state.updateTransaction);
+  const voidTransaction = useFinanceStore((state) => state.voidTransaction);
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
   const isCurrentMonth = usePeriodStore((state) => state.isCurrentMonth);
@@ -56,22 +61,70 @@ export default function AddTransactionScreen() {
     () => accounts.filter((item) => isLiquidAccount(item.kind)),
     [accounts],
   );
-  const [type, setType] = useState<'expense' | 'income'>(() =>
-    initialTransactionType(params.type),
+  const existing = useMemo(
+    () =>
+      isEditing
+        ? transactions.find((item) => item.id === editId?.trim())
+        : undefined,
+    [editId, isEditing, transactions],
   );
-  const [amount, setAmount] = useState('');
-  const [title, setTitle] = useState('');
-  const [envelopeId, setEnvelopeId] = useState('');
-  const [accountId, setAccountId] = useState(liquidAccounts[0]?.id ?? '');
-  const [dateKey, setDateKey] = useState(() =>
-    defaultTransactionDateKey(isCurrentMonth, year, month),
+  const [type, setType] = useState<'expense' | 'income'>(() => {
+    if (existing) return existing.amount >= 0 ? 'income' : 'expense';
+    return initialTransactionType(params.type);
+  });
+  const [amount, setAmount] = useState(() =>
+    existing ? String(Math.abs(existing.amount)) : '',
   );
-  const [note, setNote] = useState('');
-  const [tags, setTags] = useState('');
-  const [recurring, setRecurring] = useState(false);
+  const [title, setTitle] = useState(() => existing?.title ?? '');
+  const [envelopeId, setEnvelopeId] = useState(() => existing?.envelopeId ?? '');
+  const [accountId, setAccountId] = useState(() => {
+    if (existing) {
+      const match = liquidAccounts.find((item) => item.name === existing.account);
+      if (match) return match.id;
+    }
+    return liquidAccounts[0]?.id ?? '';
+  });
+  const [dateKey, setDateKey] = useState(() => {
+    if (existing?.occurredAt) {
+      const iso = existing.occurredAt.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+    }
+    return defaultTransactionDateKey(isCurrentMonth, year, month);
+  });
+  const [note, setNote] = useState(() => existing?.note ?? '');
+  const [tags, setTags] = useState(() => (existing?.tags ?? []).join(', '));
+  const [recurring, setRecurring] = useState(() => Boolean(existing?.recurring));
   const [receipt, setReceipt] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [hydratedEdit, setHydratedEdit] = useState(!isEditing);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    if (existing) {
+      if (hydratedEdit) return;
+      setType(existing.amount >= 0 ? 'income' : 'expense');
+      setAmount(String(Math.abs(existing.amount)));
+      setTitle(existing.title);
+      const matchEnv =
+        envelopes.find((item) => item.id === existing.envelopeId) ??
+        envelopes.find((item) => item.name === existing.category);
+      setEnvelopeId(matchEnv?.id ?? existing.envelopeId ?? '');
+      const match = liquidAccounts.find((item) => item.name === existing.account);
+      if (match) setAccountId(match.id);
+      if (existing.occurredAt) {
+        const iso = existing.occurredAt.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) setDateKey(iso);
+      }
+      setNote(existing.note ?? '');
+      setTags((existing.tags ?? []).join(', '));
+      setRecurring(Boolean(existing.recurring));
+      setHydratedEdit(true);
+      return;
+    }
+    const timer = setTimeout(() => setHydratedEdit(true), 500);
+    return () => clearTimeout(timer);
+  }, [existing, envelopes, hydratedEdit, isEditing, liquidAccounts]);
 
   const dateLabel = useMemo(() => {
     const todayKey = toDateKey(new Date());
@@ -164,12 +217,11 @@ export default function AddTransactionScreen() {
       const occurredAt = /^\d{4}-\d{2}-\d{2}$/.test(dateKey)
         ? dateKey
         : defaultTransactionDateKey(isCurrentMonth, year, month);
-      await addTransaction({
+      const payload = {
         title: title.trim(),
         category: selectedEnvelope.name,
         account: selectedAccount.name,
         amount: type === 'income' ? parsed : -parsed,
-        // Nota y etiquetas son opcionales.
         note: note.trim() || undefined,
         tags: [
           ...tags
@@ -182,7 +234,12 @@ export default function AddTransactionScreen() {
         date: occurredAt,
         createdBy:
           ledger?.type === 'shared' ? profile?.name || undefined : undefined,
-      });
+      };
+      if (isEditing && editId?.trim()) {
+        await updateTransaction(editId.trim(), payload);
+      } else {
+        await addTransaction(payload);
+      }
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {
@@ -200,11 +257,61 @@ export default function AddTransactionScreen() {
     }
   };
 
+  const confirmVoid = () => {
+    if (!isEditing || !editId?.trim() || saving) return;
+    const run = async () => {
+      setSaving(true);
+      setFormError('');
+      try {
+        await voidTransaction(editId.trim());
+        try {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {
+          // ignore
+        }
+        safeGoBack('/(tabs)/movimientos');
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : 'No se pudo anular el movimiento.';
+        notifyUser('No se pudo anular', message);
+      } finally {
+        setSaving(false);
+      }
+    };
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm('¿Anular este movimiento? Se quitará del libro.')) {
+        void run();
+      }
+      return;
+    }
+    Alert.alert('Anular movimiento', 'Se quitará del libro. ¿Continuar?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Anular', style: 'destructive', onPress: () => void run() },
+    ]);
+  };
+
   return (
     <SheetScreen fallback="/(tabs)/movimientos">
       <View style={styles.flex}>
-        <View style={styles.header}><Pressable onPress={() => safeGoBack('/(tabs)/movimientos')}><Text style={[styles.cancel, { color: theme.primary }]}>Cancelar</Text></Pressable><Text style={[styles.headerTitle, { color: theme.text }]}>Nuevo · {ledger.name}</Text><View style={styles.headerSpacer} /></View>
+        <View style={styles.header}><Pressable onPress={() => safeGoBack('/(tabs)/movimientos')}><Text style={[styles.cancel, { color: theme.primary }]}>Cancelar</Text></Pressable><Text style={[styles.headerTitle, { color: theme.text }]}>{isEditing ? 'Editar' : 'Nuevo'} · {ledger.name}</Text><View style={styles.headerSpacer} /></View>
+        {isEditing && !existing && hydratedEdit ? (
+          <View style={styles.content}>
+            <Text style={[styles.formError, { color: theme.danger }]}>
+              Este movimiento ya no está disponible (puede haberse anulado).
+            </Text>
+            <PrimaryButton onPress={() => safeGoBack('/(tabs)/movimientos')}>
+              Volver
+            </PrimaryButton>
+          </View>
+        ) : (
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
+          {isEditing ? (
+            <Text style={[styles.hint, { color: theme.muted, marginBottom: -6 }]}>
+              Al guardar se corrige el movimiento original en el libro.
+            </Text>
+          ) : null}
           <View style={[styles.segmented, { backgroundColor: theme.surfaceSecondary }]}>
             {([['expense', 'Gasto'], ['income', 'Ingreso']] as const).map(([value, label]) => (
               <Pressable key={value} onPress={() => setType(value)} style={[styles.segment, type === value && { backgroundColor: theme.surface }]}>
@@ -428,10 +535,25 @@ export default function AddTransactionScreen() {
           <PrimaryButton
             icon="checkmark"
             onPress={saving ? undefined : () => void submit()}>
-            {saving ? 'Guardando…' : 'Guardar movimiento'}
+            {saving
+              ? 'Guardando…'
+              : isEditing
+                ? 'Guardar cambios'
+                : 'Guardar movimiento'}
           </PrimaryButton>
+          {isEditing ? (
+            <Pressable
+              disabled={saving}
+              onPress={confirmVoid}
+              style={[styles.voidButton, { borderColor: theme.danger }]}>
+              <Text style={[styles.voidText, { color: theme.danger }]}>
+                Anular movimiento
+              </Text>
+            </Pressable>
+          ) : null}
           <Text style={[styles.offline, { color: theme.muted }]}>Sin conexión se guardará y sincronizará después.</Text>
         </FormScrollView>
+        )}
       </View>
     </SheetScreen>
   );
@@ -496,5 +618,13 @@ const styles = StyleSheet.create({
   receiptRow: { flexDirection: 'row', gap: 10 }, receiptButton: { flex: 1, minHeight: 72, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', gap: 6 },
   receiptText: { fontSize: 12, fontWeight: '600' },
   formError: { fontSize: 13, lineHeight: 18, fontWeight: '600', textAlign: 'center' },
+  voidButton: {
+    minHeight: 48,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voidText: { fontSize: 14, fontWeight: '700' },
   offline: { textAlign: 'center', fontSize: 11 },
 });

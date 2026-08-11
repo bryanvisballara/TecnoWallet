@@ -9,6 +9,11 @@ export function useFinanceStore(): {
   pendingIds: string[];
   hydrate: () => Promise<void>;
   addTransaction: (value: NewTransaction) => Promise<Transaction>;
+  updateTransaction: (
+    transactionId: string,
+    value: NewTransaction,
+  ) => Promise<Transaction>;
+  voidTransaction: (transactionId: string) => Promise<void>;
 };
 export function useFinanceStore<T>(
   selector: (state: {
@@ -16,6 +21,11 @@ export function useFinanceStore<T>(
     pendingIds: string[];
     hydrate: () => Promise<void>;
     addTransaction: (value: NewTransaction) => Promise<Transaction>;
+    updateTransaction: (
+      transactionId: string,
+      value: NewTransaction,
+    ) => Promise<Transaction>;
+    voidTransaction: (transactionId: string) => Promise<void>;
   }) => T,
 ): T;
 export function useFinanceStore<T>(selector?: (state: any) => T) {
@@ -24,11 +34,15 @@ export function useFinanceStore<T>(selector?: (state: any) => T) {
   const pendingIds = useLedgerStore((state) => state.pendingIds);
   const hydrate = useLedgerStore((state) => state.hydrate);
   const addTransaction = useLedgerStore((state) => state.addTransaction);
+  const updateTransaction = useLedgerStore((state) => state.updateTransaction);
+  const voidTransaction = useLedgerStore((state) => state.voidTransaction);
   const state = {
     transactions: snapshots[activeLedgerId]?.transactions ?? [],
     pendingIds,
     hydrate,
     addTransaction,
+    updateTransaction,
+    voidTransaction,
   };
   return selector ? selector(state) : state;
 }
