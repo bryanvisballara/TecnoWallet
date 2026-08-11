@@ -1102,6 +1102,7 @@ export class RecaudosService {
         route: `/(tabs)/recaudo/${input.recaudo._id.toString()}`,
         notificationId: `rec-${input.recaudo._id.toString()}-${input.contributionId}`,
       },
+      sound: input.withdrawal ? 'gasto.wav' : 'sobres.wav',
     });
   }
 

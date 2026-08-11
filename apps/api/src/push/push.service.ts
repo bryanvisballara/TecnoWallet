@@ -8,6 +8,7 @@ import { sign } from 'jsonwebtoken';
 import { Membership, User, Workspace } from '../auth/auth.module';
 import { Calendar, CalendarMembership } from '../collaboration/collaboration.schemas';
 import { DevicePushToken } from './push.schemas';
+import { pushSoundForKind } from './push-sounds';
 
 export type PushPayload = {
   title: string;
@@ -181,6 +182,10 @@ export class PushService {
       );
       return { sent: 0 };
     }
+    const resolved: PushPayload = {
+      ...payload,
+      sound: resolvePushSound(payload),
+    };
     const rows = await this.tokens
       .find({ userId: { $in: unique.map((id) => new Types.ObjectId(id)) } })
       .lean();
@@ -199,7 +204,7 @@ export class PushService {
           row.token.startsWith('ExponentPushToken') ||
           row.token.startsWith('ExpoPushToken')
         ) {
-          await this.sendExpo(row.token, payload);
+          await this.sendExpo(row.token, resolved);
         } else if (row.platform === 'ios') {
           const preferred =
             typeof row.apnsProduction === 'boolean'
@@ -207,7 +212,7 @@ export class PushService {
               : null;
           const usedProduction = await this.sendApns(
             row.token,
-            payload,
+            resolved,
             preferred,
           );
           if (row.apnsProduction !== usedProduction) {
@@ -240,7 +245,7 @@ export class PushService {
       }
     }
     this.logger.log(
-      `Push done title="${payload.title}" recipients=${unique.length} tokens=${rows.length} sent=${sent}`,
+      `Push done title="${resolved.title}" sound=${resolved.sound} recipients=${unique.length} tokens=${rows.length} sent=${sent}`,
     );
     return { sent };
   }
@@ -266,10 +271,18 @@ export class PushService {
       throw new Error(`Expo push HTTP ${response.status}`);
     }
     const body = (await response.json()) as {
-      data?: { status?: string; message?: string };
+      data?:
+        | { status?: string; message?: string }
+        | Array<{ status?: string; message?: string }>;
     };
-    if (body.data?.status === 'error') {
-      throw new Error(body.data.message || 'Expo push error');
+    const entries = Array.isArray(body.data)
+      ? body.data
+      : body.data
+        ? [body.data]
+        : [];
+    const failed = entries.find((entry) => entry.status === 'error');
+    if (failed) {
+      throw new Error(failed.message || 'Expo push error');
     }
   }
 
@@ -456,4 +469,16 @@ function normalizeApnsDeviceToken(raw: string): string {
     // keep original
   }
   return token;
+}
+
+function resolvePushSound(payload: PushPayload): string {
+  const raw = payload.sound?.trim();
+  if (raw && raw.toLowerCase() !== 'default') {
+    return raw.endsWith('.wav') || raw.endsWith('.caf') || raw.endsWith('.aiff')
+      ? raw
+      : raw.includes('.')
+        ? raw
+        : `${raw}.wav`;
+  }
+  return pushSoundForKind(payload.data?.kind);
 }

@@ -985,7 +985,7 @@ class TransactionController {
         route: '/(tabs)/movimientos',
         notificationId: `tx-${dto.workspaceId}-${String(created._id)}`,
       },
-      sound: isIncome ? 'default' : 'default',
+      sound: isIncome ? 'ingreso.wav' : 'gasto.wav',
     });
     return created;
   }

@@ -1175,6 +1175,7 @@ export class CalendarService {
         route: '/(tabs)/calendario',
         notificationId: `cal-${dto.calendarId}-${String(created._id)}`,
       },
+      sound: 'calendario.wav',
     });
     return created;
   }
