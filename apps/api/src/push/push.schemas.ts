@@ -22,6 +22,14 @@ export class DevicePushToken {
   @Prop({ required: true, enum: pushPlatforms })
   platform!: PushPlatform;
 
+  /**
+   * Cached APNS environment that last accepted this device token.
+   * Xcode/debug → sandbox; TestFlight/App Store → production.
+   * Null means unknown (try both).
+   */
+  @Prop({ required: false, default: null, type: Boolean })
+  apnsProduction!: boolean | null;
+
   updatedAt!: Date;
   createdAt!: Date;
 }

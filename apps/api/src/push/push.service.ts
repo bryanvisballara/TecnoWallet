@@ -43,17 +43,27 @@ export class PushService {
     userId: string,
     input: { token: string; platform: 'ios' | 'android' | 'expo' },
   ) {
-    const token = input.token.trim();
+    let platform = input.platform;
+    let token = input.token.trim();
+    if (!token) return { registered: false };
+    if (token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken')) {
+      platform = 'expo';
+    } else if (platform === 'ios') {
+      token = normalizeApnsDeviceToken(token);
+    }
     if (!token) return { registered: false };
     await this.tokens.findOneAndUpdate(
       { token },
       {
         $set: {
           userId: new Types.ObjectId(userId),
-          platform: input.platform,
+          platform,
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    this.logger.log(
+      `Push token registered user=${userId} platform=${platform} token=${token.slice(0, 12)}…`,
     );
     return { registered: true };
   }
@@ -165,24 +175,54 @@ export class PushService {
 
   async sendToUsers(userIds: string[], payload: PushPayload) {
     const unique = Array.from(new Set(userIds.filter(Boolean)));
-    if (!unique.length) return { sent: 0 };
+    if (!unique.length) {
+      this.logger.log(
+        `Push skip: no recipients for "${payload.title}"`,
+      );
+      return { sent: 0 };
+    }
     const rows = await this.tokens
       .find({ userId: { $in: unique.map((id) => new Types.ObjectId(id)) } })
       .lean();
-    if (!rows.length) return { sent: 0 };
+    if (!rows.length) {
+      this.logger.warn(
+        `Push skip: ${unique.length} member(s) but 0 device tokens for "${payload.title}"`,
+      );
+      return { sent: 0 };
+    }
 
     let sent = 0;
     for (const row of rows) {
       try {
         if (
           row.platform === 'expo' ||
-          row.token.startsWith('ExponentPushToken')
+          row.token.startsWith('ExponentPushToken') ||
+          row.token.startsWith('ExpoPushToken')
         ) {
           await this.sendExpo(row.token, payload);
         } else if (row.platform === 'ios') {
-          await this.sendApns(row.token, payload);
+          const preferred =
+            typeof row.apnsProduction === 'boolean'
+              ? row.apnsProduction
+              : null;
+          const usedProduction = await this.sendApns(
+            row.token,
+            payload,
+            preferred,
+          );
+          if (row.apnsProduction !== usedProduction) {
+            await this.tokens
+              .updateOne(
+                { _id: row._id },
+                { $set: { apnsProduction: usedProduction } },
+              )
+              .catch(() => undefined);
+          }
         } else {
           // Android native FCM not wired yet — skip quietly.
+          this.logger.warn(
+            `Push skip: unsupported platform=${row.platform}`,
+          );
           continue;
         }
         sent += 1;
@@ -190,11 +230,18 @@ export class PushService {
         const message =
           error instanceof Error ? error.message : String(error);
         this.logger.warn(`Push to ${row.platform} token failed: ${message}`);
-        if (/BadDeviceToken|Unregistered|DeviceNotRegistered/i.test(message)) {
+        if (
+          /Unregistered|DeviceNotRegistered|tried sandbox\+production/i.test(
+            message,
+          )
+        ) {
           await this.tokens.deleteOne({ _id: row._id }).catch(() => undefined);
         }
       }
     }
+    this.logger.log(
+      `Push done title="${payload.title}" recipients=${unique.length} tokens=${rows.length} sent=${sent}`,
+    );
     return { sent };
   }
 
@@ -261,7 +308,11 @@ export class PushService {
     return token;
   }
 
-  private async sendApns(deviceToken: string, payload: PushPayload) {
+  private async sendApns(
+    deviceToken: string,
+    payload: PushPayload,
+    preferredProduction: boolean | null = null,
+  ): Promise<boolean> {
     const jwt = this.getApnsJwt();
     const bundleId =
       this.config.get<string>('APNS_BUNDLE_ID')?.trim() ||
@@ -270,13 +321,13 @@ export class PushService {
       throw new Error('APNS credentials are not configured');
     }
 
-    const production =
+    const configuredProduction =
       this.config.get<string | boolean>('APNS_PRODUCTION', false) === true ||
       this.config.get<string>('APNS_PRODUCTION') === 'true';
-    const host = production
-      ? 'api.push.apple.com'
-      : 'api.sandbox.push.apple.com';
-    const token = deviceToken.replace(/\s+/g, '');
+    const token = normalizeApnsDeviceToken(deviceToken);
+    if (!token) {
+      throw new Error('APNS BadDeviceToken: empty token');
+    }
 
     const body = JSON.stringify({
       aps: {
@@ -290,14 +341,65 @@ export class PushService {
       ...(payload.data ?? {}),
     });
 
-    await new Promise<void>((resolve, reject) => {
+    // Prefer last-known env, then config, then the opposite — Xcode tokens are
+    // sandbox; TestFlight/App Store are production. Wrong host → BadDeviceToken.
+    const order: boolean[] = [];
+    const pushUnique = (value: boolean) => {
+      if (!order.includes(value)) order.push(value);
+    };
+    if (typeof preferredProduction === 'boolean') {
+      pushUnique(preferredProduction);
+    }
+    pushUnique(configuredProduction);
+    pushUnique(!configuredProduction);
+
+    const errors: string[] = [];
+    for (const production of order) {
+      const host = production
+        ? 'api.push.apple.com'
+        : 'api.sandbox.push.apple.com';
+      try {
+        await this.postApns(host, token, jwt, bundleId, body);
+        this.logger.log(
+          `APNS ok env=${production ? 'production' : 'sandbox'} token=${token.slice(0, 8)}…`,
+        );
+        return production;
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        errors.push(
+          `${production ? 'production' : 'sandbox'}: ${message}`,
+        );
+        this.logger.warn(
+          `APNS ${production ? 'production' : 'sandbox'} failed: ${message}`,
+        );
+        // Non-token errors (auth, topic, etc.) — don't bother flipping env.
+        if (!/BadDeviceToken|Unregistered/i.test(message)) {
+          throw error instanceof Error ? error : new Error(message);
+        }
+      }
+    }
+
+    throw new Error(
+      `APNS BadDeviceToken (tried sandbox+production): ${errors.join(' | ')}`,
+    );
+  }
+
+  private postApns(
+    host: string,
+    deviceToken: string,
+    jwt: string,
+    bundleId: string,
+    body: string,
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       let client: ClientHttp2Session | undefined;
       try {
         client = http2Connect(`https://${host}`);
         client.on('error', reject);
         const req = client.request({
           ':method': 'POST',
-          ':path': `/3/device/${token}`,
+          ':path': `/3/device/${deviceToken}`,
           authorization: `bearer ${jwt}`,
           'apns-topic': bundleId,
           'apns-push-type': 'alert',
@@ -336,4 +438,22 @@ export class PushService {
       }
     });
   }
+}
+
+/** Normalize iOS device tokens to lowercase hex (APNS path form). */
+function normalizeApnsDeviceToken(raw: string): string {
+  let token = raw.trim().replace(/[<>\s]/g, '');
+  if (!token) return '';
+  if (/^[0-9a-fA-F]+$/.test(token)) {
+    return token.toLowerCase();
+  }
+  try {
+    const buf = Buffer.from(token, 'base64');
+    if (buf.length === 32) {
+      return buf.toString('hex');
+    }
+  } catch {
+    // keep original
+  }
+  return token;
 }

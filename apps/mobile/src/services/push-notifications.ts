@@ -300,20 +300,29 @@ export async function registerRemotePushToken(): Promise<boolean> {
 
     if (!token) {
       const deviceToken = await Notifications.getDevicePushTokenAsync();
-      token = String(deviceToken?.data ?? "");
+      token = String(deviceToken?.data ?? "")
+        .trim()
+        .replace(/[<>\s]/g, "");
       platform = Platform.OS === "ios" ? "ios" : "android";
     }
 
     if (!token.trim()) return false;
-    if (lastRegisteredToken === token) return true;
 
     await apiRequest("/devices/push-token", {
       method: "POST",
       body: JSON.stringify({ token, platform }),
     });
     lastRegisteredToken = token;
+    if (__DEV__) {
+      console.log(
+        `[push] registered ${platform} token ${token.slice(0, 18)}…`,
+      );
+    }
     return true;
-  } catch {
+  } catch (error) {
+    if (__DEV__) {
+      console.warn("[push] registerRemotePushToken failed", error);
+    }
     return false;
   }
 }
