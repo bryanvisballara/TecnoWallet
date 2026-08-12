@@ -1,6 +1,3 @@
-import DateTimePicker, {
-  type DateTimePickerEvent,
-} from '@react-native-community/datetimepicker';
 import { useMemo, useState } from 'react';
 import {
   Modal,
@@ -12,7 +9,14 @@ import {
 } from 'react-native';
 
 import { AppIcon, useAppTheme } from '@/components/ui';
-import { formatDayLabel, parseDateKey, toDateKey } from '@/data/calendar';
+import {
+  buildMonthMatrix,
+  formatDayLabel,
+  formatMonthTitle,
+  parseDateKey,
+  toDateKey,
+  weekDayLabels,
+} from '@/data/calendar';
 import { useLanguageStore } from '@/store/language';
 
 type Props = {
@@ -24,12 +28,35 @@ type Props = {
   placeholder?: string;
 };
 
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 function safeParse(value: string, fallback = new Date()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return fallback;
   const parsed = parseDateKey(value);
   return Number.isNaN(parsed.getTime()) ? fallback : parsed;
 }
 
+function isSameDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function isDisabled(date: Date, minimumDate?: Date, maximumDate?: Date) {
+  const day = startOfDay(date).getTime();
+  if (minimumDate && day < startOfDay(minimumDate).getTime()) return true;
+  if (maximumDate && day > startOfDay(maximumDate).getTime()) return true;
+  return false;
+}
+
+/**
+ * Pure-JS date field. Avoids @react-native-community/datetimepicker `display="inline"`,
+ * which renders an empty sheet in our Expo/iOS build (same class of bug as AppTimeField).
+ */
 export function AppDateField({
   value,
   onChange,
@@ -42,23 +69,26 @@ export function AppDateField({
   const locale = useLanguageStore((state) => state.locale);
   const [open, setOpen] = useState(false);
   const selected = useMemo(() => safeParse(value), [value]);
+  const [anchor, setAnchor] = useState(
+    () => new Date(selected.getFullYear(), selected.getMonth(), 1),
+  );
   const label = useMemo(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
     return formatDayLabel(selected, locale);
   }, [value, selected, locale]);
 
-  const apply = (date: Date) => {
-    onChange(toDateKey(date));
+  const weekLabels = useMemo(() => weekDayLabels(0, locale === 'es' ? 'es' : 'en'), [locale]);
+  const matrix = useMemo(() => buildMonthMatrix(anchor, 0), [anchor]);
+  const today = useMemo(() => startOfDay(new Date()), []);
+
+  const openPicker = () => {
+    setAnchor(new Date(selected.getFullYear(), selected.getMonth(), 1));
+    setOpen(true);
   };
 
-  const onNativeChange = (event: DateTimePickerEvent, date?: Date) => {
-    if (Platform.OS === 'android') {
-      setOpen(false);
-      if (event.type !== 'set' || !date) return;
-      apply(date);
-      return;
-    }
-    if (date) apply(date);
+  const apply = (date: Date) => {
+    if (isDisabled(date, minimumDate, maximumDate)) return;
+    onChange(toDateKey(date));
   };
 
   if (Platform.OS === 'web') {
@@ -94,7 +124,7 @@ export function AppDateField({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label ? `Fecha ${label}` : placeholder}
-        onPress={() => setOpen(true)}
+        onPress={openPicker}
         style={[
           styles.trigger,
           {
@@ -115,47 +145,95 @@ export function AppDateField({
         <AppIcon name="chevron.down" color={theme.muted} size={14} />
       </Pressable>
 
-      {Platform.OS === 'android' && open ? (
-        <DateTimePicker
-          value={selected}
-          mode="date"
-          display="calendar"
-          minimumDate={minimumDate}
-          maximumDate={maximumDate}
-          onChange={onNativeChange}
-        />
-      ) : null}
-
-      {Platform.OS === 'ios' ? (
-        <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-          <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-            <Pressable
-              style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
-              onPress={(event) => event.stopPropagation()}>
-              <View style={styles.sheetHeader}>
-                <Text style={[styles.sheetTitle, { color: theme.text }]}>
-                  {locale === 'es' ? 'Elige una fecha' : 'Pick a date'}
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+          <Pressable
+            style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            onPress={(event) => event.stopPropagation()}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: theme.text }]}>
+                {locale === 'es' ? 'Elige una fecha' : 'Pick a date'}
+              </Text>
+              <Pressable onPress={() => setOpen(false)} style={styles.doneBtn}>
+                <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 16 }}>
+                  {locale === 'es' ? 'Listo' : 'Done'}
                 </Text>
-                <Pressable onPress={() => setOpen(false)} style={styles.doneBtn}>
-                  <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 16 }}>
-                    {locale === 'es' ? 'Listo' : 'Done'}
-                  </Text>
-                </Pressable>
-              </View>
-              <DateTimePicker
-                value={selected}
-                mode="date"
-                display="inline"
-                themeVariant="light"
-                minimumDate={minimumDate}
-                maximumDate={maximumDate}
-                onChange={onNativeChange}
-                style={styles.iosPicker}
-              />
-            </Pressable>
+              </Pressable>
+            </View>
+
+            <View style={styles.monthNav}>
+              <Pressable
+                accessibilityLabel={locale === 'es' ? 'Mes anterior' : 'Previous month'}
+                onPress={() =>
+                  setAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+                }
+                style={[styles.navBtn, { backgroundColor: theme.surfaceSecondary }]}>
+                <AppIcon name="arrow.left" color={theme.text} size={18} />
+              </Pressable>
+              <Text style={[styles.monthTitle, { color: theme.text }]}>
+                {formatMonthTitle(anchor, locale === 'es' ? 'es' : 'en')} {anchor.getFullYear()}
+              </Text>
+              <Pressable
+                accessibilityLabel={locale === 'es' ? 'Mes siguiente' : 'Next month'}
+                onPress={() =>
+                  setAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+                }
+                style={[styles.navBtn, { backgroundColor: theme.surfaceSecondary }]}>
+                <AppIcon name="arrow.right" color={theme.text} size={18} />
+              </Pressable>
+            </View>
+
+            <View style={styles.weekRow}>
+              {weekLabels.map((day) => (
+                <Text key={day} style={[styles.weekLabel, { color: theme.muted }]}>
+                  {day}
+                </Text>
+              ))}
+            </View>
+
+            <View style={styles.grid}>
+              {matrix.map((cell) => {
+                const selectedDay = isSameDay(cell.date, selected);
+                const isToday = isSameDay(cell.date, today);
+                const disabled = isDisabled(cell.date, minimumDate, maximumDate);
+                const muted = !cell.inMonth || disabled;
+                return (
+                  <Pressable
+                    key={cell.key}
+                    disabled={disabled}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: selectedDay, disabled }}
+                    accessibilityLabel={cell.key}
+                    onPress={() => apply(cell.date)}
+                    style={[
+                      styles.dayCell,
+                      selectedDay ? { backgroundColor: theme.primary } : null,
+                      !selectedDay && isToday
+                        ? { borderColor: theme.primary, borderWidth: 1.5 }
+                        : null,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.dayText,
+                        {
+                          color: selectedDay
+                            ? '#FFFFFF'
+                            : muted
+                              ? theme.muted
+                              : theme.text,
+                          opacity: muted && !selectedDay ? 0.45 : 1,
+                          fontWeight: selectedDay || isToday ? '700' : '500',
+                        },
+                      ]}>
+                      {cell.date.getDate()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </Pressable>
-        </Modal>
-      ) : null}
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -187,15 +265,53 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingBottom: 28,
     paddingTop: 12,
+    paddingHorizontal: 12,
   },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingBottom: 4,
+    paddingHorizontal: 6,
+    paddingBottom: 8,
   },
   sheetTitle: { fontSize: 17, fontWeight: '700' },
   doneBtn: { paddingVertical: 8, paddingHorizontal: 4 },
-  iosPicker: { alignSelf: 'center', width: '100%' },
+  monthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 10,
+  },
+  navBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthTitle: { fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },
+  weekRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  weekLabel: {
+    flexGrow: 1,
+    flexBasis: 0,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dayCell: {
+    width: '14.2857%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+  },
+  dayText: { fontSize: 15 },
 });

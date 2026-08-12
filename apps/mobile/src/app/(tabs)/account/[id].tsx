@@ -16,21 +16,39 @@ export default function AccountDetailScreen() {
   const removeAccount = useLedgerStore((state) => state.removeAccount);
   const account = accounts.find((item) => item.id === id) ?? accounts[0];
   const accountTx = transactions.filter((item) => item.account === account.name);
-  const isCredit = account.balance < 0;
+  const isAsset = isWealthAsset(account);
+  const isDebt = isWealthDebt(account);
+  const isWealthItem = isAsset || isDebt;
   const masked = account.lastFour === '—' ? 'Sin número' : `•••• ${account.lastFour}`;
   const [deleting, setDeleting] = useState(false);
   const openEdit = () =>
-    router.push({ pathname: '/add-account', params: { id: account.id } });
+    router.push({
+      pathname: '/add-account',
+      params: {
+        id: account.id,
+        ...(isAsset ? { mode: 'asset' } : isDebt ? { mode: 'debt' } : {}),
+      },
+    });
 
-  const entityLabel = isWealthDebt(account)
-    ? 'deuda'
-    : isWealthAsset(account)
-      ? 'activo'
-      : 'cuenta';
-  const fallback =
-    isWealthDebt(account) || isWealthAsset(account)
-      ? '/(tabs)/salud-financiera'
-      : '/(tabs)/mis-cuentas';
+  const entityLabel = isDebt ? 'deuda' : isAsset ? 'activo' : 'cuenta';
+  const fallback = isWealthItem ? '/(tabs)/salud-financiera' : '/(tabs)/mis-cuentas';
+  const heroLabel = isDebt
+    ? 'Saldo pendiente'
+    : isAsset
+      ? 'Valor del activo'
+      : 'Saldo disponible';
+  const heroBadge = isDebt ? 'Deuda' : isAsset ? 'Activo' : 'Cuenta';
+  const heroBadgeTone = isDebt ? 'orange' : isAsset ? 'blue' : 'neutral';
+
+  // Wealth detail sits in the tabs stack; router.back() often lands on Inicio
+  // (last focused tab) instead of Salud financiera — always replace for assets/debts.
+  const goBack = () => {
+    if (isWealthItem) {
+      router.replace('/(tabs)/salud-financiera');
+      return;
+    }
+    safeGoBack(fallback);
+  };
 
   const confirmDelete = () => {
     Alert.alert(
@@ -52,7 +70,7 @@ export default function AccountDetailScreen() {
     try {
       await removeAccount(account.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      safeGoBack(fallback);
+      goBack();
     } catch (error) {
       Alert.alert(
         'No se pudo eliminar',
@@ -70,7 +88,7 @@ export default function AccountDetailScreen() {
       right={
         <View style={styles.headerActions}>
           <Pressable
-            onPress={() => safeGoBack(fallback)}
+            onPress={goBack}
             style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}>
             <AppIcon name="arrow.left" color={theme.text} />
           </Pressable>
@@ -91,72 +109,102 @@ export default function AccountDetailScreen() {
       }>
       <ScalePressable
         accessibilityRole="button"
-        accessibilityLabel={`Editar cuenta ${account.name}`}
+        accessibilityLabel={`Editar ${entityLabel} ${account.name}`}
         onPress={openEdit}>
         <Card style={[styles.hero, { backgroundColor: account.color }]}>
           <View style={uiStyles.between}>
             <View style={styles.heroIcon}>
               <AppIcon name={account.icon} color="#FFFFFF" size={28} />
             </View>
-            <Pill tone="neutral">{isCredit ? 'Crédito' : 'Activo'}</Pill>
+            <Pill tone={heroBadgeTone}>{heroBadge}</Pill>
           </View>
-          <Text style={styles.heroLabel}>{isCredit ? 'Saldo pendiente' : 'Saldo disponible'}</Text>
-          <Text style={styles.heroValue}>{money(account.balance)}</Text>
-          <Text style={styles.heroSmall}>{masked} · Toca para editar</Text>
+          <Text style={styles.heroLabel}>{heroLabel}</Text>
+          <Text style={styles.heroValue}>{money(Math.abs(account.balance))}</Text>
+          <Text style={styles.heroSmall}>
+            {isWealthItem ? 'Toca para editar' : `${masked} · Toca para editar`}
+          </Text>
         </Card>
       </ScalePressable>
 
       <Card>
         <View style={styles.metaRow}>
           <View style={[styles.metaIcon, { backgroundColor: `${account.color}1A` }]}>
-            <AppIcon name="creditcard.fill" color={account.color} />
+            <AppIcon
+              name={isAsset ? 'house.fill' : 'creditcard.fill'}
+              color={account.color}
+            />
           </View>
           <View style={styles.copy}>
             <Text style={[styles.title, { color: theme.text }]}>Tipo</Text>
             <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
           </View>
         </View>
-        <View style={[styles.metaRow, { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
-          <View style={[styles.metaIcon, { backgroundColor: theme.successSoft }]}>
-            <AppIcon name="arrow.left.arrow.right" color={theme.success} />
-          </View>
-          <View style={styles.copy}>
-            <Text style={[styles.title, { color: theme.text }]}>Sincronización</Text>
-            <Text style={[styles.small, { color: theme.muted }]}>Actualizada hoy · conexión activa</Text>
-          </View>
-          <Pill tone="green">OK</Pill>
-        </View>
-      </Card>
-
-      <SectionTitle action="Ver todos" onAction={() => router.push('/(tabs)/movimientos')}>
-        Movimientos
-      </SectionTitle>
-      <Card style={styles.list}>
-        {(accountTx.length > 0 ? accountTx : transactions.slice(0, 3)).map((item, index) => (
+        {!isWealthItem ? (
           <View
-            key={item.id}
             style={[
-              styles.transaction,
-              index > 0 && { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth },
+              styles.metaRow,
+              { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth },
             ]}>
-            <View style={[styles.transactionIcon, { backgroundColor: theme.surfaceSecondary }]}>
-              <AppIcon name={item.icon} color={account.color} />
+            <View style={[styles.metaIcon, { backgroundColor: theme.successSoft }]}>
+              <AppIcon name="arrow.left.arrow.right" color={theme.success} />
             </View>
             <View style={styles.copy}>
-              <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
-              <Text style={[styles.small, { color: theme.muted }]}>{item.date}</Text>
+              <Text style={[styles.title, { color: theme.text }]}>Sincronización</Text>
+              <Text style={[styles.small, { color: theme.muted }]}>
+                Actualizada hoy · conexión activa
+              </Text>
             </View>
-            <Text style={[styles.amount, { color: item.amount > 0 ? theme.success : theme.text }]}>
-              {item.amount > 0 ? '+' : ''}
-              {money(item.amount)}
-            </Text>
+            <Pill tone="green">OK</Pill>
           </View>
-        ))}
+        ) : null}
       </Card>
 
-      <PrimaryButton icon="plus" onPress={() => router.push('/add-transaction')}>
-        Registrar movimiento
-      </PrimaryButton>
+      {!isWealthItem ? (
+        <>
+          <SectionTitle action="Ver todos" onAction={() => router.push('/(tabs)/movimientos')}>
+            Movimientos
+          </SectionTitle>
+          <Card style={styles.list}>
+            {accountTx.length > 0 ? (
+              accountTx.map((item, index) => (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.transaction,
+                    index > 0 && {
+                      borderTopColor: theme.border,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                    },
+                  ]}>
+                  <View style={[styles.transactionIcon, { backgroundColor: theme.surfaceSecondary }]}>
+                    <AppIcon name={item.icon} color={account.color} />
+                  </View>
+                  <View style={styles.copy}>
+                    <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
+                    <Text style={[styles.small, { color: theme.muted }]}>{item.date}</Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.amount,
+                      { color: item.amount > 0 ? theme.success : theme.text },
+                    ]}>
+                    {item.amount > 0 ? '+' : ''}
+                    {money(item.amount)}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={[styles.small, { color: theme.muted, paddingVertical: 12 }]}>
+                Aún no hay movimientos en esta cuenta.
+              </Text>
+            )}
+          </Card>
+
+          <PrimaryButton icon="plus" onPress={() => router.push('/add-transaction')}>
+            Registrar movimiento
+          </PrimaryButton>
+        </>
+      ) : null}
 
       <Pressable
         accessibilityRole="button"

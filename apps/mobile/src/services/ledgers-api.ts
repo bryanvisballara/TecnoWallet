@@ -633,7 +633,15 @@ export async function loadWorkspaceSnapshot(
     .filter((tx) => {
       if (tx.reversedById) return false;
       if (tx.kind === 'refund') return false;
-      return !tx.entries.every((entry) => String(entry.accountId) === clearingId);
+      if (tx.entries.every((entry) => String(entry.accountId) === clearingId)) {
+        return false;
+      }
+      // Drop orphans from deleted accounts (user-facing entry no longer exists).
+      const hasLiveUserAccount = tx.entries.some((entry) => {
+        const accountId = String(entry.accountId);
+        return accountId !== clearingId && accountsById.has(accountId);
+      });
+      return hasLiveUserAccount;
     })
     .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors));
 

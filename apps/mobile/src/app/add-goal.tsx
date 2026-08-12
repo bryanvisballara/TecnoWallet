@@ -321,9 +321,13 @@ export default function AddGoalScreen() {
                 { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
               ]}>
               <View style={styles.switchCopy}>
-                <Text style={[styles.switchTitle, { color: theme.text }]}>Sobre de ahorros</Text>
+                <Text style={[styles.switchTitle, { color: theme.text }]}>
+                  ¿Es una meta de ahorro?
+                </Text>
                 <Text style={[styles.switchHint, { color: theme.muted }]}>
-                  Se verá en Sobres. Solo se puede crear desde aquí.
+                  {withSavingsEnvelope
+                    ? 'Sí: crearemos un sobre en Sobres para seguir cuánto ahorras.'
+                    : 'No: es solo un objetivo. No necesitas un sobre de ahorros.'}
                 </Text>
               </View>
               <Switch
@@ -344,7 +348,7 @@ export default function AddGoalScreen() {
           </Text>
           {withSavingsEnvelope && !existing?.envelopeId ? (
             <Text style={[styles.fieldHint, { color: errors.amount ? theme.danger : theme.muted }]}>
-              Obligatoria para el sobre de ahorros.
+              Indica cuánto quieres ahorrar (obligatorio para el sobre).
             </Text>
           ) : null}
           <TextInput

@@ -234,19 +234,6 @@ export default function EnvelopeDetailScreen() {
               ? { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth }
               : null,
           ]}>
-          <View style={[styles.ruleIcon, { backgroundColor: theme.successSoft }]}>
-            <AppIcon name="sparkles" color={theme.success} />
-          </View>
-          <View style={styles.copy}>
-            <Text style={[styles.title, { color: theme.text }]}>Regla automática</Text>
-            <Text style={[styles.small, { color: theme.muted }]}>{envelope.rule}</Text>
-          </View>
-        </View>
-        <View
-          style={[
-            styles.ruleRow,
-            { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth },
-          ]}>
           <View
             style={[
               styles.ruleIcon,

@@ -318,6 +318,7 @@ class ResourceService {
     private readonly ocr: OcrProvider,
     private readonly entitlements: EntitlementService,
     private readonly push: PushService,
+    private readonly ledger: LedgerService,
   ) {}
 
   assertKind(kind: string): asserts kind is ResourceKind {
@@ -659,6 +660,11 @@ class ResourceService {
   }
 
   async remove(kind: string, id: string, principal: AuthPrincipal) {
+    // Deleting a bank/cash account must void its income/expense movements so
+    // liquidity and the movements list stay consistent.
+    if (kind === 'account') {
+      await this.ledger.reverseAllForAccount(id, 'Cuenta eliminada');
+    }
     return this.update(kind, id, { data: { tombstone: true } }, principal).then(
       async (resource) => {
         resource.deletedAt = new Date();

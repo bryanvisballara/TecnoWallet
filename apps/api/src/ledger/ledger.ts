@@ -227,4 +227,33 @@ export class LedgerService {
     await original.save();
     return reversal;
   }
+
+  /** Void every open movement that touches this account (cascade on account delete). */
+  async reverseAllForAccount(accountId: string, userDescription?: string) {
+    if (!Types.ObjectId.isValid(accountId)) return 0;
+    const accountObjectId = new Types.ObjectId(accountId);
+    const open = await this.transactions
+      .find({
+        'entries.accountId': accountObjectId,
+        reversedById: { $exists: false },
+        kind: { $ne: 'refund' },
+      })
+      .select('_id')
+      .lean()
+      .exec();
+
+    let reversed = 0;
+    for (const row of open) {
+      try {
+        await this.reverse(
+          String(row._id),
+          userDescription ?? 'Cuenta eliminada',
+        );
+        reversed += 1;
+      } catch {
+        // Already reversed in a race — keep going.
+      }
+    }
+    return reversed;
+  }
 }

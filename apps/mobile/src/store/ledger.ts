@@ -654,7 +654,8 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   removeAccount: async (accountId) => {
     const ledgerId = get().activeLedgerId;
     const ledger = get().ledgers.find((item) => item.id === ledgerId);
-    const current = activeSlice(get()).accounts.find((item) => item.id === accountId);
+    const slice = activeSlice(get());
+    const current = slice.accounts.find((item) => item.id === accountId);
     if (!current) throw new Error('La cuenta no existe.');
     const label = isWealthDebt(current)
       ? 'Deuda'
@@ -662,8 +663,24 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         ? 'Activo'
         : 'Cuenta';
     await deleteResource('account', accountId);
-    await get().hydrate();
-    set({ activeLedgerId: ledgerId });
+    // Optimistic: drop the account and its movements so Inicio totals match immediately.
+    const accounts = slice.accounts.filter((item) => item.id !== accountId);
+    const transactions = slice.transactions.filter(
+      (item) => item.account !== current.name,
+    );
+    set((state) => ({
+      activeLedgerId: ledgerId,
+      snapshots: {
+        ...state.snapshots,
+        [ledgerId]: {
+          ...slice,
+          accounts,
+          transactions,
+          summary: buildSummary(accounts, slice.envelopes, transactions),
+        },
+      },
+    }));
+    void get().refreshLedger(ledgerId);
     void recordActivity({
       kind: 'account',
       title: `${label} eliminada`,
