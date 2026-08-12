@@ -1,0 +1,41 @@
+diff --git a/node_modules/react-native-drawer-layout/lib/module/views/InteractionManager.js b/node_modules/react-native-drawer-layout/lib/module/views/InteractionManager.js
+index 2eb59cc..66e51df 100644
+--- a/node_modules/react-native-drawer-layout/lib/module/views/InteractionManager.js
++++ b/node_modules/react-native-drawer-layout/lib/module/views/InteractionManager.js
+@@ -1,10 +1,12 @@
+ "use strict";
+ 
+ /* eslint-disable no-restricted-imports */
+-import * as ReactNative from 'react-native';
++// Avoid `import * as ReactNative from 'react-native'`: Metro's importAll
++// evaluates every RN export getter (incl. PushNotificationIOS) and can crash
++// boot with `new NativeEventEmitter() requires a non-null argument`.
+ let InteractionManager;
+ try {
+-  InteractionManager = ReactNative.InteractionManager;
++  InteractionManager = require('react-native').InteractionManager;
+ } catch (e) {
+   // On newer React Native versions, accessing InteractionManager throws an error
+   // https://github.com/react/react-native/pull/57026
+diff --git a/node_modules/react-native-drawer-layout/src/views/InteractionManager.tsx b/node_modules/react-native-drawer-layout/src/views/InteractionManager.tsx
+index 3e137b3..1e5530e 100644
+--- a/node_modules/react-native-drawer-layout/src/views/InteractionManager.tsx
++++ b/node_modules/react-native-drawer-layout/src/views/InteractionManager.tsx
+@@ -1,5 +1,7 @@
+ /* eslint-disable no-restricted-imports */
+-import * as ReactNative from 'react-native';
++// Avoid `import * as ReactNative from 'react-native'`: Metro's importAll
++// evaluates every RN export getter (incl. PushNotificationIOS) and can crash
++// boot with `new NativeEventEmitter() requires a non-null argument`.
+ 
+ type InteractionManagerType = {
+   createInteractionHandle(): number;
+@@ -9,7 +11,7 @@ type InteractionManagerType = {
+ let InteractionManager: InteractionManagerType | undefined;
+ 
+ try {
+-  InteractionManager = ReactNative.InteractionManager;
++  InteractionManager = require('react-native').InteractionManager;
+ } catch (e) {
+   // On newer React Native versions, accessing InteractionManager throws an error
+   // https://github.com/react/react-native/pull/57026
