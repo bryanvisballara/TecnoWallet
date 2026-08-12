@@ -47,9 +47,12 @@ async function notifyFreshSharedPushes(
     return;
   }
 
+  // Cap OS/in-app noise so a large backlog never freezes the JS thread.
+  const toNotify = fresh.slice(0, 3);
+
   const { notifyActivity } = await import('@/services/push-notifications');
   const { recordActivity } = await import('@/store/notifications');
-  for (const item of fresh) {
+  for (const item of toNotify) {
     if (item.kind === 'income' || item.kind === 'expense' || item.kind === 'envelope') {
       // In-app row comes from buildNotificationFeed; only fire OS push here.
       await notifyActivity({
@@ -83,7 +86,11 @@ async function notifyFreshSharedPushes(
   await localStorage.set(
     storageKey,
     Array.from(
-      new Set([...seen, ...allKeys, ...fresh.map((item) => item.key)]),
+      new Set([
+        ...seen,
+        ...allKeys,
+        ...fresh.map((item) => item.key),
+      ]),
     ).slice(-maxSeen),
   );
 }
@@ -302,20 +309,16 @@ export async function notifyNewTeamTransactions() {
   await notifyFreshSharedPushes(SEEN_TEAM_TX_KEY, teamKeys, candidates);
 }
 
-/** Push + in-app when someone else adds an item on a shared calendar. */
+/** Push + in-app when someone else adds an item on a calendar the user can see. */
 export async function notifyNewTeamCalendarItems() {
   const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
   if (!selfUserId) return;
 
   const { useCalendarStore } = await import('@/store/calendar');
   const { calendars, items } = useCalendarStore.getState();
-  const shared = calendars.filter((calendar) => calendar.members.length > 1);
-  if (!shared.length) return;
-
-  const sharedIds = new Set(shared.map((calendar) => calendar.id));
-  const nameByCalendar = new Map(shared.map((calendar) => [calendar.id, calendar.name]));
+  const nameByCalendar = new Map(calendars.map((calendar) => [calendar.id, calendar.name]));
   const memberNameById = new Map<string, string>();
-  for (const calendar of shared) {
+  for (const calendar of calendars) {
     for (const member of calendar.members) {
       if (member.id && member.name) memberNameById.set(String(member.id), member.name);
     }
@@ -331,8 +334,9 @@ export async function notifyNewTeamCalendarItems() {
 
   for (const item of items) {
     const calendarId = item.calendarId ?? '';
-    if (!sharedIds.has(calendarId)) continue;
     const authorId = item.createdByUserId?.trim();
+    // Any item authored by another user on a calendar we can see (don't require
+    // members.length > 1 — that list is sometimes incomplete for organizers).
     if (!authorId || authorId === selfUserId) continue;
     const key = `cal-${calendarId}-${item.id}`;
     teamKeys.push(key);

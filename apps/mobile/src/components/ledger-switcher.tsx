@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
+import { isSelfOwner } from '@/lib/collaboration-roles';
 import { createAccessRequest } from '@/services/collaboration-api';
 import { useLanguageStore } from '@/store/language';
 import { useLedgerStore } from '@/store/ledger';
@@ -163,6 +164,13 @@ export function LedgerSwitcher({ compact = false }: Props) {
                     accessibilityLabel={copy.ledger.shareA11y(name)}
                     onPress={() => {
                       close();
+                      if (!isSelfOwner(ledger.members)) {
+                        Alert.alert(
+                          'Solo el organizador',
+                          'En un libro compartido solo el organizador puede invitar a más personas.',
+                        );
+                        return;
+                      }
                       if (!hasPaidPlan(plusAccess)) {
                         openPaywall('SHARING_REQUIRED');
                         return;

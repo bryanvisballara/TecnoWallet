@@ -2,6 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -36,6 +37,7 @@ import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
 import { useLanguageStore } from '@/store/language';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { usePreferencesStore, weekStartsOnJsDay } from '@/store/preferences';
+import { isSelfOwner } from '@/lib/collaboration-roles';
 import { hasPaidPlan, usePlusStore } from '@/store/plus';
 
 const AnimatedScrollView = Animated.ScrollView;
@@ -147,6 +149,13 @@ export default function CalendarScreen() {
         <ScalePressable
           accessibilityLabel={copy.common.inviteTo(calendarTitle)}
           onPress={() => {
+            if (!isSelfOwner(calendar?.members)) {
+              Alert.alert(
+                'Solo el organizador',
+                'En un calendario compartido solo el organizador puede invitar a más personas.',
+              );
+              return;
+            }
             if (!hasPaidPlan(plusAccess)) {
               openPaywall('SHARING_REQUIRED');
               return;

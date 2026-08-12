@@ -400,7 +400,8 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   },
 
   createCalendar: async (name, color) => {
-    const ws = ownedWorkspaceId();
+    // Prefer the active book so collaborators can create calendars there too.
+    const ws = workspaceId() || ownedWorkspaceId();
     if (!ws) throw new Error('Selecciona un libro primero.');
     const created = await createCalendarApi({
       workspaceId: ws,

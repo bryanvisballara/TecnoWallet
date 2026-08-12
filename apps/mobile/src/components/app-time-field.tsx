@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -123,6 +121,8 @@ export function parseTypedTime(raw: string): string | null {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
+const PERIOD_IDS = ['am', 'pm'] as const;
+
 function WheelColumn<T extends string | number>({
   values,
   selected,
@@ -130,32 +130,42 @@ function WheelColumn<T extends string | number>({
   format = String,
   theme,
 }: {
-  values: T[];
+  values: readonly T[];
   selected: T;
   onSelect: (value: T) => void;
   format?: (value: T) => string;
   theme: ReturnType<typeof useAppTheme>;
 }) {
   const scrollRef = useRef<ScrollView>(null);
+  const settling = useRef(false);
   const selectedIndex = Math.max(0, values.indexOf(selected));
   const padding = (WHEEL_HEIGHT - ITEM_HEIGHT) / 2;
 
   useEffect(() => {
     const timer = setTimeout(() => {
+      if (settling.current) return;
       scrollRef.current?.scrollTo({
         y: selectedIndex * ITEM_HEIGHT,
         animated: false,
       });
     }, 30);
     return () => clearTimeout(timer);
-  }, [selectedIndex, values]);
+  }, [selectedIndex]);
 
-  const onMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const index = Math.round(event.nativeEvent.contentOffset.y / ITEM_HEIGHT);
+  const settleToIndex = (rawY: number) => {
+    if (settling.current) return;
+    const index = Math.round(rawY / ITEM_HEIGHT);
     const clamped = Math.min(values.length - 1, Math.max(0, index));
+    const targetY = clamped * ITEM_HEIGHT;
     const next = values[clamped];
+    settling.current = true;
+    if (Math.abs(rawY - targetY) > 1) {
+      scrollRef.current?.scrollTo({ y: targetY, animated: true });
+    }
     if (next !== selected) onSelect(next);
-    scrollRef.current?.scrollTo({ y: clamped * ITEM_HEIGHT, animated: true });
+    setTimeout(() => {
+      settling.current = false;
+    }, 180);
   };
 
   return (
@@ -165,8 +175,10 @@ function WheelColumn<T extends string | number>({
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
-        onMomentumScrollEnd={onMomentumEnd}
-        onScrollEndDrag={onMomentumEnd}
+        nestedScrollEnabled
+        onMomentumScrollEnd={(event) =>
+          settleToIndex(event.nativeEvent.contentOffset.y)
+        }
         contentContainerStyle={{ paddingVertical: padding }}>
         {values.map((item) => {
           const active = item === selected;
@@ -205,13 +217,6 @@ function TimeWheelPicker({
   pmLabel: string;
 }) {
   const parts = useMemo(() => partsFromHhmm(value), [value]);
-  const periods = useMemo(
-    () => [
-      { id: 'am' as const, label: amLabel },
-      { id: 'pm' as const, label: pmLabel },
-    ],
-    [amLabel, pmLabel],
-  );
 
   return (
     <View style={styles.wheelWrap}>
@@ -237,7 +242,7 @@ function TimeWheelPicker({
         theme={theme}
       />
       <WheelColumn
-        values={periods.map((item) => item.id)}
+        values={PERIOD_IDS}
         selected={parts.period}
         onSelect={(period) => onChange(hhmmFromParts(parts.hour12, parts.minutes, period))}
         format={(period) => (period === 'am' ? amLabel : pmLabel)}
@@ -426,11 +431,15 @@ export function AppTimeField({ value, onChange, label, compact = false }: Props)
         />
       ) : null}
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => closePicker(false)}>
-        <Pressable style={styles.backdrop} onPress={() => closePicker(false)}>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => closePicker(true)}>
+        <View style={styles.backdrop}>
           <Pressable
-            style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
-            onPress={(event) => event.stopPropagation()}>
+            style={StyleSheet.absoluteFill}
+            onPress={() => closePicker(false)}
+            accessibilityLabel="Cerrar selector de hora"
+          />
+          <View
+            style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.sheetHeader}>
               <Text style={[styles.sheetTitle, { color: theme.text }]}>
                 {label || (locale === 'es' ? 'Elige una hora' : 'Pick a time')}
@@ -451,8 +460,8 @@ export function AppTimeField({ value, onChange, label, compact = false }: Props)
             <Text style={[styles.pickerHint, { color: theme.muted }]}>
               {formatHhmmAmPm(draft, locale)}
             </Text>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -506,6 +515,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingBottom: 28,
     paddingTop: 12,
+    zIndex: 2,
   },
   sheetHeader: {
     flexDirection: 'row',

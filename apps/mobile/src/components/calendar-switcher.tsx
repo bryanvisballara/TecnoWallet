@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
+import { isSelfOwner } from '@/lib/collaboration-roles';
 import { createAccessRequest } from '@/services/collaboration-api';
 import { useCalendarStore } from '@/store/calendar';
 import { useLanguageStore } from '@/store/language';
@@ -172,6 +173,13 @@ export function CalendarSwitcher({ compact = false }: Props) {
                     accessibilityLabel={copy.common.inviteTo(name)}
                     onPress={() => {
                       close();
+                      if (!isSelfOwner(calendar.members)) {
+                        Alert.alert(
+                          'Solo el organizador',
+                          'En un calendario compartido solo el organizador puede invitar a más personas.',
+                        );
+                        return;
+                      }
                       if (!hasPaidPlan(plusAccess)) {
                         openPaywall('SHARING_REQUIRED');
                         return;

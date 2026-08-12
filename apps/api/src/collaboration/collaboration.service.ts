@@ -1393,14 +1393,15 @@ export class CalendarService {
   ) {}
 
   async create(dto: CreateCalendarDto, userId: string) {
+    // Any workspace member can create calendars; inviting people stays owner-only.
     const workspaceRole = await this.workspaceMemberships.findOne({
       workspaceId: dto.workspaceId,
       userId,
-      role: { $in: ['owner', 'admin'] },
+      role: { $in: ['owner', 'admin', 'member'] },
     });
     if (!workspaceRole) {
       throw new ForbiddenException(
-        'Only workspace owners/admins can create calendars',
+        'Only workspace members can create calendars',
       );
     }
     const calendar = await this.calendars.create({
@@ -1461,7 +1462,7 @@ export class CalendarService {
       deletedAt: { $exists: false },
     });
     if (!calendar) throw new NotFoundException('Calendar not found');
-    await this.assertAccess(id, userId, ['owner', 'editor']);
+    await this.assertAccess(id, userId, ['owner', 'editor', 'viewer']);
     if (dto.name !== undefined) calendar.name = dto.name;
     if (dto.color !== undefined) calendar.color = dto.color;
     if (dto.icon !== undefined) calendar.icon = dto.icon;
@@ -1558,7 +1559,8 @@ export class CalendarService {
   }
 
   async createItem(dto: CreateCalendarItemDto, userId: string) {
-    await this.assertAccess(dto.calendarId, userId, ['owner', 'editor']);
+    // Collaborators (including legacy viewers) can create items; invite stays owner-only.
+    await this.assertAccess(dto.calendarId, userId, ['owner', 'editor', 'viewer']);
     this.validateItemData(dto.data);
     const data = withReminderSchedule(dto.data);
     const created = await this.items.create({
@@ -1598,13 +1600,35 @@ export class CalendarService {
       deletedAt: { $exists: false },
     });
     if (!item) throw new NotFoundException('Calendar item not found');
-    await this.assertAccess(item.calendarId.toString(), userId, [
-      'owner',
-      'editor',
-    ]);
+    const calendarId = item.calendarId.toString();
+    await this.assertAccess(calendarId, userId, ['owner', 'editor', 'viewer']);
     this.validateItemData(dto.data);
     item.data = withReminderSchedule(dto.data);
-    return item.save();
+    const saved = await item.save();
+    const data = (saved.data ?? {}) as Record<string, unknown>;
+    const title =
+      typeof data.title === 'string' ? data.title.trim() : 'Elemento';
+    const date = typeof data.date === 'string' ? data.date : '';
+    const type = String(data.type || 'event');
+    const kindLabel =
+      type === 'task' ? 'tarea' : type === 'birthday' ? 'cumpleaños' : 'evento';
+    void (async () => {
+      const [who, calendarName] = await Promise.all([
+        this.push.userDisplayName(userId),
+        this.push.calendarName(calendarId),
+      ]);
+      this.push.notifyCalendarMembers(calendarId, userId, {
+        title: 'Calendario compartido',
+        body: `${who} actualizó ${kindLabel} «${title}»${date ? ` · ${date}` : ''} · ${calendarName}`,
+        data: {
+          kind: 'calendar',
+          route: '/(tabs)/calendario',
+          notificationId: `cal-upd-${calendarId}-${String(saved._id)}-${Date.now()}`,
+        },
+        sound: 'calendario.wav',
+      });
+    })().catch(() => undefined);
+    return saved;
   }
 
   /**
@@ -1708,12 +1732,32 @@ export class CalendarService {
       deletedAt: { $exists: false },
     });
     if (!item) throw new NotFoundException('Calendar item not found');
-    await this.assertAccess(item.calendarId.toString(), userId, [
-      'owner',
-      'editor',
-    ]);
+    const calendarId = item.calendarId.toString();
+    await this.assertAccess(calendarId, userId, ['owner', 'editor', 'viewer']);
+    const data = (item.data ?? {}) as Record<string, unknown>;
+    const title =
+      typeof data.title === 'string' ? data.title.trim() : 'Elemento';
+    const type = String(data.type || 'event');
+    const kindLabel =
+      type === 'task' ? 'tarea' : type === 'birthday' ? 'cumpleaños' : 'evento';
     item.deletedAt = new Date();
     await item.save();
+    void (async () => {
+      const [who, calendarName] = await Promise.all([
+        this.push.userDisplayName(userId),
+        this.push.calendarName(calendarId),
+      ]);
+      this.push.notifyCalendarMembers(calendarId, userId, {
+        title: 'Calendario compartido',
+        body: `${who} eliminó ${kindLabel} «${title}» · ${calendarName}`,
+        data: {
+          kind: 'calendar',
+          route: '/(tabs)/calendario',
+          notificationId: `cal-del-${calendarId}-${id}`,
+        },
+        sound: 'calendario.wav',
+      });
+    })().catch(() => undefined);
     return { deleted: true, id };
   }
 

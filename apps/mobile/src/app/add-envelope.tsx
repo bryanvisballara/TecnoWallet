@@ -15,6 +15,7 @@ import {
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
+import { isSelfOwner } from '@/lib/collaboration-roles';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import {
   isPlusRequiredError,
@@ -164,8 +165,12 @@ export default function AddEnvelopeScreen() {
       Alert.alert('Monto inválido', 'Indica un presupuesto o meta válido.');
       return;
     }
+    // Free 5-envelope limit applies only to the book owner. Collaborators on a
+    // Plus-shared book must not hit the owner's quota on their own Free plan.
+    const ownsActiveBook = isSelfOwner(ledger?.members);
     if (
       !isEditing &&
+      ownsActiveBook &&
       plusAccess === 'free' &&
       (kind === 'income' || kind === 'expense') &&
       envelopes.filter((item) => item.kind === kind).length >= 5

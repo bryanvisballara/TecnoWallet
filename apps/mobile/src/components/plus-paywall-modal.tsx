@@ -113,9 +113,14 @@ export function PlusPaywallModal() {
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={working ? undefined : close}>
-      <Pressable style={styles.overlay} onPress={working ? undefined : close}>
+      onRequestClose={close}>
+      <View style={styles.overlay}>
         <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={close}
+          accessibilityLabel={copy.common.close}
+        />
+        <View
           style={[
             styles.sheet,
             {
@@ -123,8 +128,7 @@ export function PlusPaywallModal() {
               borderColor: theme.border,
               shadowColor: theme.shadow,
             },
-          ]}
-          onPress={(event) => event.stopPropagation()}>
+          ]}>
           <View style={styles.topRow}>
             <View style={[styles.logo, { backgroundColor: theme.primarySoft }]}>
               <AppIcon
@@ -135,7 +139,6 @@ export function PlusPaywallModal() {
             </View>
             <ScalePressable
               accessibilityLabel={copy.common.close}
-              disabled={Boolean(working)}
               onPress={close}
               style={[styles.close, { backgroundColor: theme.surfaceSecondary }]}>
               <AppIcon name="xmark" color={theme.muted} size={18} />
@@ -223,8 +226,8 @@ export function PlusPaywallModal() {
               <Text style={[styles.legalLink, { color: theme.primary }]}>{copy.paywall.privacy}</Text>
             </Pressable>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -244,6 +247,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: 24,
     gap: 12,
+    zIndex: 2,
   },
   topRow: {
     flexDirection: 'row',

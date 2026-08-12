@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -25,6 +25,7 @@ import {
   type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
+import { isSelfOwner } from '@/lib/collaboration-roles';
 import {
   useCalendarStore,
   type CalendarMemberRole,
@@ -75,12 +76,31 @@ export default function CalendarsScreen() {
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
+  const shareGateDone = useRef(false);
   useEffect(() => {
-    if (shareMode && !hasPaidPlan(plusAccess)) {
+    if (!shareMode) {
+      shareGateDone.current = false;
+      return;
+    }
+    if (shareGateDone.current) return;
+    const focused =
+      calendars.find((item) => item.id === (params.focus || activeCalendarId)) ??
+      calendars[0];
+    if (!focused) return;
+    shareGateDone.current = true;
+    if (!isSelfOwner(focused.members)) {
+      Alert.alert(
+        'Solo el organizador',
+        'En un calendario compartido solo el organizador puede invitar a más personas.',
+      );
+      safeGoBack('/(tabs)/calendario');
+      return;
+    }
+    if (!hasPaidPlan(plusAccess)) {
       openPaywall('SHARING_REQUIRED');
       safeGoBack('/(tabs)/calendario');
     }
-  }, [shareMode, plusAccess, openPaywall]);
+  }, [shareMode, plusAccess, openPaywall, calendars, params.focus, activeCalendarId]);
 
   const initialId =
     params.focus && calendars.some((item) => item.id === params.focus)
@@ -198,20 +218,26 @@ export default function CalendarsScreen() {
   }, [selected?.id]);
 
   const onInvite = async () => {
+    if (!isSelfOwner(selected?.members)) {
+      Alert.alert(
+        'Solo el organizador',
+        'En un calendario compartido solo el organizador puede invitar a más personas.',
+      );
+      return;
+    }
     if (!hasPaidPlan(plusAccess)) {
       openPaywall('SHARING_REQUIRED');
       return;
     }
     try {
-      await inviteMember(selected.id, inviteEmail, inviteRole, inviteName);
+      // Collaborators always get full edit access (invite-only stays owner-gated).
+      await inviteMember(selected.id, inviteEmail, 'editor', inviteName);
       setInviteEmail('');
       setInviteName('');
       await loadInvites(selected.id);
       Alert.alert(
         'Invitación lista',
-        inviteRole === 'editor'
-          ? `Enviamos un correo a ${inviteEmail}. Podrá ver y editar este calendario.`
-          : `Enviamos un correo a ${inviteEmail}. Podrá ver este calendario (sin editar).`,
+        `Enviamos un correo a ${inviteEmail}. Podrá ver y editar este calendario.`,
       );
     } catch (error) {
       if (isPlusRequiredError(error)) {

@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -23,6 +23,7 @@ import {
   type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
+import { isSelfOwner } from '@/lib/collaboration-roles';
 import { fetchWorkspaceShareCode } from '@/services/ledgers-api';
 import { useLedgerStore } from '@/store/ledger';
 import {
@@ -66,12 +67,30 @@ export default function LedgersScreen() {
   const plusAccess = usePlusStore((state) => state.access);
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
+  const shareGateDone = useRef(false);
   useEffect(() => {
-    if (shareMode && !hasPaidPlan(plusAccess)) {
+    if (!shareMode) {
+      shareGateDone.current = false;
+      return;
+    }
+    if (shareGateDone.current) return;
+    const focused =
+      ledgers.find((item) => item.id === (params.focus || activeLedgerId)) ?? ledgers[0];
+    if (!focused) return;
+    shareGateDone.current = true;
+    if (!isSelfOwner(focused.members)) {
+      Alert.alert(
+        'Solo el organizador',
+        'En un libro compartido solo el organizador puede invitar a más personas.',
+      );
+      safeGoBack('/(tabs)/inicio');
+      return;
+    }
+    if (!hasPaidPlan(plusAccess)) {
       openPaywall('SHARING_REQUIRED');
       safeGoBack('/(tabs)/inicio');
     }
-  }, [shareMode, plusAccess, openPaywall]);
+  }, [shareMode, plusAccess, openPaywall, ledgers, params.focus, activeLedgerId]);
 
   const initialId = params.focus && ledgers.some((item) => item.id === params.focus)
     ? params.focus
@@ -164,6 +183,13 @@ export default function LedgersScreen() {
   }, [selected?.id, selected?.shareCode]);
 
   const onInvite = async () => {
+    if (!isSelfOwner(selected?.members)) {
+      Alert.alert(
+        'Solo el organizador',
+        'En un libro compartido solo el organizador puede invitar a más personas.',
+      );
+      return;
+    }
     if (!hasPaidPlan(plusAccess)) {
       openPaywall('SHARING_REQUIRED');
       return;

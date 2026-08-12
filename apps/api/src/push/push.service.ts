@@ -135,14 +135,39 @@ export class PushService {
     actorUserId: string,
     payload: PushPayload,
   ) {
-    const members = await this.memberships
-      .find({ workspaceId: new Types.ObjectId(workspaceId) })
-      .select('userId')
-      .lean();
-    const ids = members
-      .map((member) => member.userId.toString())
-      .filter((id) => id !== actorUserId);
-    return this.sendToUsers(ids, payload);
+    const [members, workspace] = await Promise.all([
+      this.memberships
+        .find({ workspaceId: new Types.ObjectId(workspaceId) })
+        .select('userId')
+        .lean(),
+      this.workspaces.findById(workspaceId).select('ownerId').lean(),
+    ]);
+    const ids = new Set(
+      members.map((member) => member.userId.toString()).filter(Boolean),
+    );
+    // Always include document owner even if Membership row is missing (legacy).
+    if (workspace?.ownerId) {
+      const ownerId = workspace.ownerId.toString();
+      ids.add(ownerId);
+      if (!members.some((member) => member.userId.toString() === ownerId)) {
+        await this.memberships
+          .updateOne(
+            {
+              workspaceId: new Types.ObjectId(workspaceId),
+              userId: new Types.ObjectId(ownerId),
+            },
+            { $setOnInsert: { role: 'owner' } },
+            { upsert: true },
+          )
+          .catch(() => undefined);
+      }
+    }
+    if (actorUserId) ids.delete(actorUserId);
+    const recipients = Array.from(ids);
+    this.logger.log(
+      `Workspace push recipients=${recipients.length} workspace=${workspaceId} actor=${actorUserId || '—'} title="${payload.title}"`,
+    );
+    return this.sendToUsers(recipients, payload);
   }
 
   async sendToCalendarMembers(
@@ -150,14 +175,40 @@ export class PushService {
     actorUserId: string,
     payload: PushPayload,
   ) {
-    const members = await this.calendarMemberships
-      .find({ calendarId: new Types.ObjectId(calendarId) })
-      .select('userId')
-      .lean();
-    const ids = members
-      .map((member) => member.userId.toString())
-      .filter((id) => id !== actorUserId);
-    return this.sendToUsers(ids, payload);
+    const [members, calendar] = await Promise.all([
+      this.calendarMemberships
+        .find({ calendarId: new Types.ObjectId(calendarId) })
+        .select('userId')
+        .lean(),
+      this.calendars.findById(calendarId).select('ownerId').lean(),
+    ]);
+    const ids = new Set(
+      members.map((member) => member.userId.toString()).filter(Boolean),
+    );
+    // Always include calendar owner (organizer), even without a membership row.
+    if (calendar?.ownerId) {
+      const ownerId = calendar.ownerId.toString();
+      ids.add(ownerId);
+      // Heal missing owner membership so future queries stay consistent.
+      if (!members.some((member) => member.userId.toString() === ownerId)) {
+        await this.calendarMemberships
+          .updateOne(
+            {
+              calendarId: new Types.ObjectId(calendarId),
+              userId: new Types.ObjectId(ownerId),
+            },
+            { $setOnInsert: { role: 'owner' } },
+            { upsert: true },
+          )
+          .catch(() => undefined);
+      }
+    }
+    if (actorUserId) ids.delete(actorUserId);
+    const recipients = Array.from(ids);
+    this.logger.log(
+      `Calendar push recipients=${recipients.length} calendar=${calendarId} actor=${actorUserId || '—'} title="${payload.title}"`,
+    );
+    return this.sendToUsers(recipients, payload);
   }
 
   async workspaceName(workspaceId: string): Promise<string> {

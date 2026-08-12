@@ -26,11 +26,29 @@ function delayMs(value: AutoLockDelay) {
   return 0;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | 'timeout'> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve('timeout');
+      });
+  });
+}
+
 export function AppLockGate() {
   const theme = useAppTheme();
   const authenticated = useAuthStore((state) => state.authenticated);
   const prefsHydrated = usePreferencesStore((state) => state.hydrated);
   const lockEnabled = usePreferencesStore((state) => state.biometricsLockEnabled);
+  const setBiometricsLockEnabled = usePreferencesStore(
+    (state) => state.setBiometricsLockEnabled,
+  );
   const autoLockDelay = usePreferencesStore((state) => state.autoLockDelay);
   const [locked, setLocked] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,6 +56,7 @@ export function AppLockGate() {
   const [error, setError] = useState<string | null>(null);
   const [biometricLabel, setBiometricLabel] = useState('Face ID');
   const [needsPin, setNeedsPin] = useState(Platform.OS === 'web');
+  const [hasPin, setHasPin] = useState(false);
   const backgroundAt = useRef<number | null>(null);
   const unlockAttempted = useRef(false);
 
@@ -54,8 +73,9 @@ export function AppLockGate() {
       setBiometricLabel(cap.label);
       setNeedsPin(Platform.OS === 'web' || !cap.available);
     });
-    void hasAppLockPin().then((hasPin) => {
-      if (hasPin) setNeedsPin(true);
+    void hasAppLockPin().then((stored) => {
+      setHasPin(stored);
+      if (stored) setNeedsPin(true);
     });
   }, [shouldGuard]);
 
@@ -84,7 +104,15 @@ export function AppLockGate() {
     setBusy(true);
     setError(null);
     try {
-      const result = await authenticateAppUnlock('Desbloquea TecnoWallet');
+      const result = await withTimeout(
+        authenticateAppUnlock('Desbloquea TecnoWallet'),
+        12_000,
+      );
+      if (result === 'timeout') {
+        setNeedsPin(true);
+        setError('La verificación tardó demasiado. Usa tu clave.');
+        return;
+      }
       if (result.success) {
         setLocked(false);
         setPin('');
@@ -94,7 +122,8 @@ export function AppLockGate() {
         setNeedsPin(true);
         return;
       }
-      setError('No se pudo verificar. Inténtalo de nuevo.');
+      setNeedsPin(true);
+      setError('No se pudo verificar. Usa tu clave o inténtalo de nuevo.');
     } finally {
       setBusy(false);
     }
@@ -110,6 +139,10 @@ export function AppLockGate() {
     setBusy(true);
     setError(null);
     try {
+      if (!hasPin) {
+        setError('No hay clave configurada. Desactiva el bloqueo o configura una clave.');
+        return;
+      }
       const ok = await verifyAppLockPin(pin);
       if (!ok) {
         setError('Clave incorrecta.');
@@ -121,6 +154,13 @@ export function AppLockGate() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const skipLock = () => {
+    void setBiometricsLockEnabled(false);
+    setLocked(false);
+    setPin('');
+    setError(null);
   };
 
   if (!shouldGuard || !locked) return null;
@@ -157,6 +197,7 @@ export function AppLockGate() {
           onChangeText={(value) => setPin(value.replace(/\D/g, '').slice(0, 8))}
           keyboardType="number-pad"
           secureTextEntry
+          editable={!busy || needsPin}
           placeholder="Clave de 4 a 8 dígitos"
           placeholderTextColor={theme.muted}
           style={[
@@ -170,7 +211,7 @@ export function AppLockGate() {
 
         <Pressable
           accessibilityRole="button"
-          disabled={busy || pin.length < 4}
+          disabled={pin.length < 4}
           onPress={() => {
             void unlockWithPin();
           }}
@@ -178,11 +219,19 @@ export function AppLockGate() {
             styles.secondaryBtn,
             {
               borderColor: theme.border,
-              opacity: busy || pin.length < 4 ? 0.5 : 1,
+              opacity: pin.length < 4 ? 0.5 : 1,
             },
           ]}>
           <Text style={[styles.secondaryLabel, { color: theme.text }]}>Entrar con clave</Text>
         </Pressable>
+
+        {!hasPin ? (
+          <Pressable accessibilityRole="button" onPress={skipLock} style={styles.escape}>
+            <Text style={[styles.escapeLabel, { color: theme.primary }]}>
+              Continuar sin bloqueo
+            </Text>
+          </Pressable>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
@@ -246,5 +295,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryLabel: { fontSize: 14, fontWeight: '600' },
+  escape: { paddingVertical: 8 },
+  escapeLabel: { fontSize: 14, fontWeight: '700' },
   error: { color: '#E5484D', fontSize: 13, textAlign: 'center' },
 });

@@ -588,25 +588,29 @@ export async function syncCalendarReminders(
   if (Platform.OS === "web") return;
   try {
     if (!(await reminderKindEnabled("calendar"))) return;
+    const { InteractionManager } = await import("react-native");
+    await new Promise<void>((resolve) => {
+      InteractionManager.runAfterInteractions(() => resolve());
+    });
     const { typeLabels } = await import("@/data/calendar");
-    await Promise.all(
-      items.map(async (item) => {
-        if (!item.reminder?.trim()) {
-          await cancelCalendarReminder(item.id);
-          return;
-        }
-        await scheduleCalendarReminder({
-          itemId: item.id,
-          title: item.title,
-          typeLabel:
-            typeLabels[item.type as keyof typeof typeLabels] ?? "Elemento",
-          date: item.date,
-          allDay: item.allDay,
-          startHour: item.startHour,
-          reminder: item.reminder,
-        });
-      }),
-    );
+    // Sequential + capped to avoid pegging the JS thread during hydrate.
+    const capped = items.slice(0, 80);
+    for (const item of capped) {
+      if (!item.reminder?.trim()) {
+        await cancelCalendarReminder(item.id);
+        continue;
+      }
+      await scheduleCalendarReminder({
+        itemId: item.id,
+        title: item.title,
+        typeLabel:
+          typeLabels[item.type as keyof typeof typeLabels] ?? "Elemento",
+        date: item.date,
+        allDay: item.allDay,
+        startHour: item.startHour,
+        reminder: item.reminder,
+      });
+    }
   } catch {
     // Reminder sync must never break hydration.
   }

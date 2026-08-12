@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { buildWeeklySpend, DonutChart, WeeklyBars } from '@/components/charts';
 import { HeroBalanceBanner } from '@/components/hero-balance-banner';
@@ -23,6 +23,7 @@ import { useLanguageStore } from '@/store/language';
 import { buildNotificationFeed, unreadCount, useNotificationsStore } from '@/store/notifications';
 import { usePeriodStore } from '@/store/period';
 import { usePreferencesStore } from '@/store/preferences';
+import { isSelfOwner } from '@/lib/collaboration-roles';
 import { hasPaidPlan, usePlusStore } from '@/store/plus';
 
 const movementFilterKeys: MovementFilterKey[] = ['all', 'expenses', 'income', 'recurring'];
@@ -169,6 +170,13 @@ export default function DashboardScreen() {
             icon="person.badge.plus"
             label={copy.common.inviteTo(ledgerLabel)}
             onPress={() => {
+              if (!isSelfOwner(ledger.members)) {
+                Alert.alert(
+                  'Solo el organizador',
+                  'En un libro compartido solo el organizador puede invitar a más personas.',
+                );
+                return;
+              }
               if (!hasPaidPlan(plusAccess)) {
                 openPaywall('SHARING_REQUIRED');
                 return;

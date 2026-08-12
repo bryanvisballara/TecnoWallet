@@ -166,6 +166,13 @@ export default function RootLayout() {
     void flushOfflineQueue().then(() => {
       if (authenticated) return refreshRecaudos();
     });
+
+    // Guard against AppState "active" storms that freeze the JS thread:
+    // full ledger/calendar hydrate + 7 team scanners must not overlap.
+    let sharedPollInFlight = false;
+    let lastSharedPollAt = 0;
+    const SHARED_POLL_MIN_MS = 45_000;
+
     const pollAccessRequests = () => {
       if (!authenticated) return;
       void import('@/services/collaboration-api').then(
@@ -175,8 +182,14 @@ export default function RootLayout() {
             .catch(() => undefined),
       );
     };
-    const pollSharedCollaborators = () => {
+
+    const pollSharedCollaborators = (force = false) => {
       if (!authenticated) return;
+      const now = Date.now();
+      if (sharedPollInFlight) return;
+      if (!force && now - lastSharedPollAt < SHARED_POLL_MIN_MS) return;
+      sharedPollInFlight = true;
+      lastSharedPollAt = now;
       void Promise.all([
         hydrateLedger(),
         hydrateCalendar(),
@@ -187,13 +200,18 @@ export default function RootLayout() {
             ({ notifyAllSharedCollaborators }) => notifyAllSharedCollaborators(),
           ),
         )
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          sharedPollInFlight = false;
+        });
     };
-    // Defer collaborator polling so it never competes with first paint / ledger hydrate.
+
+    // Defer boot poll so it never competes with first paint.
     const bootPoll = setTimeout(() => {
       pollAccessRequests();
-      pollSharedCollaborators();
+      pollSharedCollaborators(true);
     }, 2500);
+
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void ensureAuthSession().then(() =>
@@ -201,11 +219,17 @@ export default function RootLayout() {
             if (authenticated) return refreshRecaudos();
           }),
         );
+        if (authenticated) {
+          void import('@/services/push-notifications').then(
+            ({ registerRemotePushToken }) =>
+              registerRemotePushToken().catch(() => undefined),
+          );
+        }
         pollAccessRequests();
-        pollSharedCollaborators();
+        // Debounced — returning from background must not freeze the UI.
+        pollSharedCollaborators(false);
       }
       if (state === 'background' || state === 'inactive') {
-        // Refresh home-screen badge before the user leaves the app.
         void useNotificationsStore.getState().syncBadge();
       }
     });

@@ -356,33 +356,44 @@ class ResourceService {
     return created;
   }
 
-  /** Push to other workspace members for collaborative creates. */
+  private isTeamNotifiableKind(kind: string): kind is ResourceKind {
+    return (
+      kind === 'envelope' ||
+      kind === 'account' ||
+      kind === 'goal' ||
+      kind === 'bill' ||
+      kind === 'subscription'
+    );
+  }
+
+  /** Push to other workspace members for collaborative creates/updates/deletes. */
   private notifyTeamResourceCreated(
     created: FinanceResource,
     principal: AuthPrincipal,
   ) {
-    const kind = created.kind;
-    if (
-      kind !== 'envelope' &&
-      kind !== 'account' &&
-      kind !== 'goal' &&
-      kind !== 'bill' &&
-      kind !== 'subscription'
-    ) {
-      return;
-    }
+    this.notifyTeamResourceChange(created, principal, 'created');
+  }
+
+  private notifyTeamResourceChange(
+    resource: FinanceResource,
+    principal: AuthPrincipal,
+    action: 'created' | 'updated' | 'deleted',
+  ) {
+    const kind = resource.kind;
+    if (!this.isTeamNotifiableKind(kind)) return;
+    if (resource.privacy === 'private') return;
     // Never ping for system/clearing accounts.
     if (
       kind === 'account' &&
-      (created.name === '__clearing__' || created.data?.system === true)
+      (resource.name === '__clearing__' || resource.data?.system === true)
     ) {
       return;
     }
 
-    const workspaceId = created.workspaceId.toString();
-    const resourceId = created._id.toString();
-    const name = created.name?.trim() || 'Elemento';
-    const copy = this.teamCreateCopy(kind, name, resourceId);
+    const workspaceId = resource.workspaceId.toString();
+    const resourceId = resource._id.toString();
+    const name = resource.name?.trim() || 'Elemento';
+    const copy = this.teamChangeCopy(kind, resourceId, action);
 
     void (async () => {
       const [who, book] = await Promise.all([
@@ -395,19 +406,19 @@ class ResourceService {
         data: {
           kind: copy.dataKind,
           route: copy.route,
-          notificationId: `${copy.idPrefix}-${workspaceId}-${resourceId}`,
+          notificationId: `${copy.idPrefix}-${action.slice(0, 3)}-${workspaceId}-${resourceId}-${Date.now()}`,
         },
         sound: 'sobres.wav',
       });
     })().catch(() => {
-      // Push must never roll back resource create.
+      // Push must never roll back resource mutations.
     });
   }
 
-  private teamCreateCopy(
+  private teamChangeCopy(
     kind: ResourceKind,
-    _name: string,
     resourceId: string,
+    action: 'created' | 'updated' | 'deleted',
   ): {
     title: string;
     verb: string;
@@ -415,10 +426,31 @@ class ResourceService {
     route: string;
     idPrefix: string;
   } {
+    const verbs = {
+      created: {
+        envelope: 'creó el sobre',
+        account: 'agregó la cuenta',
+        goal: 'creó la meta',
+        plan: 'agregó',
+      },
+      updated: {
+        envelope: 'actualizó el sobre',
+        account: 'actualizó la cuenta',
+        goal: 'actualizó la meta',
+        plan: 'actualizó',
+      },
+      deleted: {
+        envelope: 'eliminó el sobre',
+        account: 'eliminó la cuenta',
+        goal: 'eliminó la meta',
+        plan: 'eliminó',
+      },
+    } as const;
+
     if (kind === 'envelope') {
       return {
         title: 'Sobre del equipo',
-        verb: 'creó el sobre',
+        verb: verbs[action].envelope,
         dataKind: 'envelope',
         route: `/(tabs)/envelope/${resourceId}`,
         idPrefix: 'env',
@@ -427,7 +459,7 @@ class ResourceService {
     if (kind === 'account') {
       return {
         title: 'Cuenta del equipo',
-        verb: 'agregó la cuenta',
+        verb: verbs[action].account,
         dataKind: 'account',
         route: `/(tabs)/account/${resourceId}`,
         idPrefix: 'acc',
@@ -436,7 +468,7 @@ class ResourceService {
     if (kind === 'goal') {
       return {
         title: 'Meta del equipo',
-        verb: 'creó la meta',
+        verb: verbs[action].goal,
         dataKind: 'goal',
         route: `/(tabs)/goal/${resourceId}`,
         idPrefix: 'goal',
@@ -445,7 +477,7 @@ class ResourceService {
     // bill / subscription → salud financiera
     return {
       title: 'Salud financiera',
-      verb: 'agregó',
+      verb: verbs[action].plan,
       dataKind: 'planning',
       route: '/(tabs)/salud-financiera',
       idPrefix: 'plan',
@@ -632,7 +664,16 @@ class ResourceService {
       resource.markModified('data');
     }
     resource.version = (resource.version ?? 1) + 1;
-    return resource.save();
+    const saved = await resource.save();
+    const isTombstone = Boolean(
+      dto.data &&
+        typeof dto.data === 'object' &&
+        (dto.data as Record<string, unknown>).tombstone === true,
+    );
+    if (!isTombstone) {
+      this.notifyTeamResourceChange(saved, principal, 'updated');
+    }
+    return saved;
   }
 
   async remove(kind: string, id: string, principal: AuthPrincipal) {
@@ -650,7 +691,9 @@ class ResourceService {
           resource.data = next;
           resource.markModified('data');
         }
-        return resource.save();
+        const saved = await resource.save();
+        this.notifyTeamResourceChange(saved, principal, 'deleted');
+        return saved;
       },
     );
   }
@@ -880,12 +923,13 @@ class WorkspaceController {
     @Body() dto: UpdateWorkspaceDto,
     @CurrentUser() user: AuthPrincipal,
   ) {
+    // Collaborators (members) can edit book metadata; invite/share stay owner-only.
     const requester = await this.memberships.findOne({
       workspaceId,
       userId: user.userId,
-      role: { $in: ['owner', 'admin'] },
+      role: { $in: ['owner', 'admin', 'member'] },
     });
-    if (!requester) throw new ForbiddenException('Admin access required');
+    if (!requester) throw new ForbiddenException('Member access required');
     const workspace = await this.workspaces.findOne({
       _id: workspaceId,
       deletedAt: { $exists: false },
@@ -1127,11 +1171,27 @@ class TransactionController {
   ) {
     const transaction = await this.transactions.findById(id);
     if (!transaction) throw new NotFoundException('Transaction not found');
-    await this.access.assertMember(
-      transaction.workspaceId.toString(),
-      user.userId,
-    );
-    return this.ledger.reverse(id, description);
+    const workspaceId = transaction.workspaceId.toString();
+    await this.access.assertMember(workspaceId, user.userId);
+    const reversed = await this.ledger.reverse(id, description);
+    if (transaction.privacy !== 'private') {
+      const [who, book] = await Promise.all([
+        this.push.userDisplayName(user.userId),
+        this.push.workspaceName(workspaceId),
+      ]);
+      const isIncome = transaction.kind === 'income';
+      this.push.notifyWorkspaceMembers(workspaceId, user.userId, {
+        title: isIncome ? 'Ingreso del equipo' : 'Gasto del equipo',
+        body: `${who} eliminó ${transaction.description || 'un movimiento'} · ${book}`,
+        data: {
+          kind: isIncome ? 'income' : 'expense',
+          route: '/(tabs)/movimientos',
+          notificationId: `tx-del-${workspaceId}-${id}`,
+        },
+        sound: isIncome ? 'ingreso.wav' : 'gasto.wav',
+      });
+    }
+    return reversed;
   }
 }
 
