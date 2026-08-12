@@ -15,7 +15,7 @@ import {
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
-import { isSelfOwner } from '@/lib/collaboration-roles';
+import { shouldEnforceFreeEnvelopeLimit } from '@/lib/collaboration-roles';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import {
   isPlusRequiredError,
@@ -165,12 +165,11 @@ export default function AddEnvelopeScreen() {
       Alert.alert('Monto inválido', 'Indica un presupuesto o meta válido.');
       return;
     }
-    // Free 5-envelope limit applies only to the book owner. Collaborators on a
-    // Plus-shared book must not hit the owner's quota on their own Free plan.
-    const ownsActiveBook = isSelfOwner(ledger?.members);
+    // Free 5-envelope limit: personal book owner only. Shared-team / collaborator
+    // seats must never open the organizer paywall (it stacks on SheetScreen and freezes).
     if (
       !isEditing &&
-      ownsActiveBook &&
+      shouldEnforceFreeEnvelopeLimit(ledger) &&
       plusAccess === 'free' &&
       (kind === 'income' || kind === 'expense') &&
       envelopes.filter((item) => item.kind === kind).length >= 5
@@ -206,9 +205,24 @@ export default function AddEnvelopeScreen() {
       router.replace({ pathname: '/(tabs)/envelope/[id]', params: { id: envelope.id } });
     } catch (error) {
       if (isPlusRequiredError(error)) {
-        openPaywall(plusReasonFromError(error), {
-          plan: paywallPlanFromError(error),
-        });
+        // Collaborators / shared books: explain — do not stack Plus Modal on this sheet.
+        if (!shouldEnforceFreeEnvelopeLimit(ledger)) {
+          const reason = plusReasonFromError(error);
+          Alert.alert(
+            reason === 'SHARING_REQUIRED' ? 'Libro sin Plus del organizador' : 'No se pudo crear',
+            reason === 'SHARING_REQUIRED'
+              ? 'El organizador necesita TecnoWallet Plus activo. Tú no debes pagar por crear sobres en este libro.'
+              : 'Pide al organizador que revise el plan del libro. Como colaborador no te corresponde actualizar.',
+          );
+          return;
+        }
+        // Dismiss sheet first so the paywall Modal is not stacked (iOS freeze).
+        safeGoBack('/(tabs)/sobres');
+        setTimeout(() => {
+          openPaywall(plusReasonFromError(error), {
+            plan: paywallPlanFromError(error),
+          });
+        }, 280);
         return;
       }
       Alert.alert(
@@ -245,9 +259,19 @@ export default function AddEnvelopeScreen() {
       safeGoBack('/(tabs)/sobres');
     } catch (error) {
       if (isPlusRequiredError(error)) {
-        openPaywall(plusReasonFromError(error), {
-          plan: paywallPlanFromError(error),
-        });
+        if (!shouldEnforceFreeEnvelopeLimit(ledger)) {
+          Alert.alert(
+            'No se pudo eliminar',
+            'Pide al organizador que revise el plan del libro. Como colaborador no te corresponde actualizar.',
+          );
+          return;
+        }
+        safeGoBack('/(tabs)/sobres');
+        setTimeout(() => {
+          openPaywall(plusReasonFromError(error), {
+            plan: paywallPlanFromError(error),
+          });
+        }, 280);
         return;
       }
       Alert.alert(
@@ -277,7 +301,9 @@ export default function AddEnvelopeScreen() {
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
-          <Text style={[styles.hint, { color: theme.muted }]}>Libro {ledger.name}</Text>
+          <Text style={[styles.hint, { color: theme.muted }]}>
+            Libro {ledger?.name ?? '—'}
+          </Text>
 
           <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
           <TextInput

@@ -18,6 +18,7 @@ import { isWealthAsset, isWealthDebt } from '@/lib/accounts';
 import {
   addWorkspaceMember,
   removeWorkspaceMember,
+  buildSummary,
   createLedgerTransaction,
   createResource,
   createWorkspace,
@@ -27,6 +28,7 @@ import {
   listWorkspaces,
   loadWorkspaceSnapshot,
   mapApiMembers,
+  mapEnvelopeResource,
   mapWorkspaceToLedger,
   objectId,
   reverseLedgerTransaction,
@@ -76,6 +78,8 @@ type LedgerState = {
   pendingIds: string[];
   hydrated: boolean;
   hydrate: () => Promise<void>;
+  /** Reload a single book into memory (avoids full multi-workspace hydrate on create). */
+  refreshLedger: (ledgerId: string) => Promise<void>;
   resetToDefaultHogar: () => Promise<void>;
   setActiveLedger: (id: string) => Promise<void>;
   createLedger: (name: string, color?: string) => Promise<string>;
@@ -164,6 +168,9 @@ function syncDisplayCurrency(
   setActiveMoneyCurrency(active?.baseCurrency || 'COP');
 }
 
+/** Serialize full hydrates so create + AppState poll never overlap on the JS thread. */
+let hydrateChain: Promise<void> = Promise.resolve();
+
 async function fetchLedgersFromApi(): Promise<{
   ledgers: LedgerMeta[];
   snapshots: Record<string, LedgerSnapshot>;
@@ -224,63 +231,29 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   hydrated: false,
 
   hydrate: async () => {
-    const demo = await localStorage.get('demo-session', false);
-    if (demo) {
-      // Demo mode keeps seed data in memory only (never written as product truth).
-      const { seedLedgers, seedSnapshots } = await import('@/data/ledgers');
-      const activeLedgerId = seedLedgers[0]?.id ?? 'hogar';
-      syncDisplayCurrency(seedLedgers, activeLedgerId);
-      set({
-        ledgers: seedLedgers,
-        activeLedgerId,
-        snapshots: seedSnapshots,
-        clearingIds: {},
-        pendingIds: [],
-        hydrated: true,
-      });
-      void import('@/store/notifications').then(({ useNotificationsStore }) =>
-        useNotificationsStore.getState().syncBadge(),
-      );
-      return;
-    }
+    const run = async () => {
+      const demo = await localStorage.get('demo-session', false);
+      if (demo) {
+        // Demo mode keeps seed data in memory only (never written as product truth).
+        const { seedLedgers, seedSnapshots } = await import('@/data/ledgers');
+        const activeLedgerId = seedLedgers[0]?.id ?? 'hogar';
+        syncDisplayCurrency(seedLedgers, activeLedgerId);
+        set({
+          ledgers: seedLedgers,
+          activeLedgerId,
+          snapshots: seedSnapshots,
+          clearingIds: {},
+          pendingIds: [],
+          hydrated: true,
+        });
+        void import('@/store/notifications').then(({ useNotificationsStore }) =>
+          useNotificationsStore.getState().syncBadge(),
+        );
+        return;
+      }
 
-    const userId = await currentUserId();
-    if (!userId) {
-      set({
-        ledgers: [],
-        activeLedgerId: '',
-        snapshots: {},
-        clearingIds: {},
-        pendingIds: [],
-        hydrated: true,
-      });
-      return;
-    }
-
-    try {
-      const next = await fetchLedgersFromApi();
-      const previousActive = get().activeLedgerId;
-      const activeLedgerId = next.ledgers.some((item) => item.id === previousActive)
-        ? previousActive
-        : next.activeLedgerId;
-      syncDisplayCurrency(next.ledgers, activeLedgerId);
-      set({ ...next, activeLedgerId, pendingIds: [], hydrated: true });
-      void import('@/store/notifications').then(({ useNotificationsStore }) =>
-        useNotificationsStore.getState().syncBadge(),
-      );
-      void import('@/services/collaboration-api').then(
-        ({ notifyNewTeamTransactions, notifyNewTeamEnvelopes }) => {
-          notifyNewTeamTransactions().catch(() => undefined);
-          notifyNewTeamEnvelopes().catch(() => undefined);
-        },
-      );
-    } catch (error) {
-      const status =
-        error && typeof error === 'object' && 'status' in error
-          ? Number((error as { status?: number }).status)
-          : 0;
-      if (status === 401 || status === 403) {
-        // Session is dead — leave empty books; auth store clears authenticated via API hook.
+      const userId = await currentUserId();
+      if (!userId) {
         set({
           ledgers: [],
           activeLedgerId: '',
@@ -291,8 +264,77 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         });
         return;
       }
-      // Keep prior in-memory state if the API is briefly unavailable.
-      set({ hydrated: true });
+
+      try {
+        const next = await fetchLedgersFromApi();
+        const previousActive = get().activeLedgerId;
+        const activeLedgerId = next.ledgers.some((item) => item.id === previousActive)
+          ? previousActive
+          : next.activeLedgerId;
+        syncDisplayCurrency(next.ledgers, activeLedgerId);
+        set({ ...next, activeLedgerId, pendingIds: [], hydrated: true });
+        void import('@/store/notifications').then(({ useNotificationsStore }) =>
+          useNotificationsStore.getState().syncBadge(),
+        );
+        void import('@/services/collaboration-api').then(
+          ({ notifyNewTeamTransactions, notifyNewTeamEnvelopes }) => {
+            notifyNewTeamTransactions().catch(() => undefined);
+            notifyNewTeamEnvelopes().catch(() => undefined);
+          },
+        );
+      } catch (error) {
+        const status =
+          error && typeof error === 'object' && 'status' in error
+            ? Number((error as { status?: number }).status)
+            : 0;
+        if (status === 401 || status === 403) {
+          // Session is dead — leave empty books; auth store clears authenticated via API hook.
+          set({
+            ledgers: [],
+            activeLedgerId: '',
+            snapshots: {},
+            clearingIds: {},
+            pendingIds: [],
+            hydrated: true,
+          });
+          return;
+        }
+        // Keep prior in-memory state if the API is briefly unavailable.
+        set({ hydrated: true });
+      }
+    };
+
+    const queued = hydrateChain.then(run, run);
+    hydrateChain = queued.catch(() => undefined);
+    await queued;
+  },
+
+  refreshLedger: async (ledgerId) => {
+    if (!ledgerId) return;
+    const existing = get().ledgers.find((item) => item.id === ledgerId);
+    if (!existing) return;
+    try {
+      const selfId = await currentUserId();
+      const membersRaw = await listMembers(ledgerId);
+      const members = mapApiMembers(membersRaw, selfId);
+      const baseCurrency = (existing.baseCurrency || 'COP').toUpperCase();
+      const loaded = await loadWorkspaceSnapshot(ledgerId, baseCurrency, {
+        members,
+        selfUserId: selfId,
+      });
+      const meta: LedgerMeta = {
+        ...existing,
+        members,
+        type: members.length > 1 ? 'shared' : existing.type,
+        baseCurrency,
+      };
+      set((state) => ({
+        ledgers: state.ledgers.map((item) => (item.id === ledgerId ? meta : item)),
+        snapshots: { ...state.snapshots, [ledgerId]: loaded.snapshot },
+        clearingIds: { ...state.clearingIds, [ledgerId]: loaded.clearingId },
+      }));
+    } catch {
+      // Soft refresh must never undo a successful local create.
     }
   },
 
@@ -635,6 +677,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
 
   addEnvelope: async (value) => {
     const ledgerId = get().activeLedgerId;
+    if (!ledgerId) throw new Error('No hay un libro activo.');
     const ledger = get().ledgers.find((item) => item.id === ledgerId);
     const currency = await currencyFor(ledger);
     const palette = ['#0878F9', '#12B76A', '#F79009', '#7F56D9', '#06AED4', '#F04438', '#EE46BC'];
@@ -650,24 +693,52 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         : value.kind === 'savings'
           ? 'Sobre de ahorros · Meta'
           : 'Presupuesto mensual';
+    const icon = value.icon ?? defaultIcon;
+    const color =
+      value.color ?? palette[activeSlice(get()).envelopes.length % palette.length];
+    const rule = value.rule?.trim() || defaultRule;
+    const rollover = value.rollover ?? value.kind !== 'income';
+    const budget = Math.max(0, value.budget);
     const created = await createResource('envelope', ledgerId, value.name.trim(), {
       kind: value.kind,
-      budgetMinor: toMinor(Math.max(0, value.budget)),
+      budgetMinor: toMinor(budget),
       spentMinor: 0,
       balanceMinor: 0,
       currency,
-      icon: value.icon ?? defaultIcon,
-      color: value.color ?? palette[activeSlice(get()).envelopes.length % palette.length],
-      rollover: value.rollover ?? value.kind !== 'income',
-      rule: value.rule?.trim() || defaultRule,
+      icon,
+      color,
+      rollover,
+      rule,
       ...(value.goalId ? { goalId: value.goalId } : {}),
     });
-    await get().hydrate();
-    set({ activeLedgerId: ledgerId });
-    const mapped = get().snapshots[ledgerId]?.envelopes.find(
-      (item) => item.id === objectId(created),
-    );
-    if (!mapped) throw new Error('No se pudo crear el sobre.');
+    // Optimistic local insert — never await a full multi-book hydrate here (freezes phones).
+    const mapped: Envelope = {
+      ...mapEnvelopeResource(created),
+      name: value.name.trim(),
+      kind: value.kind,
+      budget,
+      spent: 0,
+      icon,
+      color,
+      rollover,
+      rule,
+      ...(value.goalId ? { goalId: value.goalId } : {}),
+    };
+    const slice = activeSlice(get());
+    const envelopes = [
+      mapped,
+      ...slice.envelopes.filter((item) => item.id !== mapped.id),
+    ];
+    const nextSlice = {
+      ...slice,
+      envelopes,
+      summary: buildSummary(slice.accounts, envelopes, slice.transactions),
+    };
+    set((state) => ({
+      activeLedgerId: ledgerId,
+      snapshots: { ...state.snapshots, [ledgerId]: nextSlice },
+    }));
+    void get().refreshLedger(ledgerId);
     // Goal flow already notifies for the meta; skip duplicate envelope ping.
     if (!value.goalId) {
       void recordActivity({
@@ -691,6 +762,14 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     const currency = await currencyFor(ledger);
     const budget =
       patch.budget !== undefined ? Math.max(0, patch.budget) : current.budget;
+    const nextName = patch.name?.trim() || current.name;
+    const nextIcon = patch.icon ?? current.icon;
+    const nextColor = patch.color ?? current.color;
+    const nextRollover = budget > 0 ? (patch.rollover ?? current.rollover) : false;
+    const nextRule =
+      patch.rule !== undefined
+        ? patch.rule.trim() || current.rule
+        : current.rule;
 
     await updateResource(
       'envelope',
@@ -701,34 +780,61 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         spentMinor: toMinor(current.spent),
         balanceMinor: toMinor(current.spent),
         currency,
-        icon: patch.icon ?? current.icon,
-        color: patch.color ?? current.color,
-        rollover: budget > 0 ? (patch.rollover ?? current.rollover) : false,
-        rule:
-          patch.rule !== undefined
-            ? patch.rule.trim() || current.rule
-            : current.rule,
+        icon: nextIcon,
+        color: nextColor,
+        rollover: nextRollover,
+        rule: nextRule,
         ...(current.goalId ? { goalId: current.goalId } : {}),
       },
-      patch.name?.trim() || current.name,
+      nextName,
     );
-    await get().hydrate();
-    set({ activeLedgerId: ledgerId });
-    const updated = get().snapshots[ledgerId]?.envelopes.find(
-      (item) => item.id === envelopeId,
+    const updated: Envelope = {
+      ...current,
+      name: nextName,
+      budget,
+      icon: nextIcon,
+      color: nextColor,
+      rollover: nextRollover,
+      rule: nextRule,
+    };
+    const envelopes = slice.envelopes.map((item) =>
+      item.id === envelopeId ? updated : item,
     );
-    if (!updated) throw new Error('No se pudo actualizar el sobre.');
+    set((state) => ({
+      activeLedgerId: ledgerId,
+      snapshots: {
+        ...state.snapshots,
+        [ledgerId]: {
+          ...slice,
+          envelopes,
+          summary: buildSummary(slice.accounts, envelopes, slice.transactions),
+        },
+      },
+    }));
+    void get().refreshLedger(ledgerId);
     return updated;
   },
 
   removeEnvelope: async (envelopeId) => {
     const ledgerId = get().activeLedgerId;
     const ledger = get().ledgers.find((item) => item.id === ledgerId);
-    const current = activeSlice(get()).envelopes.find((item) => item.id === envelopeId);
+    const slice = activeSlice(get());
+    const current = slice.envelopes.find((item) => item.id === envelopeId);
     if (!current) throw new Error('El sobre no existe.');
     await deleteResource('envelope', envelopeId);
-    await get().hydrate();
-    set({ activeLedgerId: ledgerId });
+    const envelopes = slice.envelopes.filter((item) => item.id !== envelopeId);
+    set((state) => ({
+      activeLedgerId: ledgerId,
+      snapshots: {
+        ...state.snapshots,
+        [ledgerId]: {
+          ...slice,
+          envelopes,
+          summary: buildSummary(slice.accounts, envelopes, slice.transactions),
+        },
+      },
+    }));
+    void get().refreshLedger(ledgerId);
     void recordActivity({
       kind: 'envelope',
       title: 'Sobre eliminado',

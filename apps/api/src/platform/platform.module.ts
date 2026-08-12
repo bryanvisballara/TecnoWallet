@@ -291,31 +291,19 @@ class WorkspaceAccessService {
   constructor(
     @InjectModel(Membership.name)
     private readonly memberships: Model<Membership>,
-    @InjectModel(Workspace.name)
-    private readonly workspaces: Model<Workspace>,
-    private readonly entitlements: EntitlementService,
   ) {}
 
+  /**
+   * Membership is the source of truth for book access.
+   * Plus is enforced when inviting/sharing — not on every collaborator read/write
+   * (otherwise Free collaborators freeze/fail mid-session if sponsor billing lags).
+   */
   async assertMember(workspaceId: string, userId: string): Promise<void> {
     const member = await this.memberships
       .findOne({ workspaceId, userId })
       .select('role')
       .lean();
     if (!member) throw new ForbiddenException('Workspace access denied');
-    if (member.role === 'owner') return;
-    const workspace = await this.workspaces
-      .findOne({ _id: workspaceId, deletedAt: { $exists: false } })
-      .select('ownerId')
-      .lean();
-    if (!workspace) throw new NotFoundException('Workspace not found');
-    if (!(await this.entitlements.isPlus(workspace.ownerId.toString()))) {
-      throw new PaymentRequiredException({
-        statusCode: 402,
-        code: 'PLUS_REQUIRED',
-        message: 'The workspace sponsor needs TecnoWallet Plus',
-        reason: 'SHARING_REQUIRED',
-      });
-    }
   }
 }
 
@@ -503,15 +491,9 @@ class ResourceService {
     const ownerId = workspace.ownerId.toString();
     const ownerIsPlus = await this.entitlements.isPlus(ownerId);
     const requesterIsOwner = ownerId === principal.userId;
+    // Collaborators already passed membership. Envelope quotas/Plus apply to the
+    // book owner only — never block a teammate mid-create with a paywall.
     if (!requesterIsOwner) {
-      if (!ownerIsPlus) {
-        throw new PaymentRequiredException({
-          statusCode: 402,
-          code: 'PLUS_REQUIRED',
-          message: 'The workspace owner needs TecnoWallet Plus',
-          reason: 'SHARING_REQUIRED',
-        });
-      }
       return this.resources.create({
         ...dto,
         kind: 'envelope',
