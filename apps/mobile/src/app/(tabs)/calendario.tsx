@@ -241,13 +241,9 @@ export default function CalendarScreen() {
                 return (
                   <Pressable
                     key={cell.key}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Abrir día ${cell.date.getDate()}`}
                     onPress={() => {
-                      setSelectedKey(cell.key);
-                      if (!cell.inMonth) {
-                        setAnchor(new Date(cell.date.getFullYear(), cell.date.getMonth(), 1));
-                      }
-                    }}
-                    onLongPress={() => {
                       setSelectedKey(cell.key);
                       if (!cell.inMonth) {
                         setAnchor(new Date(cell.date.getFullYear(), cell.date.getMonth(), 1));

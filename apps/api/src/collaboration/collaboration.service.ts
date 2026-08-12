@@ -19,7 +19,10 @@ import {
   PaymentRequiredException,
 } from '../billing/entitlement.service';
 import { PushService } from '../push/push.service';
-import { resolveCalendarReminderAt, withReminderSchedule } from './calendar-reminder.util';
+import {
+  effectiveCalendarReminderAt,
+  withReminderSchedule,
+} from './calendar-reminder.util';
 import {
   AcceptCollaborationInviteDto,
   CreateAccessRequestDto,
@@ -1607,62 +1610,56 @@ export class CalendarService {
   /**
    * Sends due reminder pushes to every calendar member (shared + personal).
    * Marks each item so it only fires once.
+   *
+   * Fire time is resolved with effectiveCalendarReminderAt (client ISO or
+   * America/Bogota), not raw server-local Date math — so collaborators get the
+   * push at the same wall-clock moment as the organizer.
    */
   async dispatchDueReminders() {
     const now = Date.now();
-    const windowStart = new Date(now - 3 * 60_000).toISOString();
-    const windowEnd = new Date(now + 30_000).toISOString();
-    const dueByField = await this.items
-      .find({
-        deletedAt: { $exists: false },
-        'data.reminderAt': { $gte: windowStart, $lte: windowEnd },
-        'data.reminderNotifiedAt': { $exists: false },
-      })
-      .limit(100)
-      .lean();
+    const windowStartMs = now - 3 * 60_000;
+    const windowEndMs = now + 90_000;
 
-    // Legacy rows created before reminderAt existed — compute on the fly.
     const today = new Date();
     const from = new Date(today);
-    from.setDate(from.getDate() - 8);
+    from.setUTCDate(from.getUTCDate() - 8);
     const to = new Date(today);
-    to.setDate(to.getDate() + 2);
-    const legacyCandidates = await this.items
+    to.setUTCDate(to.getUTCDate() + 2);
+
+    const candidates = await this.items
       .find({
         deletedAt: { $exists: false },
         'data.reminder': { $exists: true, $nin: [null, '', 'Sin notificación'] },
-        'data.reminderAt': { $exists: false },
         'data.reminderNotifiedAt': { $exists: false },
         'data.date': {
           $gte: from.toISOString().slice(0, 10),
           $lte: to.toISOString().slice(0, 10),
         },
       })
-      .limit(100)
+      .limit(250)
       .lean();
 
-    const legacyDue = legacyCandidates.filter((item) => {
+    const due: typeof candidates = [];
+    for (const item of candidates) {
       const data = (item.data ?? {}) as Record<string, unknown>;
-      const fireAt = resolveCalendarReminderAt({
-        date: typeof data.date === 'string' ? data.date : '',
-        allDay: Boolean(data.allDay),
-        startHour:
-          typeof data.startHour === 'number' ? data.startHour : undefined,
-        reminder:
-          typeof data.reminder === 'string' ? data.reminder : undefined,
-      });
-      if (!fireAt) return false;
+      const fireAt = effectiveCalendarReminderAt(data);
+      if (!fireAt) continue;
       const ts = fireAt.getTime();
-      return ts >= now - 3 * 60_000 && ts <= now + 30_000;
-    });
+      if (ts < windowStartMs || ts > windowEndMs) continue;
+      due.push(item);
 
-    const seen = new Set<string>();
-    const due = [...dueByField, ...legacyDue].filter((item) => {
-      const id = String(item._id);
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
+      // Heal misplaced reminderAt from older UTC-server builds.
+      const stored =
+        typeof data.reminderAt === 'string' ? data.reminderAt : '';
+      if (stored !== fireAt.toISOString()) {
+        await this.items
+          .updateOne(
+            { _id: item._id },
+            { $set: { 'data.reminderAt': fireAt.toISOString() } },
+          )
+          .catch(() => undefined);
+      }
+    }
 
     let sent = 0;
     for (const item of due) {
@@ -1679,7 +1676,7 @@ export class CalendarService {
             : 'evento';
       const calendarId = item.calendarId.toString();
       const calendarName = await this.push.calendarName(calendarId);
-      this.push.notifyAllCalendarMembers(calendarId, {
+      const pushResult = await this.push.sendToCalendarMembers(calendarId, '', {
         title: `Recordatorio · ${kindLabel}`,
         body: `${title}${date ? ` · ${date}` : ''} · ${calendarName}`,
         data: {
@@ -1696,12 +1693,13 @@ export class CalendarService {
         {
           $set: {
             'data.reminderNotifiedAt': new Date().toISOString(),
+            'data.reminderPushSent': pushResult?.sent ?? 0,
           },
         },
       );
       sent += 1;
     }
-    return { sent, scanned: due.length };
+    return { sent, scanned: due.length, candidates: candidates.length };
   }
 
   async removeItem(id: string, userId: string) {

@@ -109,7 +109,38 @@ type LedgerState = {
   ) => Promise<Envelope>;
   removeEnvelope: (envelopeId: string) => Promise<void>;
   addPlanningItem: (value: NewPlanningItem) => Promise<PlanningItem>;
+  updatePlanningItem: (
+    planningId: string,
+    value: NewPlanningItem,
+  ) => Promise<PlanningItem>;
+  removePlanningItem: (planningId: string) => Promise<void>;
 };
+
+function planningResourceKind(
+  bucket: PlanningBucket,
+): 'bill' | 'subscription' {
+  return bucket === 'subscription' ? 'subscription' : 'bill';
+}
+
+function planningDefaults(bucket: PlanningBucket) {
+  const icon =
+    bucket === 'income'
+      ? 'arrow.down.circle.fill'
+      : bucket === 'bill'
+        ? 'doc.text.fill'
+        : bucket === 'subscription'
+          ? 'repeat'
+          : 'arrow.clockwise';
+  const subtitle =
+    bucket === 'income'
+      ? 'Ingreso recurrente'
+      : bucket === 'bill'
+        ? 'Factura'
+        : bucket === 'subscription'
+          ? 'Suscripción'
+          : 'Gasto recurrente';
+  return { icon, subtitle };
+}
 
 const colors = ['#F5C518', '#F04438', '#06AED4', '#0878F9', '#12B76A', '#7F56D9', '#EE46BC'];
 
@@ -714,31 +745,16 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     const ledger = get().ledgers.find((item) => item.id === ledgerId);
     const currency = await currencyFor(ledger);
     const bucket = value.bucket;
-    const resourceKind = bucket === 'subscription' ? 'subscription' : 'bill';
-    const defaultIcon =
-      bucket === 'income'
-        ? 'arrow.down.circle.fill'
-        : bucket === 'bill'
-          ? 'doc.text.fill'
-          : bucket === 'subscription'
-            ? 'repeat'
-            : 'arrow.clockwise';
-    const defaultSubtitle =
-      bucket === 'income'
-        ? 'Ingreso recurrente'
-        : bucket === 'bill'
-          ? 'Factura'
-          : bucket === 'subscription'
-            ? 'Suscripción'
-            : 'Gasto recurrente';
+    const resourceKind = planningResourceKind(bucket);
+    const defaults = planningDefaults(bucket);
     const created = await createResource(resourceKind, ledgerId, value.name.trim(), {
       amountMinor: toMinor(Math.abs(value.amount)),
       currency,
       frequency: 'monthly',
       cashflow: bucket === 'income' ? 'income' : 'expense',
       bucket,
-      icon: value.icon ?? defaultIcon,
-      subtitle: value.subtitle?.trim() || defaultSubtitle,
+      icon: value.icon ?? defaults.icon,
+      subtitle: value.subtitle?.trim() || defaults.subtitle,
     });
     await get().hydrate();
     set({ activeLedgerId: ledgerId });
@@ -756,6 +772,73 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       route: '/(tabs)/salud-financiera',
     });
     return mapped;
+  },
+
+  updatePlanningItem: async (planningId, value) => {
+    const ledgerId = get().activeLedgerId;
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const current = activeSlice(get()).planning.find((item) => item.id === planningId);
+    if (!current) throw new Error('El ítem de planificación no existe.');
+    const currency = await currencyFor(ledger);
+    const bucket = value.bucket;
+    const oldKind = planningResourceKind(current.bucket);
+    const newKind = planningResourceKind(bucket);
+    const defaults = planningDefaults(bucket);
+    const data = {
+      amountMinor: toMinor(Math.abs(value.amount)),
+      currency,
+      frequency: 'monthly',
+      cashflow: bucket === 'income' ? 'income' : 'expense',
+      bucket,
+      icon: value.icon ?? current.icon ?? defaults.icon,
+      subtitle: value.subtitle?.trim() || current.subtitle || defaults.subtitle,
+    };
+    const name = value.name.trim();
+    if (oldKind !== newKind) {
+      await deleteResource(oldKind, planningId);
+      await createResource(newKind, ledgerId, name, data);
+    } else {
+      await updateResource(newKind, planningId, data, name);
+    }
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    const mapped =
+      get().snapshots[ledgerId]?.planning.find((item) => item.id === planningId) ??
+      get().snapshots[ledgerId]?.planning.find(
+        (item) => item.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+    if (!mapped) throw new Error('No se pudo actualizar el ítem de planificación.');
+    void recordActivity({
+      kind: 'planning',
+      title: bucket === 'income' ? 'Ingreso recurrente actualizado' : 'Gasto recurrente actualizado',
+      body: `${mapped.name} · ${money(Math.abs(value.amount))} · ${ledger?.name ?? 'Libro'}`,
+      icon: mapped.icon || defaults.icon,
+      sound: 'sobres',
+      route: '/(tabs)/salud-financiera',
+    });
+    return mapped;
+  },
+
+  removePlanningItem: async (planningId) => {
+    const ledgerId = get().activeLedgerId;
+    const ledger = get().ledgers.find((item) => item.id === ledgerId);
+    const current = activeSlice(get()).planning.find((item) => item.id === planningId);
+    if (!current) throw new Error('El ítem de planificación no existe.');
+    await deleteResource(planningResourceKind(current.bucket), planningId);
+    await get().hydrate();
+    set({ activeLedgerId: ledgerId });
+    void recordActivity({
+      kind: 'planning',
+      title:
+        current.bucket === 'income'
+          ? 'Ingreso recurrente eliminado'
+          : 'Gasto recurrente eliminado',
+      body: `${current.name} · ${ledger?.name ?? 'Libro'}`,
+      icon: 'trash',
+      tone: 'red',
+      sound: 'default',
+      route: '/(tabs)/salud-financiera',
+    });
   },
 }));
 

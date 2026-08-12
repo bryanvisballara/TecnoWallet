@@ -4,6 +4,8 @@ import { filterTransactionsByMonth } from '@/lib/dates';
 
 export type RecurringBucket = PlanningItem['bucket'];
 
+export type RecurringLineSource = 'planning' | 'transaction' | 'upcoming';
+
 export type RecurringLine = {
   id: string;
   name: string;
@@ -11,6 +13,8 @@ export type RecurringLine = {
   bucket: RecurringBucket;
   icon: string;
   subtitle: string;
+  /** Origin so swipe edit/delete can route to the right CRUD. */
+  source: RecurringLineSource;
 };
 
 const subscriptionHint = /(suscrip|netflix|spotify|icloud|prime|disney|hbo|youtube|apple|adobe|gym)/i;
@@ -85,6 +89,7 @@ export function buildRecurringCashflow(
       bucket: item.bucket,
       icon: item.icon || iconFor(item.bucket, 'arrow.clockwise'),
       subtitle: item.subtitle || bucketLabel(item.bucket),
+      source: 'planning',
     });
   }
 
@@ -101,6 +106,7 @@ export function buildRecurringCashflow(
         bucket: 'income',
         icon: iconFor('income', tx.icon),
         subtitle: tx.category || 'Ingreso recurrente',
+        source: 'transaction',
       });
       continue;
     }
@@ -112,6 +118,7 @@ export function buildRecurringCashflow(
       bucket,
       icon: iconFor(bucket, tx.icon),
       subtitle: tx.category || 'Gasto recurrente',
+      source: 'transaction',
     });
   }
 
@@ -126,6 +133,7 @@ export function buildRecurringCashflow(
       bucket: 'bill',
       icon: 'doc.text.fill',
       subtitle: bill.date ? `Próximo · ${bill.date}` : 'Factura programada',
+      source: 'upcoming',
     });
   }
 

@@ -190,6 +190,12 @@ export async function configureActivityNotifications(): Promise<boolean> {
               push: false,
             }),
           );
+          // Collaborators: refresh calendar so local reminder schedules match the new item.
+          if (kind === "calendar") {
+            void import("@/store/calendar").then(({ useCalendarStore }) =>
+              useCalendarStore.getState().hydrate().catch(() => undefined),
+            );
+          }
         }
         return;
       }

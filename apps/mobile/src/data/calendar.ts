@@ -23,6 +23,10 @@ export type CalendarItem = {
   meetingLink?: string;
   list?: string;
   reminder?: string;
+  /** Absolute UTC instant for the team push (computed on device). */
+  reminderAt?: string;
+  /** True when reminderAt came from the creating device (not server TZ guess). */
+  reminderAtClient?: boolean;
   repeat?: string;
   assigneeName?: string;
   assigneeEmail?: string;

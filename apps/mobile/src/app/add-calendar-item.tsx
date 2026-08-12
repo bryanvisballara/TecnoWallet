@@ -17,6 +17,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { AppTimeField, formatHhmmAmPm, normalizeHhmm } from '@/components/app-time-field';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
@@ -32,6 +33,7 @@ import {
   hhmmFromHour,
   hourFromHhmm,
   parseDateKey,
+  resolveCalendarReminderAt,
   toDateKey,
   typeIcons,
   typeLabels,
@@ -47,36 +49,9 @@ import { useLanguageStore } from '@/store/language';
 import { useActiveLedger } from '@/store/ledger';
 
 const colors = ['#0878F9', '#7F56D9', '#12B76A', '#F79009', '#F5C518', '#EE46BC', '#06AED4'];
-const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 
 function newAttachmentId() {
   return `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function normalizeHhmm(value: string) {
-  const match = TIME_RE.exec(value.trim());
-  if (!match) return null;
-  return `${match[1].padStart(2, '0')}:${match[2]}`;
-}
-
-/** Digits-only mask that always keeps the colon (HH:MM). */
-function maskHhmmInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '').slice(0, 4);
-  if (!digits) return '';
-  if (digits.length <= 2) return digits;
-  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
-}
-
-function finalizeHhmm(value: string, fallback: string): string {
-  const digits = value.replace(/\D/g, '').padEnd(4, '0').slice(0, 4);
-  let hours = Number(digits.slice(0, 2));
-  let minutes = Number(digits.slice(2, 4));
-  if (!Number.isFinite(hours)) hours = 0;
-  if (!Number.isFinite(minutes)) minutes = 0;
-  hours = Math.min(23, Math.max(0, hours));
-  minutes = Math.min(59, Math.max(0, minutes));
-  const next = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-  return normalizeHhmm(next) ?? fallback;
 }
 
 function pickOption(title: string, options: readonly string[], onPick: (value: string) => void) {
@@ -303,15 +278,15 @@ export default function AddCalendarItemScreen() {
     const isAllDay = type === 'birthday' ? true : allDay;
     let startHour: number | undefined;
     let endHour: number | undefined;
-    const startNormalized = finalizeHhmm(startTime, '09:00');
-    const endNormalized = finalizeHhmm(endTime, '10:00');
+    const startNormalized = normalizeHhmm(startTime) ?? '09:00';
+    const endNormalized = normalizeHhmm(endTime) ?? '10:00';
     setStartTime(startNormalized);
     setEndTime(endNormalized);
     if (!isAllDay) {
       startHour = hourFromHhmm(startNormalized);
       endHour = hourFromHhmm(endNormalized);
       if (startHour == null || endHour == null) {
-        Alert.alert('Hora inválida', 'Usa el formato HH:mm para la hora de inicio y fin.');
+        Alert.alert('Hora inválida', 'Elige una hora de inicio y fin.');
         return;
       }
       if (endHour <= startHour) {
@@ -324,19 +299,21 @@ export default function AddCalendarItemScreen() {
     if (reminder === CALENDAR_REMINDER_NONE) {
       reminderValue = undefined;
     } else if (reminderIsCustom) {
-      const custom = finalizeHhmm(customReminderTime, '09:00');
+      const custom = normalizeHhmm(customReminderTime) ?? '09:00';
       setCustomReminderTime(custom);
-      if (!normalizeHhmm(custom)) {
-        Alert.alert(
-          'Recordatorio inválido',
-          'Escribe la hora del push en formato HH:mm. Ej.: 13:50',
-        );
-        return;
-      }
       reminderValue = `A las ${custom}`;
     } else {
       reminderValue = reminder;
     }
+
+    const reminderFireAt = reminderValue
+      ? resolveCalendarReminderAt({
+          date: dateKey,
+          allDay: isAllDay,
+          startHour,
+          reminder: reminderValue,
+        })
+      : null;
 
     const payload = {
       type,
@@ -350,6 +327,8 @@ export default function AddCalendarItemScreen() {
       location: location.trim() || undefined,
       meetingLink: type === 'event' && meetingLink.trim() ? meetingLink.trim() : undefined,
       reminder: reminderValue,
+      reminderAt: reminderFireAt ? reminderFireAt.toISOString() : undefined,
+      reminderAtClient: reminderFireAt ? true : undefined,
       list,
       repeat: repeat === 'No se repite' ? undefined : repeat,
       assigneeName,
@@ -506,36 +485,16 @@ export default function AddCalendarItemScreen() {
 
           {timed ? (
             <Row icon="clock">
-              <View style={styles.timeBlock}>
-                <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>Inicio</Text>
-                <TextInput
+              <View style={styles.timeFields}>
+                <AppTimeField
+                  label="Inicio"
                   value={startTime}
-                  onChangeText={(value) => setStartTime(maskHhmmInput(value))}
-                  onBlur={() => setStartTime((current) => finalizeHhmm(current, '09:00'))}
-                  onFocus={focusScrollToEnd(scrollRef, 120)}
-                  placeholder="09:00"
-                  placeholderTextColor={theme.muted}
-                  keyboardType="number-pad"
-                  maxLength={5}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={[styles.timeInput, { color: theme.text, borderColor: theme.border }]}
+                  onChange={setStartTime}
                 />
-              </View>
-              <View style={styles.timeBlock}>
-                <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>Fin</Text>
-                <TextInput
+                <AppTimeField
+                  label="Fin"
                   value={endTime}
-                  onChangeText={(value) => setEndTime(maskHhmmInput(value))}
-                  onBlur={() => setEndTime((current) => finalizeHhmm(current, '10:00'))}
-                  onFocus={focusScrollToEnd(scrollRef, 120)}
-                  placeholder="10:00"
-                  placeholderTextColor={theme.muted}
-                  keyboardType="number-pad"
-                  maxLength={5}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={[styles.timeInput, { color: theme.text, borderColor: theme.border }]}
+                  onChange={setEndTime}
                 />
               </View>
             </Row>
@@ -604,7 +563,7 @@ export default function AddCalendarItemScreen() {
               </Text>
               <Text style={[styles.rowHint, { color: theme.muted }]}>
                 {timed
-                  ? `Si empieza a las ${normalizeHhmm(startTime) ?? startTime}, elige minutos antes o una hora fija.`
+                  ? `Si empieza a las ${formatHhmmAmPm(startTime, locale)}, elige minutos antes o una hora fija.`
                   : 'Toca para elegir cuándo quieres el aviso push.'}
               </Text>
             </View>
@@ -664,30 +623,10 @@ export default function AddCalendarItemScreen() {
               </View>
               {reminderIsCustom ? (
                 <View style={styles.customReminderBlock}>
-                  <Text style={[styles.rowHint, { color: theme.muted, marginTop: 0 }]}>
-                    Hora fija del push (HH:mm)
-                  </Text>
-                  <TextInput
+                  <AppTimeField
+                    label="Hora fija del push"
                     value={customReminderTime}
-                    onChangeText={(value) => setCustomReminderTime(maskHhmmInput(value))}
-                    onBlur={() =>
-                      setCustomReminderTime((current) => finalizeHhmm(current, '09:00'))
-                    }
-                    onFocus={focusScrollToEnd(scrollRef, 120)}
-                    placeholder="13:50"
-                    placeholderTextColor={theme.muted}
-                    keyboardType="number-pad"
-                    maxLength={5}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={[
-                      styles.timeInput,
-                      {
-                        color: theme.text,
-                        borderColor: theme.border,
-                        marginTop: 6,
-                      },
-                    ]}
+                    onChange={setCustomReminderTime}
                   />
                 </View>
               ) : null}
@@ -886,6 +825,7 @@ const styles = StyleSheet.create({
   rowValue: { flex: 1, fontSize: 15, fontWeight: '500' },
   rowHint: { fontSize: 13, marginTop: 2 },
   inlineInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
+  timeFields: { flex: 1, gap: 12 },
   timeBlock: { flex: 1, gap: 4 },
   timeInput: {
     minHeight: 40,

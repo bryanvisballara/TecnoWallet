@@ -1,9 +1,11 @@
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HeroNetWorthBanner } from '@/components/hero-net-worth-banner';
-import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
+import { SwipeEditDeleteRow } from '@/components/swipe-edit-delete-row';
+import { AppIcon, Card, Pill, ProgressBar, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { getActiveMoneyCurrency, money, moneyAmount, type Account } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import {
@@ -13,7 +15,8 @@ import {
   sumBalances,
 } from '@/lib/accounts';
 import { buildRecurringCashflow, type RecurringLine } from '@/lib/recurring-cashflow';
-import { useActiveLedger } from '@/store/ledger';
+import { useFinanceStore } from '@/store/finance';
+import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
 import { usePreferencesStore } from '@/store/preferences';
@@ -21,36 +24,76 @@ import { usePreferencesStore } from '@/store/preferences';
 function AccountRow({ account }: { account: Account }) {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const removeAccount = useLedgerStore((state) => state.removeAccount);
+  const isDebt = isWealthDebt(account);
+  const mode = isDebt ? 'debt' : 'asset';
+
+  const openDetail = () =>
+    router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } });
+
+  const openEdit = () =>
+    router.push({ pathname: '/add-account', params: { id: account.id, mode } });
+
+  const confirmDelete = () => {
+    const label = isDebt ? 'deuda' : 'activo';
+    const run = async () => {
+      try {
+        await removeAccount(account.id);
+        if (Platform.OS !== 'web') {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (error) {
+        Alert.alert(
+          'No se pudo eliminar',
+          error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        );
+      }
+    };
+    Alert.alert(
+      `Eliminar ${label}`,
+      `¿Seguro que quieres eliminar «${account.name}»?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => void run() },
+      ],
+    );
+  };
+
   return (
-    <ScalePressable
-      accessibilityRole="button"
-      accessibilityLabel={`Ver detalle de ${account.name}`}
-      onPress={() => router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } })}>
-      <Card>
-        <View style={[uiStyles.row, uiStyles.gap12]}>
-          <View style={[styles.accountIcon, { backgroundColor: `${account.color}1A` }]}>
-            <AppIcon name={account.icon} color={account.color} size={24} />
+    <SwipeEditDeleteRow
+      itemKey={account.id}
+      onEdit={openEdit}
+      onDelete={confirmDelete}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Ver detalle de ${account.name}. Desliza para editar o eliminar.`}
+        onPress={openDetail}>
+        <Card>
+          <View style={[uiStyles.row, uiStyles.gap12]}>
+            <View style={[styles.accountIcon, { backgroundColor: `${account.color}1A` }]}>
+              <AppIcon name={account.icon} color={account.color} size={24} />
+            </View>
+            <View style={styles.copy}>
+              <Text style={[styles.accountName, { color: theme.text }]}>{account.name}</Text>
+              <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
+            </View>
+            <View style={styles.balanceCopy}>
+              <Text
+                style={[
+                  styles.balance,
+                  { color: account.balance < 0 ? theme.danger : theme.text },
+                ]}>
+                {money(account.balance < 0 ? Math.abs(account.balance) : account.balance)}
+              </Text>
+              <Text style={[styles.sync, { color: account.balance < 0 ? theme.danger : theme.success }]}>
+                {account.balance < 0 ? copy.health.badgeDebt : copy.health.badgeAsset}
+              </Text>
+            </View>
+            <AppIcon name="chevron" color={theme.muted} size={15} />
           </View>
-          <View style={styles.copy}>
-            <Text style={[styles.accountName, { color: theme.text }]}>{account.name}</Text>
-            <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
-          </View>
-          <View style={styles.balanceCopy}>
-            <Text
-              style={[
-                styles.balance,
-                { color: account.balance < 0 ? theme.danger : theme.text },
-              ]}>
-              {money(account.balance < 0 ? Math.abs(account.balance) : account.balance)}
-            </Text>
-            <Text style={[styles.sync, { color: account.balance < 0 ? theme.danger : theme.success }]}>
-              {account.balance < 0 ? copy.health.badgeDebt : copy.health.badgeAsset}
-            </Text>
-          </View>
-          <AppIcon name="chevron" color={theme.muted} size={15} />
-        </View>
-      </Card>
-    </ScalePressable>
+        </Card>
+      </Pressable>
+    </SwipeEditDeleteRow>
   );
 }
 
@@ -72,7 +115,67 @@ function RecurringGroup({
   onAdd: () => void;
 }) {
   const theme = useAppTheme();
+  const removePlanningItem = useLedgerStore((state) => state.removePlanningItem);
+  const voidTransaction = useFinanceStore((state) => state.voidTransaction);
   const amountColor = tone === 'income' ? theme.success : theme.danger;
+
+  const openEdit = (item: RecurringLine) => {
+    if (item.source === 'upcoming') {
+      Alert.alert(
+        'No editable',
+        'Este ítem viene de una factura programada. Agrégalo como recurrente para poder editarlo.',
+      );
+      return;
+    }
+    if (item.source === 'transaction') {
+      router.push({ pathname: '/add-transaction', params: { id: item.id } });
+      return;
+    }
+    router.push({
+      pathname: '/add-planning-item',
+      params: {
+        id: item.id,
+        cashflow: item.bucket === 'income' ? 'income' : 'expense',
+        bucket: item.bucket,
+      },
+    });
+  };
+
+  const confirmDelete = (item: RecurringLine) => {
+    if (item.source === 'upcoming') {
+      Alert.alert(
+        'No se puede eliminar',
+        'Este ítem es una factura programada. Agrégalo como recurrente para gestionarlo aquí.',
+      );
+      return;
+    }
+    const run = async () => {
+      try {
+        if (item.source === 'transaction') {
+          await voidTransaction(item.id);
+        } else {
+          await removePlanningItem(item.id);
+        }
+        if (Platform.OS !== 'web') {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (error) {
+        Alert.alert(
+          'No se pudo eliminar',
+          error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        );
+      }
+    };
+    Alert.alert(
+      'Eliminar',
+      `¿Seguro que quieres eliminar «${item.name}»?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => void run() },
+      ],
+    );
+  };
+
   return (
     <Card style={styles.recurringGroup}>
       <View style={uiStyles.between}>
@@ -95,21 +198,34 @@ function RecurringGroup({
         </Pressable>
       ) : (
         items.map((item, index) => (
-          <View
+          <SwipeEditDeleteRow
             key={item.id}
-            style={[
-              styles.recurringRow,
-              index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-            ]}>
-            <View style={[styles.recurringIcon, { backgroundColor: `${amountColor}1A` }]}>
-              <AppIcon name={item.icon} color={amountColor} size={18} />
-            </View>
-            <View style={styles.copy}>
-              <Text style={[styles.accountName, { color: theme.text }]}>{item.name}</Text>
-              <Text style={[styles.small, { color: theme.muted }]}>{item.subtitle}</Text>
-            </View>
-            <Text style={[styles.balance, { color: theme.text }]}>{money(item.amount)}</Text>
-          </View>
+            itemKey={item.id}
+            disabled={item.source === 'upcoming'}
+            onEdit={() => openEdit(item)}
+            onDelete={() => confirmDelete(item)}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${item.name}. Desliza para editar o eliminar.`}
+              onPress={() => openEdit(item)}
+              style={[
+                styles.recurringRow,
+                { backgroundColor: theme.surface },
+                index > 0 && {
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: theme.border,
+                },
+              ]}>
+              <View style={[styles.recurringIcon, { backgroundColor: `${amountColor}1A` }]}>
+                <AppIcon name={item.icon} color={amountColor} size={18} />
+              </View>
+              <View style={styles.copy}>
+                <Text style={[styles.accountName, { color: theme.text }]}>{item.name}</Text>
+                <Text style={[styles.small, { color: theme.muted }]}>{item.subtitle}</Text>
+              </View>
+              <Text style={[styles.balance, { color: theme.text }]}>{money(item.amount)}</Text>
+            </Pressable>
+          </SwipeEditDeleteRow>
         ))
       )}
     </Card>
@@ -423,17 +539,17 @@ const styles = StyleSheet.create({
   },
   tiny: { fontSize: 10, lineHeight: 14 },
   bucketPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  recurringGroup: { gap: 10 },
-  recurringGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 },
+  recurringGroup: { gap: 0, overflow: 'hidden', paddingTop: 12, paddingBottom: 4 },
+  recurringGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8, marginBottom: 6 },
   recurringGroupTitle: { fontSize: 15, fontWeight: '700' },
-  recurringGroupTotal: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  recurringGroupTotal: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'], marginBottom: 6 },
   addHint: { fontSize: 12, fontWeight: '600', marginTop: 6 },
   recurringRow: {
     minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingTop: 8,
+    paddingVertical: 8,
   },
   recurringIcon: {
     width: 36,

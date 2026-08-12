@@ -1,17 +1,95 @@
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppIcon, Card, Pill, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
-import { money } from '@/data/demo';
+import { SwipeEditDeleteRow } from '@/components/swipe-edit-delete-row';
+import { AppIcon, Card, Pill, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
+import { money, type Account } from '@/data/demo';
 import {
   isLiquidAccount,
   isWealthAsset,
   isWealthDebt,
   sumBalances,
 } from '@/lib/accounts';
-import { useActiveLedger } from '@/store/ledger';
+import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+
+function SwipeAccountRow({
+  account,
+  index,
+  amountColor,
+  mode,
+}: {
+  account: Account;
+  index: number;
+  amountColor?: string;
+  mode: 'asset' | 'debt' | 'liquidity';
+}) {
+  const theme = useAppTheme();
+  const removeAccount = useLedgerStore((state) => state.removeAccount);
+  const editMode = mode === 'debt' ? 'debt' : 'asset';
+
+  const openDetail = () =>
+    router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } });
+
+  const openEdit = () =>
+    router.push({ pathname: '/add-account', params: { id: account.id, mode: editMode } });
+
+  const confirmDelete = () => {
+    const label = mode === 'debt' ? 'deuda' : mode === 'asset' ? 'activo' : 'cuenta';
+    const run = async () => {
+      try {
+        await removeAccount(account.id);
+        if (Platform.OS !== 'web') {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (error) {
+        Alert.alert(
+          'No se pudo eliminar',
+          error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        );
+      }
+    };
+    Alert.alert(
+      `Eliminar ${label}`,
+      `¿Seguro que quieres eliminar «${account.name}»?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => void run() },
+      ],
+    );
+  };
+
+  return (
+    <SwipeEditDeleteRow
+      itemKey={account.id}
+      onEdit={openEdit}
+      onDelete={confirmDelete}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${account.name}. Desliza para editar o eliminar.`}
+        onPress={openDetail}
+        style={[
+          styles.row,
+          { backgroundColor: theme.surface },
+          index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+        ]}>
+        <View style={[styles.icon, { backgroundColor: `${account.color}1A` }]}>
+          <AppIcon name={account.icon} color={account.color} />
+        </View>
+        <View style={styles.copy}>
+          <Text style={[styles.rowTitle, { color: theme.text }]}>{account.name}</Text>
+          <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
+        </View>
+        <Text style={[styles.amount, { color: amountColor ?? theme.text }]}>
+          {money(mode === 'debt' ? Math.abs(account.balance) : account.balance)}
+        </Text>
+        <AppIcon name="chevron" color={theme.muted} size={14} />
+      </Pressable>
+    </SwipeEditDeleteRow>
+  );
+}
 
 export default function NetWorthScreen() {
   const theme = useAppTheme();
@@ -95,23 +173,12 @@ export default function NetWorthScreen() {
           <Text style={[styles.empty, { color: theme.muted }]}>Sin cuentas líquidas.</Text>
         ) : (
           liquidAccounts.map((account, index) => (
-            <ScalePressable
+            <SwipeAccountRow
               key={account.id}
-              onPress={() => router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } })}
-              style={[
-                styles.row,
-                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-              ]}>
-              <View style={[styles.icon, { backgroundColor: `${account.color}1A` }]}>
-                <AppIcon name={account.icon} color={account.color} />
-              </View>
-              <View style={styles.copy}>
-                <Text style={[styles.rowTitle, { color: theme.text }]}>{account.name}</Text>
-                <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
-              </View>
-              <Text style={[styles.amount, { color: theme.text }]}>{money(account.balance)}</Text>
-              <AppIcon name="chevron" color={theme.muted} size={14} />
-            </ScalePressable>
+              account={account}
+              index={index}
+              mode="liquidity"
+            />
           ))
         )}
       </Card>
@@ -122,23 +189,12 @@ export default function NetWorthScreen() {
           <Text style={[styles.empty, { color: theme.muted }]}>Sin bienes (casa, inversión…).</Text>
         ) : (
           assetAccounts.map((account, index) => (
-            <ScalePressable
+            <SwipeAccountRow
               key={account.id}
-              onPress={() => router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } })}
-              style={[
-                styles.row,
-                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-              ]}>
-              <View style={[styles.icon, { backgroundColor: `${account.color}1A` }]}>
-                <AppIcon name={account.icon} color={account.color} />
-              </View>
-              <View style={styles.copy}>
-                <Text style={[styles.rowTitle, { color: theme.text }]}>{account.name}</Text>
-                <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
-              </View>
-              <Text style={[styles.amount, { color: theme.text }]}>{money(account.balance)}</Text>
-              <AppIcon name="chevron" color={theme.muted} size={14} />
-            </ScalePressable>
+              account={account}
+              index={index}
+              mode="asset"
+            />
           ))
         )}
       </Card>
@@ -149,25 +205,13 @@ export default function NetWorthScreen() {
           <Text style={[styles.empty, { color: theme.muted }]}>Sin deudas en este libro.</Text>
         ) : (
           debtAccounts.map((account, index) => (
-            <ScalePressable
+            <SwipeAccountRow
               key={account.id}
-              onPress={() => router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } })}
-              style={[
-                styles.row,
-                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-              ]}>
-              <View style={[styles.icon, { backgroundColor: `${account.color}1A` }]}>
-                <AppIcon name={account.icon} color={account.color} />
-              </View>
-              <View style={styles.copy}>
-                <Text style={[styles.rowTitle, { color: theme.text }]}>{account.name}</Text>
-                <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
-              </View>
-              <Text style={[styles.amount, { color: theme.danger }]}>
-                {money(Math.abs(account.balance))}
-              </Text>
-              <AppIcon name="chevron" color={theme.muted} size={14} />
-            </ScalePressable>
+              account={account}
+              index={index}
+              amountColor={theme.danger}
+              mode="debt"
+            />
           ))
         )}
       </Card>
@@ -190,7 +234,7 @@ const styles = StyleSheet.create({
   barTrack: { flexDirection: 'row', height: 12, borderRadius: 8, overflow: 'hidden', gap: 3, marginVertical: 12 },
   barFill: { height: 12, borderRadius: 6 },
   small: { fontSize: 12 },
-  list: { paddingVertical: 2 },
+  list: { paddingVertical: 2, overflow: 'hidden' },
   row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 10 },
   icon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   copy: { flex: 1, gap: 2, minWidth: 0 },

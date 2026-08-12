@@ -1,11 +1,53 @@
 /**
- * Mirrors apps/mobile resolveCalendarReminderAt so the API can fan-out
- * calendar reminder pushes to every calendar member at the right time.
+ * Calendar reminder fire-time helpers.
+ *
+ * Wall-clock reminder strings ("15 minutos antes", "A las 09:00") are interpreted
+ * in America/Bogota on the server (UTC-5, no DST) so Render's UTC process TZ
+ * does not shift team pushes. Clients may also send an absolute ISO `reminderAt`
+ * (creator device TZ), which we prefer when marked with `reminderAtClient`.
  */
 
-function parseDateKey(key: string) {
-  const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1);
+const BOGOTA_OFFSET_HOURS = 5; // America/Bogota is UTC-5 year-round
+
+function parseDateParts(key: string): { y: number; m: number; d: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key.trim());
+  if (!match) return null;
+  return {
+    y: Number(match[1]),
+    m: Number(match[2]),
+    d: Number(match[3]),
+  };
+}
+
+/** Local wall time in America/Bogota → absolute UTC Date. */
+export function bogotaWallTimeToUtc(
+  y: number,
+  m: number,
+  d: number,
+  hour: number,
+  minute: number,
+): Date {
+  return new Date(Date.UTC(y, m - 1, d, hour + BOGOTA_OFFSET_HOURS, minute, 0, 0));
+}
+
+function atBogotaOnEventDay(
+  dateKey: string,
+  daysBefore: number,
+  hour: number,
+  minute: number,
+): Date | null {
+  const parts = parseDateParts(dateKey);
+  if (!parts) return null;
+  // Use UTC noon anchor then shift calendar days to avoid DST edge cases.
+  const anchor = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 12, 0, 0, 0));
+  anchor.setUTCDate(anchor.getUTCDate() - daysBefore);
+  return bogotaWallTimeToUtc(
+    anchor.getUTCFullYear(),
+    anchor.getUTCMonth() + 1,
+    anchor.getUTCDate(),
+    hour,
+    minute,
+  );
 }
 
 export function resolveCalendarReminderAt(input: {
@@ -24,51 +66,64 @@ export function resolveCalendarReminderAt(input: {
   }
 
   const eventAt = (() => {
-    const date = parseDateKey(input.date);
     if (input.allDay || input.startHour == null) {
-      date.setHours(9, 0, 0, 0);
-      return date;
+      return atBogotaOnEventDay(input.date, 0, 9, 0);
     }
     const hours = Math.floor(input.startHour);
     const minutes = Math.round((input.startHour - hours) * 60);
-    date.setHours(hours, minutes, 0, 0);
-    return date;
+    return atBogotaOnEventDay(input.date, 0, hours, minutes);
   })();
 
-  const atTimeOnDay = (daysBefore: number, hour: number, minute: number) => {
-    const date = parseDateKey(input.date);
-    date.setDate(date.getDate() - daysBefore);
-    date.setHours(hour, minute, 0, 0);
-    return date;
-  };
+  if (!eventAt) return null;
 
   const customAt = /^A las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
   if (customAt) {
-    return atTimeOnDay(0, Number(customAt[1]), Number(customAt[2]));
+    return atBogotaOnEventDay(
+      input.date,
+      0,
+      Number(customAt[1]),
+      Number(customAt[2]),
+    );
   }
 
   const dayBeforeAt =
     /^El día anterior a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
   if (dayBeforeAt) {
-    return atTimeOnDay(1, Number(dayBeforeAt[1]), Number(dayBeforeAt[2]));
+    return atBogotaOnEventDay(
+      input.date,
+      1,
+      Number(dayBeforeAt[1]),
+      Number(dayBeforeAt[2]),
+    );
   }
 
   const dayOfAt =
     /^El día del evento a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
   if (dayOfAt) {
-    return atTimeOnDay(0, Number(dayOfAt[1]), Number(dayOfAt[2]));
+    return atBogotaOnEventDay(
+      input.date,
+      0,
+      Number(dayOfAt[1]),
+      Number(dayOfAt[2]),
+    );
   }
 
   const dayBeforeFixed =
     /^1 día antes a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
   if (dayBeforeFixed) {
-    return atTimeOnDay(1, Number(dayBeforeFixed[1]), Number(dayBeforeFixed[2]));
+    return atBogotaOnEventDay(
+      input.date,
+      1,
+      Number(dayBeforeFixed[1]),
+      Number(dayBeforeFixed[2]),
+    );
   }
 
   const weekBeforeFixed =
     /^1 semana antes a las ([01]?\d|2[0-3]):([0-5]\d)$/i.exec(reminder);
   if (weekBeforeFixed) {
-    return atTimeOnDay(
+    return atBogotaOnEventDay(
+      input.date,
       7,
       Number(weekBeforeFixed[1]),
       Number(weekBeforeFixed[2]),
@@ -94,28 +149,80 @@ export function resolveCalendarReminderAt(input: {
   return null;
 }
 
+function parseIsoDate(raw: unknown): Date | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+/**
+ * Effective fire time for cron / persistence.
+ * Prefers absolute client ISO when `reminderAtClient` is true; otherwise Bogota.
+ */
+export function effectiveCalendarReminderAt(
+  data: Record<string, unknown>,
+): Date | null {
+  const reminder =
+    typeof data.reminder === 'string' ? data.reminder.trim() : undefined;
+  if (
+    !reminder ||
+    reminder === 'Sin notificación' ||
+    reminder === 'Hora personalizada…'
+  ) {
+    return null;
+  }
+
+  if (data.reminderAtClient === true) {
+    const clientAt = parseIsoDate(data.reminderAt);
+    if (clientAt) return clientAt;
+  }
+
+  return resolveCalendarReminderAt({
+    date: typeof data.date === 'string' ? data.date : '',
+    allDay: Boolean(data.allDay),
+    startHour:
+      typeof data.startHour === 'number' ? data.startHour : undefined,
+    reminder,
+  });
+}
+
 export function withReminderSchedule(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
   const reminder =
     typeof data.reminder === 'string' ? data.reminder.trim() : undefined;
-  const date = typeof data.date === 'string' ? data.date : '';
-  const allDay = Boolean(data.allDay);
-  const startHour =
-    typeof data.startHour === 'number' ? data.startHour : undefined;
-  const fireAt = resolveCalendarReminderAt({
-    date,
-    allDay,
-    startHour,
-    reminder,
-  });
+  const clientProvided =
+    data.reminderAtClient === true ||
+    (typeof data.reminderAt === 'string' && Boolean(parseIsoDate(data.reminderAt)));
 
-  const next = { ...data };
+  const fireAt = clientProvided
+    ? parseIsoDate(data.reminderAt) ??
+      resolveCalendarReminderAt({
+        date: typeof data.date === 'string' ? data.date : '',
+        allDay: Boolean(data.allDay),
+        startHour:
+          typeof data.startHour === 'number' ? data.startHour : undefined,
+        reminder,
+      })
+    : resolveCalendarReminderAt({
+        date: typeof data.date === 'string' ? data.date : '',
+        allDay: Boolean(data.allDay),
+        startHour:
+          typeof data.startHour === 'number' ? data.startHour : undefined,
+        reminder,
+      });
+
+  const next: Record<string, unknown> = { ...data };
   delete next.reminderAt;
   delete next.reminderNotifiedAt;
+  delete next.reminderAtClient;
 
   if (fireAt) {
     next.reminderAt = fireAt.toISOString();
+    if (clientProvided && parseIsoDate(data.reminderAt)) {
+      next.reminderAtClient = true;
+    }
   } else if (
     !reminder ||
     reminder === 'Sin notificación' ||

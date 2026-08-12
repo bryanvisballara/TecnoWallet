@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -40,19 +40,50 @@ function resolveBucket(
 export default function AddPlanningItemScreen() {
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
-  const { ledger } = useActiveLedger();
+  const { ledger, planning } = useActiveLedger();
   const addPlanningItem = useLedgerStore((state) => state.addPlanningItem);
-  const params = useLocalSearchParams<{ cashflow?: string; bucket?: string }>();
-  const cashflow = resolveCashflow(params.cashflow);
-  const [bucket, setBucket] = useState<PlanningBucket>(() =>
-    resolveBucket(cashflow, params.bucket),
+  const updatePlanningItem = useLedgerStore((state) => state.updatePlanningItem);
+  const params = useLocalSearchParams<{
+    id?: string;
+    cashflow?: string;
+    bucket?: string;
+  }>();
+  const existing = useMemo(
+    () => (params.id ? planning.find((item) => item.id === params.id) : undefined),
+    [params.id, planning],
   );
-  const [name, setName] = useState('');
-  const [amount, setAmount] = useState('');
+  const isEditing = Boolean(existing);
+  const cashflow = existing
+    ? existing.bucket === 'income'
+      ? 'income'
+      : 'expense'
+    : resolveCashflow(params.cashflow);
+  const [bucket, setBucket] = useState<PlanningBucket>(() =>
+    existing
+      ? existing.bucket
+      : resolveBucket(cashflow, params.bucket),
+  );
+  const [name, setName] = useState(existing?.name ?? '');
+  const [amount, setAmount] = useState(
+    existing ? String(Math.abs(existing.amount)) : '',
+  );
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<{ name?: boolean; amount?: boolean }>({});
 
-  const title = cashflow === 'income' ? 'Nuevo ingreso recurrente' : 'Nuevo gasto recurrente';
+  useEffect(() => {
+    if (!existing) return;
+    setBucket(existing.bucket);
+    setName(existing.name);
+    setAmount(String(Math.abs(existing.amount)));
+  }, [existing?.id]);
+
+  const title = isEditing
+    ? cashflow === 'income'
+      ? 'Editar ingreso recurrente'
+      : 'Editar gasto recurrente'
+    : cashflow === 'income'
+      ? 'Nuevo ingreso recurrente'
+      : 'Nuevo gasto recurrente';
   const hint = useMemo(
     () =>
       cashflow === 'income'
@@ -99,11 +130,16 @@ export default function AddPlanningItemScreen() {
     setErrors({});
     setSaving(true);
     try {
-      await addPlanningItem({
+      const payload = {
         name: name.trim(),
         amount: parsed,
-        bucket: cashflow === 'income' ? 'income' : bucket,
-      });
+        bucket: cashflow === 'income' ? ('income' as const) : bucket,
+      };
+      if (existing) {
+        await updatePlanningItem(existing.id, payload);
+      } else {
+        await addPlanningItem(payload);
+      }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       safeGoBack('/(tabs)/salud-financiera');
     } catch {
