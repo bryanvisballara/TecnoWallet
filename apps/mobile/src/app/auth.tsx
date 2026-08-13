@@ -183,12 +183,18 @@ export default function AuthScreen() {
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
-    let token = '';
-    try {
-      token = window.sessionStorage.getItem(WEB_ID_TOKEN_STORAGE_KEY) || '';
-      if (token) window.sessionStorage.removeItem(WEB_ID_TOKEN_STORAGE_KEY);
-    } catch {
-      return;
+    let token = parseIdTokenFromUrl(window.location.href) || '';
+    if (token) {
+      const next = `${window.location.pathname}${window.location.search}`;
+      window.history.replaceState({}, '', next || '/auth');
+    }
+    if (!token) {
+      try {
+        token = window.sessionStorage.getItem(WEB_ID_TOKEN_STORAGE_KEY) || '';
+        if (token) window.sessionStorage.removeItem(WEB_ID_TOKEN_STORAGE_KEY);
+      } catch {
+        return;
+      }
     }
     if (!token) return;
     setLoading(true);

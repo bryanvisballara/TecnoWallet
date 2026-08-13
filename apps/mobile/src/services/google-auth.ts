@@ -7,20 +7,38 @@ export const GOOGLE_WEB_CLIENT_ID =
 /** Public web origin used for Google HTTPS redirects (never custom schemes). */
 export const APP_WEB_ORIGIN = (
   process.env.EXPO_PUBLIC_APP_WEB_URL?.trim() ||
-  'https://tecnowallet.app'
+    'https://tecnowallet.app'
 ).replace(/\/+$/, '');
 
 export const NATIVE_OAUTH_RETURN = 'tecnowallet://oauthredirect';
 
+function apiOrigin() {
+  const api = process.env.EXPO_PUBLIC_API_URL?.trim();
+  if (!api) return 'https://tecnowallet.onrender.com';
+  try {
+    return new URL(api).origin;
+  } catch {
+    return 'https://tecnowallet.onrender.com';
+  }
+}
+
+function currentWebOrigin() {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+  return '';
+}
+
 export function googleCallbackUrl() {
-  return `${APP_WEB_ORIGIN}/oauth-google-callback/`;
+  return `${apiOrigin()}/oauth-google-callback/`;
 }
 
 export function googleStartUrl(params?: { nonce?: string }) {
-  // `.html` works on Hostinger even when SPA rewrite is off (same as /auth.html).
-  const url = new URL(`${APP_WEB_ORIGIN}/oauth-google.html`);
+  const url = new URL(`${apiOrigin()}/oauth-google.html`);
   if (params?.nonce) url.searchParams.set('nonce', params.nonce);
   if (Platform.OS !== 'web') url.searchParams.set('native', '1');
+  const local = currentWebOrigin();
+  if (local) url.searchParams.set('return', `${local}/auth`);
   return url.toString();
 }
 

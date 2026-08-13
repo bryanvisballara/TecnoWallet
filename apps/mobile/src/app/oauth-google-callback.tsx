@@ -50,7 +50,9 @@ export default function OauthGoogleCallbackScreen() {
       return;
     }
 
-    window.location.replace('/auth.html');
+    const local =
+      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    window.location.replace(local ? '/auth' : '/auth.html');
   }, []);
 
   return (

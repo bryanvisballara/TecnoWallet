@@ -9,6 +9,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { AppModule } from './app.module';
+import {
+  googleOauthCallbackHtml,
+  googleOauthStartHtml,
+} from './auth/oauth-pages';
 
 export async function bootstrap(): Promise<void> {
   const adapter = new FastifyAdapter({
@@ -95,6 +99,33 @@ export async function bootstrap(): Promise<void> {
     app,
     SwaggerModule.createDocument(app, swaggerConfig),
   );
+
+  const googleClientId = config.get<string>('GOOGLE_CLIENT_ID_WEB', '').trim();
+  const oauthOrigin = (
+    process.env.RENDER_EXTERNAL_URL ||
+    process.env.APP_PUBLIC_URL ||
+    'https://tecnowallet.onrender.com'
+  ).replace(/\/+$/, '');
+  const oauthCallback = `${oauthOrigin}/oauth-google-callback/`;
+  const startHtml = googleOauthStartHtml(googleClientId, oauthCallback);
+  const callbackHtml = googleOauthCallbackHtml();
+  const sendHtml =
+    (html: string) =>
+    async (
+      _request: unknown,
+      reply: { type: (value: string) => { send: (body: string) => unknown } },
+    ) =>
+      reply.type('text/html; charset=utf-8').send(html);
+  for (const path of ['/oauth-google', '/oauth-google/', '/oauth-google.html']) {
+    fastify.get(path, sendHtml(startHtml));
+  }
+  for (const path of [
+    '/oauth-google-callback',
+    '/oauth-google-callback/',
+    '/oauth-google-callback.html',
+  ]) {
+    fastify.get(path, sendHtml(callbackHtml));
+  }
 
   await app.listen(config.get<number>('PORT', 3000), '0.0.0.0');
 }
