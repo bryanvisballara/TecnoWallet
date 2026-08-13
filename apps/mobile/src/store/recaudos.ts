@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { apiRequest, mutateOffline } from "@/services/api";
+import { ApiError, apiRequest, mutateOffline } from "@/services/api";
 import { tokenStorage } from "@/services/persistence";
 import { scheduleRecaudoReminder } from "@/services/push-notifications";
 import { useAuthStore } from "@/store/auth";
@@ -53,10 +53,19 @@ export type Recaudo = {
   status: RecaudoStatus;
   organizerId?: string;
   isOrganizer: boolean;
+  shareCode?: string;
   participants: RecaudoParticipant[];
   contributions: RecaudoContribution[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type RecaudoAccessRequest = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  createdAt: string;
 };
 
 type NewRecaudo = {
@@ -99,11 +108,18 @@ type RecaudosState = {
     recaudoId: string,
     email: string,
   ) => Promise<{ previewLink?: string }>;
+  fetchShareCode: (recaudoId: string) => Promise<string>;
+  requestJoinByCode: (shareCode: string) => Promise<{ title?: string }>;
+  listAccessRequests: (recaudoId: string) => Promise<RecaudoAccessRequest[]>;
+  acceptAccessRequest: (requestId: string) => Promise<void>;
+  rejectAccessRequest: (requestId: string) => Promise<void>;
   updateMyPlan: (
     recaudoId: string,
     plan: MyPlan,
   ) => Promise<{ reminderScheduled: boolean }>;
   acceptInvite: (token: string) => Promise<Recaudo>;
+  /** Organizer only. Fails if the pot still has funds. */
+  deleteRecaudo: (recaudoId: string) => Promise<void>;
 };
 
 function id(prefix: string) {
@@ -386,6 +402,10 @@ function normalizeRecaudo(raw: unknown): Recaudo {
       typeof value.isOrganizer === "boolean"
         ? value.isOrganizer
         : currentRole === "organizer",
+    shareCode:
+      typeof value.shareCode === "string" && value.shareCode.trim()
+        ? value.shareCode.trim().toUpperCase()
+        : undefined,
     participants,
     contributions,
     createdAt: dateString(value.createdAt),
@@ -717,6 +737,70 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     );
   },
 
+  fetchShareCode: async (recaudoId) => {
+    const cached = get()
+      .recaudos.find((item) => item.id === recaudoId)
+      ?.shareCode?.trim()
+      .toUpperCase();
+    if (cached) return cached;
+    if (useAuthStore.getState().demo) {
+      const code = `TRDEMO${recaudoId.slice(-4).toUpperCase()}XX`.slice(0, 10);
+      set({
+        recaudos: get().recaudos.map((item) =>
+          item.id === recaudoId ? { ...item, shareCode: code } : item,
+        ),
+      });
+      return code;
+    }
+    const result = await apiRequest<{ shareCode?: string }>(
+      `/recaudos/${recaudoId}/share-code`,
+    );
+    const shareCode = result.shareCode?.trim().toUpperCase() || "";
+    if (shareCode) {
+      set({
+        recaudos: get().recaudos.map((item) =>
+          item.id === recaudoId ? { ...item, shareCode } : item,
+        ),
+      });
+    }
+    return shareCode;
+  },
+
+  requestJoinByCode: async (shareCode) => {
+    const code = shareCode.trim().toUpperCase();
+    if (code.length < 4) throw new Error("Escribe un ID de recaudo válido.");
+    if (useAuthStore.getState().demo) {
+      return { title: "Recaudo (demo)" };
+    }
+    return apiRequest<{ title?: string }>("/recaudos/join", {
+      method: "POST",
+      body: JSON.stringify({ shareCode: code }),
+    });
+  },
+
+  listAccessRequests: async (recaudoId) => {
+    if (useAuthStore.getState().demo) return [];
+    const rows = await apiRequest<RecaudoAccessRequest[]>(
+      `/recaudos/${recaudoId}/access-requests`,
+    );
+    return Array.isArray(rows) ? rows : [];
+  },
+
+  acceptAccessRequest: async (requestId) => {
+    if (useAuthStore.getState().demo) return;
+    await apiRequest(`/recaudos/access-requests/${requestId}/accept`, {
+      method: "POST",
+    });
+    await get().refresh();
+  },
+
+  rejectAccessRequest: async (requestId) => {
+    if (useAuthStore.getState().demo) return;
+    await apiRequest(`/recaudos/access-requests/${requestId}/reject`, {
+      method: "POST",
+    });
+  },
+
   updateMyPlan: async (recaudoId, plan) => {
     if (
       !Number.isSafeInteger(plan.monthlyCommitmentMinor) ||
@@ -810,5 +894,62 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     ];
     set({ recaudos });
     return recaudo;
+  },
+
+  deleteRecaudo: async (recaudoId) => {
+    const current = get().recaudos.find((item) => item.id === recaudoId);
+    if (!current) throw new Error("El recaudo no existe.");
+    if (!current.isOrganizer) {
+      throw new Error("Solo el organizador puede eliminar el recaudo.");
+    }
+    if (current.collectedMinor > 0) {
+      throw new Error(
+        "Retira el dinero del recaudo antes de eliminarlo. El pozo debe quedar en 0.",
+      );
+    }
+    const demo = useAuthStore.getState().demo;
+    if (demo) {
+      set({
+        recaudos: get().recaudos.filter((item) => item.id !== recaudoId),
+      });
+      void recordActivity({
+        kind: "recaudo",
+        title: "Recaudo eliminado",
+        body: current.title,
+        icon: "trash",
+        tone: "red",
+        sound: "default",
+        route: "/(tabs)/recaudos",
+      });
+      return;
+    }
+    try {
+      await apiRequest(`/recaudos/${recaudoId}`, { method: "DELETE" });
+    } catch (error) {
+      const missingDelete =
+        error instanceof ApiError &&
+        (error.status === 404 || /Cannot DELETE/i.test(error.message));
+      if (!missingDelete) throw error;
+      try {
+        await apiRequest(`/recaudos/${recaudoId}/delete`, { method: "POST" });
+      } catch (fallbackError) {
+        const missingPost =
+          fallbackError instanceof ApiError && fallbackError.status === 404;
+        if (!missingPost) throw fallbackError;
+        await apiRequest(`/recaudos/${recaudoId}/close`, { method: "POST" });
+      }
+    }
+    set({
+      recaudos: get().recaudos.filter((item) => item.id !== recaudoId),
+    });
+    void recordActivity({
+      kind: "recaudo",
+      title: "Recaudo eliminado",
+      body: current.title,
+      icon: "trash",
+      tone: "red",
+      sound: "default",
+      route: "/(tabs)/recaudos",
+    });
   },
 }));

@@ -3,6 +3,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Headers,
@@ -129,6 +130,13 @@ export class Recaudo {
 
   @Prop()
   closedAt?: Date;
+
+  @Prop({ index: true })
+  deletedAt?: Date;
+
+  /** Short public code for join-by-ID (e.g. TR8F3K2M1Q). */
+  @Prop({ uppercase: true, trim: true, unique: true, sparse: true, index: true })
+  shareCode?: string;
 
   createdAt!: Date;
   updatedAt!: Date;
@@ -299,6 +307,44 @@ InviteSchema.index(
   { unique: true, partialFilterExpression: { status: 'pending' } },
 );
 
+@Schema({ timestamps: true })
+export class RecaudoAccessRequest {
+  _id!: Types.ObjectId;
+
+  @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
+  recaudoId!: Types.ObjectId;
+
+  @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
+  requesterUserId!: Types.ObjectId;
+
+  @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
+  organizerUserId!: Types.ObjectId;
+
+  @Prop({
+    required: true,
+    type: String,
+    enum: ['pending', 'accepted', 'rejected', 'cancelled'],
+    default: 'pending',
+  })
+  status!: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+
+  @Prop()
+  resolvedAt?: Date;
+
+  createdAt!: Date;
+  updatedAt!: Date;
+}
+export const RecaudoAccessRequestSchema = SchemaFactory.createForClass(
+  RecaudoAccessRequest,
+);
+RecaudoAccessRequestSchema.index(
+  { recaudoId: 1, requesterUserId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'pending' },
+  },
+);
+
 class CreateRecaudoDto {
   @IsString()
   workspaceId!: string;
@@ -427,6 +473,12 @@ class AcceptInviteDto {
   token!: string;
 }
 
+class JoinByCodeDto {
+  @IsString()
+  @Length(4, 24)
+  shareCode!: string;
+}
+
 export abstract class RecaudoMailer {
   abstract sendInvite(input: {
     to: string;
@@ -503,6 +555,8 @@ export class RecaudosService {
     @InjectModel(Withdrawal.name)
     private readonly withdrawals: Model<Withdrawal>,
     @InjectModel(Invite.name) private readonly invites: Model<Invite>,
+    @InjectModel(RecaudoAccessRequest.name)
+    private readonly accessRequests: Model<RecaudoAccessRequest>,
     @InjectModel(Membership.name)
     private readonly memberships: Model<Membership>,
     @InjectModel(User.name) private readonly users: Model<User>,
@@ -522,6 +576,7 @@ export class RecaudosService {
     if (dto.deadline && new Date(dto.deadline) <= new Date()) {
       throw new BadRequestException('deadline must be in the future');
     }
+    const shareCode = await this.allocateShareCode();
     const recaudo = await this.recaudos.create({
       workspaceId: dto.workspaceId,
       organizerId: principal.userId,
@@ -532,6 +587,7 @@ export class RecaudosService {
       monthlyTargetMinor: dto.monthlyTargetMinor,
       currency: dto.currency.toUpperCase(),
       deadline: dto.deadline ? new Date(dto.deadline) : undefined,
+      shareCode,
     });
     await this.participants.create({
       recaudoId: recaudo._id,
@@ -546,7 +602,10 @@ export class RecaudosService {
       userId: principal.userId,
     });
     const recaudos = await this.recaudos
-      .find({ _id: { $in: memberships.map((item) => item.recaudoId) } })
+      .find({
+        _id: { $in: memberships.map((item) => item.recaudoId) },
+        deletedAt: { $exists: false },
+      })
       .sort({ updatedAt: -1 });
     return Promise.all(recaudos.map((item) => this.present(item)));
   }
@@ -676,6 +735,35 @@ export class RecaudosService {
     recaudo.closedAt = new Date();
     await recaudo.save();
     return this.detail(id, principal);
+  }
+
+  /**
+   * Soft-delete a collection. Organizer only; net collected balance must be 0
+   * (withdraw remaining funds first).
+   */
+  async remove(id: string, principal: AuthPrincipal) {
+    await this.assertOrganizer(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    const availableMinor = await this.collected(id);
+    if (availableMinor > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'RECAUDO_HAS_FUNDS',
+        message:
+          'Retira el dinero del recaudo antes de eliminarlo. El pozo debe quedar en 0.',
+        availableMinor,
+      });
+    }
+    recaudo.deletedAt = new Date();
+    recaudo.status = 'closed';
+    recaudo.closedAt = recaudo.closedAt ?? new Date();
+    await recaudo.save();
+    // Revoke pending invites so they cannot be accepted after delete.
+    await this.invites.updateMany(
+      { recaudoId: recaudo._id, status: 'pending' },
+      { $set: { status: 'revoked' } },
+    );
+    return { deleted: true, id: recaudo._id.toString() };
   }
 
   async configurePlan(
@@ -1025,6 +1113,182 @@ export class RecaudosService {
     return this.detail(invite.recaudoId.toString(), principal);
   }
 
+  async ensureShareCode(id: string, principal: AuthPrincipal) {
+    await this.assertOrganizer(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    if (recaudo.shareCode) {
+      return { shareCode: recaudo.shareCode };
+    }
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const shareCode = await this.allocateShareCode();
+      try {
+        recaudo.shareCode = shareCode;
+        await recaudo.save();
+        return { shareCode };
+      } catch (error) {
+        if (!isDuplicateKey(error)) throw error;
+      }
+    }
+    throw new ConflictException('Could not allocate a recaudo share code');
+  }
+
+  async requestJoin(shareCodeRaw: string, principal: AuthPrincipal) {
+    const shareCode = shareCodeRaw.trim().toUpperCase();
+    const recaudo = await this.recaudos.findOne({
+      shareCode,
+      deletedAt: { $exists: false },
+    });
+    if (!recaudo) throw new NotFoundException('ID not found');
+    if (recaudo.status !== 'open') {
+      throw new ConflictException('Recaudo is closed');
+    }
+    const requesterId = new Types.ObjectId(principal.userId);
+    if (recaudo.organizerId.equals(requesterId)) {
+      throw new BadRequestException('You already organize this collection');
+    }
+    const alreadyMember = await this.participants.exists({
+      recaudoId: recaudo._id,
+      userId: requesterId,
+    });
+    if (alreadyMember) {
+      throw new ConflictException('You already have access to this collection');
+    }
+    try {
+      const created = await this.accessRequests.create({
+        recaudoId: recaudo._id,
+        requesterUserId: requesterId,
+        organizerUserId: recaudo.organizerId,
+        status: 'pending',
+      });
+      const requester = await this.users
+        .findById(principal.userId)
+        .select('name')
+        .lean();
+      const who = requester?.name?.trim() || principal.email.split('@')[0];
+      this.push.notifyUsers(
+        [recaudo.organizerId.toString()],
+        principal.userId,
+        {
+          title: 'Solicitud de recaudo',
+          body: `${who} quiere unirse a ${recaudo.title}`,
+          data: {
+            kind: 'recaudo',
+            route: `/(tabs)/recaudos?focus=${recaudo._id.toString()}&tab=share`,
+            notificationId: `rec-join-${created._id.toString()}`,
+          },
+        },
+      );
+      return {
+        id: created._id.toString(),
+        status: 'pending' as const,
+        recaudoId: recaudo._id.toString(),
+        title: recaudo.title,
+      };
+    } catch (error) {
+      if (isDuplicateKey(error)) {
+        throw new ConflictException('You already requested access');
+      }
+      throw error;
+    }
+  }
+
+  async listAccessRequests(id: string, principal: AuthPrincipal) {
+    await this.assertOrganizer(id, principal.userId);
+    const rows = await this.accessRequests
+      .find({ recaudoId: id, status: 'pending' })
+      .sort({ createdAt: -1 });
+    const users = await this.users.find({
+      _id: { $in: rows.map((item) => item.requesterUserId) },
+    });
+    const userById = new Map(users.map((user) => [user._id.toString(), user]));
+    return rows.map((item) => {
+      const user = userById.get(item.requesterUserId.toString());
+      return {
+        id: item._id.toString(),
+        name: user?.name?.trim() || 'Usuario',
+        email: user?.email || '',
+        status: item.status,
+        createdAt: item.createdAt.toISOString(),
+      };
+    });
+  }
+
+  async acceptAccessRequest(requestId: string, principal: AuthPrincipal) {
+    assertObjectId(requestId);
+    const request = await this.accessRequests.findById(requestId);
+    if (!request || request.status !== 'pending') {
+      throw new NotFoundException('Access request not found');
+    }
+    await this.assertOrganizer(
+      request.recaudoId.toString(),
+      principal.userId,
+    );
+    const recaudo = await this.findRecaudo(request.recaudoId.toString());
+    if (recaudo.status !== 'open') {
+      throw new ConflictException('Recaudo is closed');
+    }
+    request.status = 'accepted';
+    request.resolvedAt = new Date();
+    await request.save();
+    await this.participants.findOneAndUpdate(
+      {
+        recaudoId: request.recaudoId,
+        userId: request.requesterUserId,
+      },
+      {
+        $setOnInsert: {
+          role: 'member',
+          joinedAt: new Date(),
+        },
+      },
+      { upsert: true, new: true },
+    );
+    this.push.notifyUsers(
+      [request.requesterUserId.toString()],
+      principal.userId,
+      {
+        title: 'Solicitud aceptada',
+        body: `Ya puedes aportar en ${recaudo.title}`,
+        data: {
+          kind: 'recaudo',
+          route: `/(tabs)/recaudo/${recaudo._id.toString()}`,
+          notificationId: `rec-join-ok-${request._id.toString()}`,
+        },
+      },
+    );
+    return { ok: true };
+  }
+
+  async rejectAccessRequest(requestId: string, principal: AuthPrincipal) {
+    assertObjectId(requestId);
+    const request = await this.accessRequests.findById(requestId);
+    if (!request || request.status !== 'pending') {
+      throw new NotFoundException('Access request not found');
+    }
+    await this.assertOrganizer(
+      request.recaudoId.toString(),
+      principal.userId,
+    );
+    request.status = 'rejected';
+    request.resolvedAt = new Date();
+    await request.save();
+    return { ok: true };
+  }
+
+  private async allocateShareCode(): Promise<string> {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const bytes = randomBytes(8);
+      let code = 'TR';
+      for (let i = 0; i < 8; i += 1) {
+        code += alphabet[bytes[i]! % alphabet.length];
+      }
+      const exists = await this.recaudos.exists({ shareCode: code });
+      if (!exists) return code;
+    }
+    throw new ConflictException('Could not allocate a recaudo share code');
+  }
+
   private async assertParticipant(recaudoId: string, userId: string) {
     assertObjectId(recaudoId);
     const participant = await this.participants.findOne({ recaudoId, userId });
@@ -1043,7 +1307,10 @@ export class RecaudosService {
 
   private async findRecaudo(id: string): Promise<HydratedDocument<Recaudo>> {
     assertObjectId(id);
-    const recaudo = await this.recaudos.findById(id);
+    const recaudo = await this.recaudos.findOne({
+      _id: id,
+      deletedAt: { $exists: false },
+    });
     if (!recaudo) throw new NotFoundException('Recaudo not found');
     return recaudo;
   }
@@ -1128,6 +1395,7 @@ export class RecaudosService {
       status: recaudo.status,
       deadline: recaudo.deadline?.toISOString(),
       closedAt: recaudo.closedAt?.toISOString(),
+      shareCode: recaudo.shareCode?.trim().toUpperCase() || undefined,
       createdAt: recaudo.createdAt.toISOString(),
       updatedAt: recaudo.updatedAt.toISOString(),
       ...(await this.totals(recaudo)),
@@ -1151,9 +1419,48 @@ class RecaudosController {
     return this.service.create(dto, user);
   }
 
+  @Post('join')
+  join(@Body() dto: JoinByCodeDto, @CurrentUser() user: AuthPrincipal) {
+    return this.service.requestJoin(dto.shareCode, user);
+  }
+
+  @Post('invites/accept')
+  accept(@Body() dto: AcceptInviteDto, @CurrentUser() user: AuthPrincipal) {
+    return this.service.acceptInvite(dto.token, user);
+  }
+
+  @Post('access-requests/:requestId/accept')
+  acceptAccessRequest(
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.acceptAccessRequest(requestId, user);
+  }
+
+  @Post('access-requests/:requestId/reject')
+  rejectAccessRequest(
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.rejectAccessRequest(requestId, user);
+  }
+
   @Get(':id')
   detail(@Param('id') id: string, @CurrentUser() user: AuthPrincipal) {
     return this.service.detail(id, user);
+  }
+
+  @Get(':id/share-code')
+  shareCode(@Param('id') id: string, @CurrentUser() user: AuthPrincipal) {
+    return this.service.ensureShareCode(id, user);
+  }
+
+  @Get(':id/access-requests')
+  accessRequests(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.listAccessRequests(id, user);
   }
 
   @Patch(':id')
@@ -1168,6 +1475,16 @@ class RecaudosController {
   @Post(':id/close')
   close(@Param('id') id: string, @CurrentUser() user: AuthPrincipal) {
     return this.service.close(id, user);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string, @CurrentUser() user: AuthPrincipal) {
+    return this.service.remove(id, user);
+  }
+
+  @Post(':id/delete')
+  removeViaPost(@Param('id') id: string, @CurrentUser() user: AuthPrincipal) {
+    return this.service.remove(id, user);
   }
 
   @Patch(':id/participants/me/plan')
@@ -1206,11 +1523,6 @@ class RecaudosController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     return this.service.invite(id, dto, user);
-  }
-
-  @Post('invites/accept')
-  accept(@Body() dto: AcceptInviteDto, @CurrentUser() user: AuthPrincipal) {
-    return this.service.acceptInvite(dto.token, user);
   }
 }
 
@@ -1269,6 +1581,7 @@ function escapeHtml(value: string): string {
       { name: Contribution.name, schema: ContributionSchema },
       { name: Withdrawal.name, schema: WithdrawalSchema },
       { name: Invite.name, schema: InviteSchema },
+      { name: RecaudoAccessRequest.name, schema: RecaudoAccessRequestSchema },
     ]),
   ],
   controllers: [RecaudosController],

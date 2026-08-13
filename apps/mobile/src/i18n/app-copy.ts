@@ -166,6 +166,12 @@ export type AppCopy = {
     monthlyGoal: string;
     participants: string;
     organizes: string;
+    delete: string;
+    deleteTitle: string;
+    deleteConfirm: string;
+    deleteBlockedTitle: string;
+    deleteBlockedBody: string;
+    deleting: string;
   };
   calendar: {
     myCalendar: string;
@@ -594,7 +600,8 @@ const es: AppCopy = {
     sharedPools: 'Pozos compartidos',
     sharedHint: 'Sigue el progreso de cada pozo',
     createFirst: 'Crea tu primer recaudo',
-    createFirstHint: 'Define un objetivo, invita participantes y lleven juntos el progreso.',
+    createFirstHint:
+      'Crea un fondo con tus amigos para ir de viaje, o con tus hermanos para ayudar a tus padres, etc.\n\nDefine el presupuesto o meta a retirar al final del recaudo.\nDefine el aporte mensual que tendrá cada integrante.\n\nTecnoWallet creará una cuenta digital a nombre del organizador, donde mensualmente —con aportes manuales o débitos automáticos— los integrantes irán aportando al fondo hasta completar la meta y retirar los fondos.',
     completed: 'Completado',
     noNext: 'Sin próximo aporte',
     nextContribution: (label) => `Próximo aporte · ${label}`,
@@ -629,6 +636,14 @@ const es: AppCopy = {
     monthlyGoal: 'Meta mensual',
     participants: 'Participantes',
     organizes: 'Organiza',
+    delete: 'Eliminar recaudo',
+    deleteTitle: 'Eliminar recaudo',
+    deleteConfirm:
+      '¿Seguro que quieres eliminar este recaudo? Esta acción no se puede deshacer.',
+    deleteBlockedTitle: 'Primero retira el dinero',
+    deleteBlockedBody:
+      'El pozo todavía tiene fondos. Retira todo el dinero hasta dejar el recaudo en 0 y luego podrás eliminarlo.',
+    deleting: 'Eliminando…',
   },
   calendar: {
     myCalendar: 'Mi calendario',
@@ -1149,7 +1164,8 @@ const en: AppCopy = {
     sharedPools: 'Shared pools',
     sharedHint: 'Track progress for each pool',
     createFirst: 'Create your first collection',
-    createFirstHint: 'Set a goal, invite people, and track progress together.',
+    createFirstHint:
+      'Start a fund with friends for a trip, or with siblings to help your parents, etc.\n\nSet the final budget or goal for the collection.\nSet the monthly contribution for each member.\n\nTecnoWallet creates a digital account in the organizer’s name, where members contribute monthly —manually or via automatic debits— until you reach the goal and withdraw the funds.',
     completed: 'Completed',
     noNext: 'No next contribution',
     nextContribution: (label) => `Next contribution · ${label}`,
@@ -1184,6 +1200,14 @@ const en: AppCopy = {
     monthlyGoal: 'Monthly goal',
     participants: 'Participants',
     organizes: 'Organizes',
+    delete: 'Delete collection',
+    deleteTitle: 'Delete collection',
+    deleteConfirm:
+      'Are you sure you want to delete this collection? This cannot be undone.',
+    deleteBlockedTitle: 'Withdraw funds first',
+    deleteBlockedBody:
+      'This pot still has funds. Withdraw everything until the balance is 0, then you can delete it.',
+    deleting: 'Deleting…',
   },
   calendar: {
     myCalendar: 'My calendar',

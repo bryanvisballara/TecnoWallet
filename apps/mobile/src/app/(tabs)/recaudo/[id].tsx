@@ -16,6 +16,7 @@ import {
 import {
   AppIcon,
   Card,
+  IconButton,
   Pill,
   PrimaryButton,
   ProgressBar,
@@ -153,10 +154,10 @@ export default function RecaudoDetailScreen() {
   const recaudos = useRecaudosStore((state) => state.recaudos);
   const hydrated = useRecaudosStore((state) => state.hydrated);
   const hydrate = useRecaudosStore((state) => state.hydrate);
-  const invite = useRecaudosStore((state) => state.invite);
   const addContribution = useRecaudosStore((state) => state.addContribution);
   const withdraw = useRecaudosStore((state) => state.withdraw);
   const updateMyPlan = useRecaudosStore((state) => state.updateMyPlan);
+  const deleteRecaudo = useRecaudosStore((state) => state.deleteRecaudo);
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
   const profile = useAuthStore((state) => state.profile);
   const demo = useAuthStore((state) => state.demo);
@@ -200,8 +201,6 @@ export default function RecaudoDetailScreen() {
     );
   }, [profile.email, recaudo]);
 
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviting, setInviting] = useState(false);
   const [contributionAmount, setContributionAmount] = useState("");
   const [contributionNote, setContributionNote] = useState("");
   const [contributing, setContributing] = useState(false);
@@ -209,6 +208,7 @@ export default function RecaudoDetailScreen() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawNote, setWithdrawNote] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [showManualContribute, setShowManualContribute] = useState(false);
   const [monthlyAmount, setMonthlyAmount] = useState("");
@@ -362,35 +362,6 @@ export default function RecaudoDetailScreen() {
   const fmt = (value: number) => formatMinor(value, recaudo.currency, locale);
   const fmtDate = (value: string, withTime = false) =>
     formatDate(value, locale, withTime);
-
-  const sendInvite = async () => {
-    if (!inviteEmail.trim()) {
-      Alert.alert(
-        "Falta el correo",
-        "Escribe el correo de la persona que quieres invitar.",
-      );
-      return;
-    }
-    setInviting(true);
-    try {
-      const result = await invite(recaudo.id, inviteEmail);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setInviteEmail("");
-      Alert.alert(
-        "Invitación enviada",
-        result.previewLink
-          ? `En modo demo puedes previsualizarla en:\n${result.previewLink}`
-          : `Enviamos la invitación por correo a ${inviteEmail.trim().toLowerCase()}.`,
-      );
-    } catch (error) {
-      Alert.alert(
-        "No se pudo invitar",
-        error instanceof Error ? error.message : "Inténtalo de nuevo.",
-      );
-    } finally {
-      setInviting(false);
-    }
-  };
 
   const activateUnit = async () => {
     try {
@@ -572,6 +543,48 @@ export default function RecaudoDetailScreen() {
     }
   };
 
+  const potBalanceMinor = fundingReady
+    ? availableMinor + inTransitMinor
+    : recaudo.collectedMinor;
+
+  const confirmDeleteRecaudo = () => {
+    if (!recaudo.isOrganizer) return;
+    if (potBalanceMinor > 0) {
+      Alert.alert(
+        copy.collectionDetail.deleteBlockedTitle,
+        copy.collectionDetail.deleteBlockedBody,
+      );
+      return;
+    }
+    Alert.alert(copy.collectionDetail.deleteTitle, copy.collectionDetail.deleteConfirm, [
+      { text: copy.common.close, style: "cancel" },
+      {
+        text: copy.common.delete,
+        style: "destructive",
+        onPress: () => void runDeleteRecaudo(),
+      },
+    ]);
+  };
+
+  const runDeleteRecaudo = async () => {
+    setDeleting(true);
+    try {
+      await deleteRecaudo(recaudo.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      leaveRecaudo();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Inténtalo de nuevo.";
+      if (/fondos|funds|retir/i.test(message)) {
+        Alert.alert(copy.collectionDetail.deleteBlockedTitle, message);
+      } else {
+        Alert.alert(copy.collectionDetail.deleteTitle, message);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const savePlan = async () => {
     const monthlyCommitmentMinor = amountToMinorUnits(
       monthlyAmount,
@@ -661,14 +674,28 @@ export default function RecaudoDetailScreen() {
           : ""
       }`}
       right={
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={copy.collectionDetail.back}
-          onPress={leaveRecaudo}
-          style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}
-        >
-          <AppIcon name="arrow.left" color={theme.text} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          {recaudo.isOrganizer ? (
+            <IconButton
+              icon="person.badge.plus"
+              label={copy.common.inviteTo(recaudo.title)}
+              onPress={() =>
+                router.push({
+                  pathname: "/(tabs)/recaudos",
+                  params: { focus: recaudo.id, tab: "share" },
+                })
+              }
+            />
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={copy.collectionDetail.back}
+            onPress={leaveRecaudo}
+            style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}
+          >
+            <AppIcon name="arrow.left" color={theme.text} />
+          </Pressable>
+        </View>
       }
     >
       <Card style={[styles.hero, { backgroundColor: category.color }]}>
@@ -1068,55 +1095,6 @@ export default function RecaudoDetailScreen() {
           </View>
         ))}
       </Card>
-
-      {recaudo.isOrganizer ? (
-        <Card style={styles.formCard}>
-          <View style={styles.formHeading}>
-            <View
-              style={[styles.smallIcon, { backgroundColor: theme.primarySoft }]}
-            >
-              <AppIcon
-                name="person.badge.plus"
-                color={theme.primary}
-                size={19}
-              />
-            </View>
-            <View style={styles.copy}>
-              <Text style={[styles.cardTitle, { color: theme.text }]}>
-                {t("Invitar por correo", "Invite by email")}
-              </Text>
-              <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                La invitación se envía mediante TecnoWallet.
-              </Text>
-            </View>
-          </View>
-          <TextInput
-            value={inviteEmail}
-            onChangeText={setInviteEmail}
-            placeholder="persona@correo.com"
-            placeholderTextColor={theme.muted}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={[
-              styles.input,
-              {
-                color: theme.text,
-                borderColor: theme.border,
-                backgroundColor: theme.surfaceSecondary,
-              },
-            ]}
-          />
-          <PrimaryButton
-            icon="paperplane.fill"
-            onPress={inviting ? undefined : () => void sendInvite()}
-          >
-            {inviting
-              ? t("Enviando…", "Sending…")
-              : t("Enviar invitación", "Send invitation")}
-          </PrimaryButton>
-        </Card>
-      ) : null}
 
       <SectionTitle>{t("Mi aporte", "My contribution")}</SectionTitle>
       <Card style={styles.formCard}>
@@ -1522,6 +1500,26 @@ export default function RecaudoDetailScreen() {
         )}
       </Card>
 
+      {recaudo.isOrganizer ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={copy.collectionDetail.delete}
+          disabled={deleting}
+          onPress={confirmDeleteRecaudo}
+          style={[
+            styles.deleteBtn,
+            { borderColor: theme.danger, opacity: deleting ? 0.6 : 1 },
+          ]}
+        >
+          <AppIcon name="trash" color={theme.danger} size={16} />
+          <Text style={[styles.deleteText, { color: theme.danger }]}>
+            {deleting
+              ? copy.collectionDetail.deleting
+              : copy.collectionDetail.delete}
+          </Text>
+        </Pressable>
+      ) : null}
+
       <Modal
         visible={Boolean(successMessage)}
         transparent
@@ -1561,6 +1559,11 @@ export default function RecaudoDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   back: {
     width: 42,
     height: 42,
@@ -1781,4 +1784,15 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },
+  deleteBtn: {
+    marginTop: 4,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  deleteText: { fontSize: 15, fontWeight: "700" },
 });
