@@ -9,8 +9,8 @@
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/splash-screen.png",
-      "resizeMode": "cover",
-      "backgroundColor": "#002787"
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "icon": "./assets/images/app-icon.png",
@@ -38,7 +38,9 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/app-icon.png"
+      "favicon": "./assets/images/app-icon.png",
+      "backgroundColor": "#FFFFFF",
+      "themeColor": "#FFFFFF"
     },
     "plugins": [
       "./plugins/with-app-delegate-no-rctbridge.js",
@@ -78,10 +80,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#002787",
+          "backgroundColor": "#FFFFFF",
           "image": "./assets/images/splash-screen.png",
-          "resizeMode": "cover",
-          "enableFullScreenImage_legacy": true
+          "resizeMode": "contain"
         }
       ]
     ],

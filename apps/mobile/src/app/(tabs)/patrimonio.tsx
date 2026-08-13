@@ -128,8 +128,13 @@ export default function NetWorthScreen() {
       }>
       <Card style={[styles.hero, { backgroundColor: '#0B1D3A' }]}>
         <Text style={styles.heroLabel}>Patrimonio</Text>
-        <Text style={styles.heroValue}>{money(net)}</Text>
-        <Text style={styles.heroHint}>Liquidez + bienes − deudas</Text>
+        <Text
+          style={styles.heroValue}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.55}>
+          {money(net)}
+        </Text>
         <View style={styles.heroStats}>
           <View style={styles.heroStat}>
             <Text style={styles.heroSmall}>Liquidez</Text>
@@ -221,15 +226,22 @@ export default function NetWorthScreen() {
 
 const styles = StyleSheet.create({
   back: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  hero: { borderWidth: 0, gap: 8 },
+  hero: {
+    borderWidth: 0,
+    gap: 8,
+    minHeight: 128,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 22,
+    justifyContent: 'space-between',
+  },
   heroLabel: { color: '#DCEBFF', fontSize: 13 },
-  heroValue: { color: '#FFFFFF', fontSize: 38, fontWeight: '700', letterSpacing: -1.4 },
-  heroHint: { color: '#DCEBFF', fontSize: 12 },
-  heroStats: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10, flexWrap: 'wrap' },
-  heroStat: { gap: 2 },
-  heroSmall: { color: '#DCEBFF', fontSize: 11 },
-  heroStatValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  divider: { width: StyleSheet.hairlineWidth, height: 28, backgroundColor: '#FFFFFF55' },
+  heroValue: { color: '#FFFFFF', fontSize: 28, fontWeight: '700', letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  heroStats: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  heroStat: { gap: 1 },
+  heroSmall: { color: '#DCEBFF', fontSize: 10 },
+  heroStatValue: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  divider: { width: StyleSheet.hairlineWidth, height: 22, backgroundColor: '#FFFFFF55' },
   section: { fontSize: 16, fontWeight: '700' },
   barTrack: { flexDirection: 'row', height: 12, borderRadius: 8, overflow: 'hidden', gap: 3, marginVertical: 12 },
   barFill: { height: 12, borderRadius: 6 },

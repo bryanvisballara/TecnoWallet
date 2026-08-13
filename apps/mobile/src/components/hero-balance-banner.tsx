@@ -17,6 +17,7 @@ type Props = {
   onPress?: () => void;
   accessibilityLabel?: string;
   style?: ViewStyle;
+  compact?: boolean;
 };
 
 function CardsWatermark() {
@@ -52,42 +53,44 @@ function BannerBody({
   ledgerLabel,
   ledgerIcon,
   actionLabel,
+  compact,
 }: {
   amountText: string;
   currency: string;
   ledgerLabel: string;
   ledgerIcon: string;
   actionLabel: string;
+  compact?: boolean;
 }) {
   return (
     <>
-      <View style={styles.amountBlock}>
+      <View style={[styles.amountBlock, compact && styles.amountBlockCompact]}>
         <View style={styles.amountRow}>
           <Text
-            style={styles.amount}
+            style={[styles.amount, compact && styles.amountCompact]}
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.55}>
             {amountText}
           </Text>
-          <Text style={styles.currency}>{currency}</Text>
+          <Text style={[styles.currency, compact && styles.currencyCompact]}>{currency}</Text>
         </View>
-        <View style={styles.vDivider} />
+        <View style={[styles.vDivider, compact && styles.vDividerCompact]} />
       </View>
 
       <View style={styles.footer}>
-        <View style={styles.ledgerPill}>
-          <View style={styles.ledgerIcon}>
-            <AppIcon name={ledgerIcon} color="#FFFFFF" size={13} />
+        <View style={[styles.ledgerPill, compact && styles.ledgerPillCompact]}>
+          <View style={[styles.ledgerIcon, compact && styles.ledgerIconCompact]}>
+            <AppIcon name={ledgerIcon} color="#FFFFFF" size={compact ? 11 : 13} />
           </View>
-          <Text style={styles.ledgerText} numberOfLines={1}>
+          <Text style={[styles.ledgerText, compact && styles.ledgerTextCompact]} numberOfLines={1}>
             {ledgerLabel}
           </Text>
         </View>
 
         <View style={styles.actionRow}>
-          <Text style={styles.actionText}>{actionLabel}</Text>
-          <AppIcon name="chevron" color="#FFFFFF" size={13} />
+          <Text style={[styles.actionText, compact && styles.actionTextCompact]}>{actionLabel}</Text>
+          <AppIcon name="chevron" color="#FFFFFF" size={compact ? 12 : 13} />
         </View>
       </View>
     </>
@@ -106,6 +109,7 @@ export function HeroBalanceBanner({
   onPress,
   accessibilityLabel,
   style,
+  compact = false,
 }: Props) {
   const currency = getActiveMoneyCurrency();
   const amountText = hidden ? '••••••' : moneyAmount(amount);
@@ -116,6 +120,7 @@ export function HeroBalanceBanner({
       ledgerLabel={ledgerLabel}
       ledgerIcon={ledgerIcon}
       actionLabel={actionLabel}
+      compact={compact}
     />
   );
 
@@ -126,11 +131,11 @@ export function HeroBalanceBanner({
         locations={[0, 0.42, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.card}>
+        style={[styles.card, compact && styles.cardCompact]}>
         <CardsWatermark />
 
         <View style={styles.topRow}>
-          <Text style={styles.label}>{label}</Text>
+          <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text>
           {onToggleHidden ? (
             <Pressable
               accessibilityRole="button"
@@ -139,12 +144,13 @@ export function HeroBalanceBanner({
               onPress={onToggleHidden}
               style={({ pressed }) => [
                 styles.eyeBtn,
+                compact && styles.eyeBtnCompact,
                 pressed && { opacity: 0.75 },
               ]}>
               <AppIcon
                 name={hidden ? 'eye.slash.fill' : 'eye.fill'}
                 color="#FFFFFF"
-                size={17}
+                size={compact ? 15 : 17}
               />
             </Pressable>
           ) : null}
@@ -186,6 +192,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 7,
   },
+  cardCompact: {
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    minHeight: 128,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
   watermark: {
     position: 'absolute',
     right: -8,
@@ -204,6 +221,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: -0.15,
   },
+  labelCompact: { fontSize: 13 },
   eyeBtn: {
     width: 34,
     height: 34,
@@ -211,6 +229,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  eyeBtnCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
   },
   bodyPress: {
     zIndex: 1,
@@ -221,6 +244,11 @@ const styles = StyleSheet.create({
     marginTop: 22,
     marginBottom: 26,
     gap: 16,
+  },
+  amountBlockCompact: {
+    marginTop: 10,
+    marginBottom: 12,
+    gap: 12,
   },
   amountRow: {
     flexDirection: 'row',
@@ -236,6 +264,10 @@ const styles = StyleSheet.create({
     letterSpacing: -1.7,
     fontVariant: ['tabular-nums'],
   },
+  amountCompact: {
+    fontSize: 28,
+    letterSpacing: -1,
+  },
   currency: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -243,11 +275,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     marginTop: 1,
   },
+  currencyCompact: { fontSize: 12 },
   vDivider: {
     width: StyleSheet.hairlineWidth,
     height: 38,
     backgroundColor: 'rgba(255,255,255,0.32)',
   },
+  vDividerCompact: { height: 28 },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -265,6 +299,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     maxWidth: '52%',
   },
+  ledgerPillCompact: {
+    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 10,
+    gap: 6,
+  },
   ledgerIcon: {
     width: 26,
     height: 26,
@@ -273,12 +313,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  ledgerIconCompact: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
   ledgerText: {
     color: '#0A2A6B',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: -0.2,
   },
+  ledgerTextCompact: { fontSize: 12 },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -290,4 +336,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
+  actionTextCompact: { fontSize: 12 },
 });

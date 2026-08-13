@@ -18,6 +18,7 @@ import { CalendarSwitcher } from '@/components/calendar-switcher';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
   buildMonthMatrix,
+  expandCalendarItemsForDates,
   formatDayLabel,
   formatHour,
   formatMonthTitle,
@@ -80,23 +81,42 @@ export default function CalendarScreen() {
 
   const matrix = useMemo(() => buildMonthMatrix(anchor, weekStartJs), [anchor, weekStartJs]);
   const selectedDate = useMemo(() => parseDateKey(selectedKey), [selectedKey]);
+  const visibleDateKeys = useMemo(() => {
+    const keys = matrix.map((cell) => cell.key);
+    if (!keys.includes(selectedKey)) keys.push(selectedKey);
+    return keys;
+  }, [matrix, selectedKey]);
+  const expandedItems = useMemo(
+    () => expandCalendarItemsForDates(items, visibleDateKeys),
+    [items, visibleDateKeys],
+  );
   const dayItems = useMemo(
-    () => items.filter((item) => item.date === selectedKey).sort((a, b) => (a.startHour ?? -1) - (b.startHour ?? -1)),
-    [items, selectedKey],
+    () =>
+      expandedItems
+        .filter((item) => item.date === selectedKey)
+        .sort((a, b) => (a.startHour ?? -1) - (b.startHour ?? -1)),
+    [expandedItems, selectedKey],
   );
   const itemsByDay = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
-    items.forEach((item) => {
+    expandedItems.forEach((item) => {
       const list = map.get(item.date) ?? [];
       list.push(item);
       map.set(item.date, list);
     });
     return map;
-  }, [items]);
+  }, [expandedItems]);
 
-  const openCompose = (type: CalendarItemType) => {
+  const openCompose = (type: CalendarItemType, hour?: number) => {
     setFabOpen(false);
-    router.push({ pathname: '/add-calendar-item', params: { type, date: selectedKey } });
+    const params: { type: string; date: string; hour?: string } = {
+      type,
+      date: selectedKey,
+    };
+    if (hour != null && Number.isFinite(hour)) {
+      params.hour = String(Math.floor(hour));
+    }
+    router.push({ pathname: '/add-calendar-item', params });
   };
 
   const openItem = (id: string) => {
@@ -282,7 +302,7 @@ export default function CalendarScreen() {
                       <View style={styles.dots}>
                         {dayEvents.slice(0, 3).map((item) => (
                           <View
-                            key={item.id}
+                            key={`${item.id}-${item.date}`}
                             style={[styles.dot, { backgroundColor: item.color }]}
                           />
                         ))}
@@ -290,7 +310,9 @@ export default function CalendarScreen() {
                     ) : (
                       <View style={styles.chips}>
                         {dayEvents.slice(0, 2).map((item) => (
-                          <View key={item.id} style={[styles.chip, { backgroundColor: item.color }]}>
+                          <View
+                            key={`${item.id}-${item.date}`}
+                            style={[styles.chip, { backgroundColor: item.color }]}>
                             <Text numberOfLines={1} style={styles.chipText}>
                               {item.title}
                             </Text>
@@ -317,6 +339,7 @@ export default function CalendarScreen() {
             compact={compact}
             onOpenItem={openItem}
             onToggleTask={toggleTask}
+            onCreateAtHour={(hour) => openCompose('event', hour)}
           />
         )}
 
@@ -337,7 +360,7 @@ export default function CalendarScreen() {
         ) : (
           dayItems.map((item) => (
             <ScalePressable
-              key={item.id}
+              key={`${item.id}-${item.date}`}
               onPress={() => openItem(item.id)}
               onLongPress={() => {
                 if (item.type === 'task') {
@@ -423,6 +446,7 @@ function DayTimeline({
   compact = false,
   onOpenItem,
   onToggleTask,
+  onCreateAtHour,
 }: {
   date: Date;
   items: CalendarItem[];
@@ -431,6 +455,7 @@ function DayTimeline({
   compact?: boolean;
   onOpenItem: (id: string) => void;
   onToggleTask: (id: string) => void;
+  onCreateAtHour: (hour: number) => void;
 }) {
   // Cover early/late hours so timed items (e.g. 6:00) stay visible.
   const hours = Array.from({ length: 18 }, (_, index) => index + 5);
@@ -472,7 +497,12 @@ function DayTimeline({
       {hours.map((hour) => {
         const blocks = timed.filter((item) => Math.floor(item.startHour ?? 0) === hour);
         return (
-          <View key={hour} style={[styles.hourRow, { minHeight: hourHeight }]}>
+          <Pressable
+            key={hour}
+            accessibilityRole="button"
+            accessibilityLabel={`Crear actividad a las ${formatHour(hour)}`}
+            onPress={() => onCreateAtHour(hour)}
+            style={[styles.hourRow, { minHeight: hourHeight }]}>
             <Text style={[styles.hourLabel, { color: theme.muted }]}>
               {formatHour(hour).replace(':00', '')}
             </Text>
@@ -502,7 +532,7 @@ function DayTimeline({
                 </Pressable>
               ))}
             </View>
-          </View>
+          </Pressable>
         );
       })}
     </View>

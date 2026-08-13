@@ -50,6 +50,7 @@ export default function OauthGoogleStartScreen() {
         clientId: GOOGLE_WEB_CLIENT_ID,
         redirectUri: googleCallbackUrl(),
         nonce,
+        state: native ? 'native' : 'web',
       });
       if (!cancelled) window.location.replace(authorize);
     })();

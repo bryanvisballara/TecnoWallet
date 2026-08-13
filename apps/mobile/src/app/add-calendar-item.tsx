@@ -75,7 +75,12 @@ export default function AddCalendarItemScreen() {
   const profile = useAuthStore((state) => state.profile);
   const { ledger } = useActiveLedger();
   const { calendar, activeCalendarId } = useActiveCalendar();
-  const params = useLocalSearchParams<{ type?: string; date?: string; id?: string }>();
+  const params = useLocalSearchParams<{
+    type?: string;
+    date?: string;
+    id?: string;
+    hour?: string;
+  }>();
   const editId = Array.isArray(params.id) ? params.id[0] : params.id;
   const existing = useMemo(
     () =>
@@ -85,6 +90,13 @@ export default function AddCalendarItemScreen() {
     [calendarItems, editId],
   );
   const isEditing = Boolean(existing);
+  const hourFromParam = useMemo(() => {
+    if (existing || params.hour == null) return undefined;
+    const raw = Array.isArray(params.hour) ? params.hour[0] : params.hour;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > 23) return undefined;
+    return Math.floor(value);
+  }, [existing, params.hour]);
   const initialType = (['event', 'task', 'birthday'].includes(params.type ?? '')
     ? params.type
     : existing?.type ?? 'event') as CalendarItemType;
@@ -100,13 +112,23 @@ export default function AddCalendarItemScreen() {
   const [notes, setNotes] = useState(existing?.notes ?? '');
   const [location, setLocation] = useState(existing?.location ?? '');
   const [meetingLink, setMeetingLink] = useState(existing?.meetingLink ?? '');
-  const [allDay, setAllDay] = useState(existing?.allDay ?? type !== 'event');
+  const [allDay, setAllDay] = useState(
+    existing?.allDay ?? (hourFromParam != null ? false : type !== 'event'),
+  );
   const [dateKey, setDateKey] = useState(initialDate);
   const [startTime, setStartTime] = useState(
-    hhmmFromHour(existing?.startHour, '09:00'),
+    hhmmFromHour(
+      existing?.startHour,
+      hourFromParam != null ? hhmmFromHour(hourFromParam) : '09:00',
+    ),
   );
   const [endTime, setEndTime] = useState(
-    hhmmFromHour(existing?.endHour, '10:00'),
+    hhmmFromHour(
+      existing?.endHour,
+      hourFromParam != null
+        ? hhmmFromHour(hourFromParam < 23 ? hourFromParam + 1 : 23 + 59 / 60)
+        : '10:00',
+    ),
   );
   const [color, setColor] = useState<string>(
     existing?.color ?? calendarColors[initialType],

@@ -80,6 +80,7 @@ export default function MisCuentasScreen() {
         </Pressable>
       }>
       <HeroBalanceBanner
+        compact
         label={copy.accounts.liquidity}
         amount={liquidez}
         hidden={hidden}

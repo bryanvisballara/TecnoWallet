@@ -1,28 +1,22 @@
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
-import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Envelope } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { filterTransactionsByMonth } from '@/lib/dates';
-import { localStorage } from '@/services/persistence';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
-import { usePreferencesStore } from '@/store/preferences';
 
 export default function EnvelopesScreen() {
-  const theme = useAppTheme();
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
   const { envelopes, ledger, transactions } = useActiveLedger();
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
-  const monthLabel = usePeriodStore((state) => state.label);
-  const [hideNoBudgetBanner, setHideNoBudgetBanner] = useState(false);
   const period = useMemo(() => ({ year, month }), [year, month]);
   const monthTransactions = useMemo(
     () => filterTransactionsByMonth(transactions, period),
@@ -50,41 +44,7 @@ export default function EnvelopesScreen() {
   const incomeEnvelopes = withMonthSpent(envelopes.filter((item) => item.kind === 'income'));
   const expenseEnvelopes = withMonthSpent(envelopes.filter((item) => item.kind === 'expense'));
   const savingsEnvelopes = withMonthSpent(envelopes.filter((item) => item.kind === 'savings'));
-
-  const incomeExpected = incomeEnvelopes.reduce((sum, item) => sum + item.budget, 0);
-  const incomeReceived = incomeEnvelopes.reduce((sum, item) => sum + item.spent, 0);
-  const expenseBudget = expenseEnvelopes.reduce((sum, item) => sum + item.budget, 0);
-  const expenseSpent = expenseEnvelopes.reduce((sum, item) => sum + item.spent, 0);
-  const available = Math.max(expenseBudget - expenseSpent, 0);
-  const usedRatio = expenseBudget > 0 ? expenseSpent / expenseBudget : 0;
-  const showNoBudgetBanner = expenseBudget <= 0 && !hideNoBudgetBanner;
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
-  const hideBalances = usePreferencesStore((state) => state.hideBalances);
-  const setHideBalances = usePreferencesStore((state) => state.setHideBalances);
-  const [hidden, setHidden] = useState(hideBalances);
-
-  useEffect(() => {
-    setHidden(hideBalances);
-  }, [hideBalances]);
-
-  useEffect(() => {
-    if (!ledger?.id) return;
-    let active = true;
-    void localStorage
-      .get(`sobres-no-budget-banner:${ledger.id}`, false)
-      .then((hidden) => {
-        if (active) setHideNoBudgetBanner(Boolean(hidden));
-      });
-    return () => {
-      active = false;
-    };
-  }, [ledger?.id]);
-
-  const dismissNoBudgetBanner = () => {
-    if (!ledger?.id) return;
-    setHideNoBudgetBanner(true);
-    void localStorage.set(`sobres-no-budget-banner:${ledger.id}`, true);
-  };
 
   if (!ledger) {
     return <Screen withTabBar title={copy.envelopes.title} />;
@@ -93,100 +53,6 @@ export default function EnvelopesScreen() {
   return (
     <Screen withTabBar title={copy.envelopes.title} subtitle={copy.envelopes.budgetMonth(ledgerLabel)}>
       <MonthSwitcher />
-      <HeroBalanceBanner
-        label={
-          expenseBudget > 0
-            ? copy.envelopes.availableMonth(monthLabel)
-            : copy.envelopes.expensesMonth(monthLabel)
-        }
-        amount={expenseBudget > 0 ? available : expenseSpent}
-        hidden={hidden}
-        onToggleHidden={() => {
-          setHidden((prev) => {
-            const next = !prev;
-            void setHideBalances(next);
-            return next;
-          });
-        }}
-        toggleA11yLabel={copy.home.toggleBalances}
-        ledgerLabel={ledgerLabel}
-        ledgerIcon={ledger.icon || 'house.fill'}
-        actionLabel={
-          expenseEnvelopes.length === 1
-            ? '1 sobre'
-            : `${expenseEnvelopes.length} sobres`
-        }
-      />
-      {expenseBudget <= 0 && showNoBudgetBanner ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${copy.envelopes.noMonthlyBudget}. ${copy.common.hide}`}
-          onPress={dismissNoBudgetBanner}
-          style={({ pressed }) => [
-            styles.noBudgetButton,
-            {
-              backgroundColor: pressed ? theme.primary : theme.primary,
-              opacity: pressed ? 0.88 : 1,
-            },
-          ]}>
-          <View style={styles.noBudgetCopy}>
-            <AppIcon name="circle" color="#FFFFFF" size={12} />
-            <Text style={styles.noBudgetLabel}>{copy.envelopes.noMonthlyBudget}</Text>
-          </View>
-          <Text style={styles.noBudgetAction}>{copy.common.hide}</Text>
-        </Pressable>
-      ) : null}
-
-      <View style={styles.summaryRow}>
-        <Card style={[styles.summaryCard, { backgroundColor: theme.successSoft, borderWidth: 0 }]}>
-          <View style={[styles.summaryIcon, { backgroundColor: '#FFFFFF' }]}>
-            <AppIcon name="arrow.down.circle.fill" color={theme.success} />
-          </View>
-          <Text style={[styles.summaryLabel, { color: theme.muted }]}>{copy.envelopes.income}</Text>
-          <Text style={[styles.summaryValue, { color: theme.text }]}>{money(incomeReceived, true)}</Text>
-          <Text style={[styles.summaryHint, { color: theme.muted }]}>
-            {incomeExpected > 0 ? `de ${money(incomeExpected, true)} esperados` : copy.envelopes.noIncomeGoal}
-          </Text>
-        </Card>
-        <Card style={[styles.summaryCard, { backgroundColor: '#FDECEC', borderWidth: 0 }]}>
-          <View style={[styles.summaryIcon, { backgroundColor: '#FFFFFF' }]}>
-            <AppIcon name="arrow.up.circle.fill" color={theme.danger} />
-          </View>
-          <Text style={[styles.summaryLabel, { color: theme.muted }]}>{copy.envelopes.expenses}</Text>
-          <Text style={[styles.summaryValue, { color: theme.text }]}>{money(expenseSpent, true)}</Text>
-          <Text style={[styles.summaryHint, { color: theme.muted }]}>
-            {expenseBudget > 0 ? `de ${money(expenseBudget, true)} asignados` : copy.envelopes.noBudget}
-          </Text>
-        </Card>
-      </View>
-
-      {expenseBudget > 0 ? (
-        <Card style={[styles.tip, { backgroundColor: theme.successSoft }]}>
-          <View style={[styles.tipIcon, { backgroundColor: '#FFFFFF' }]}>
-            <AppIcon name="sparkles" color={theme.success} size={18} />
-          </View>
-          <View style={styles.copy}>
-            <Text style={[styles.tipTitle, { color: theme.text }]}>{copy.envelopes.monthSummary}</Text>
-            <Text style={[styles.small, { color: theme.muted }]}>
-              Llevas {money(expenseSpent)} gastados de {money(expenseBudget)} asignados.
-            </Text>
-          </View>
-          <Pill tone="green">{Math.round((1 - usedRatio) * 100)}%</Pill>
-        </Card>
-      ) : expenseEnvelopes.length > 0 || incomeEnvelopes.length > 0 ? (
-        <Card style={[styles.tip, { backgroundColor: theme.surfaceSecondary }]}>
-          <View style={[styles.tipIcon, { backgroundColor: '#FFFFFF' }]}>
-            <AppIcon name="wallet.pass.fill" color={theme.primary} size={18} />
-          </View>
-          <View style={styles.copy}>
-            <Text style={[styles.tipTitle, { color: theme.text }]}>{copy.envelopes.controlNoLimit}</Text>
-            <Text style={[styles.small, { color: theme.muted }]}>
-              Llevas {money(expenseSpent)} en gastos registrados sin un presupuesto asignado.
-            </Text>
-          </View>
-          <Pill tone="neutral">{copy.envelopes.noLimit}</Pill>
-        </Card>
-      ) : null}
 
       <EnvelopeSection
         title={copy.envelopes.incomeEnvelopes}
@@ -367,40 +233,6 @@ function EnvelopeSection({
 }
 
 const styles = StyleSheet.create({
-  noBudgetButton: {
-    minHeight: 46,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  noBudgetCopy: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  noBudgetLabel: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  noBudgetAction: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  summaryRow: { flexDirection: 'row', gap: 10 },
-  summaryCard: { flex: 1, gap: 6, padding: 14 },
-  summaryIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  summaryLabel: { fontSize: 12, fontWeight: '600' },
-  summaryValue: { fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  summaryHint: { fontSize: 11 },
-  tip: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 0 },
-  tipIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  copy: { flex: 1, gap: 2, minWidth: 0 },
-  tipTitle: { fontSize: 14, fontWeight: '700' },
   small: { fontSize: 12, lineHeight: 17 },
   sectionBlock: { gap: 10 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },

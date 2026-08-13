@@ -60,6 +60,8 @@ export type AppCopy = {
     income: string;
     expenses: string;
     remaining: string;
+    registerIncome: string;
+    registerExpense: string;
     viewIncomeDetail: string;
     viewExpensesDetail: string;
     availableMonth: (month: string) => string;
@@ -522,6 +524,8 @@ const es: AppCopy = {
     income: 'Ingresos',
     expenses: 'Gastos',
     remaining: 'Restante',
+    registerIncome: 'Registra un ingreso',
+    registerExpense: 'Registra un gasto',
     viewIncomeDetail: 'Ver detalle de ingresos',
     viewExpensesDetail: 'Ver detalle de gastos',
     availableMonth: (month) => `Disponible · ${month}`,
@@ -1086,6 +1090,8 @@ const en: AppCopy = {
     income: 'Income',
     expenses: 'Expenses',
     remaining: 'Remaining',
+    registerIncome: 'Record an income',
+    registerExpense: 'Record an expense',
     viewIncomeDetail: 'View income detail',
     viewExpensesDetail: 'View expenses detail',
     availableMonth: (month) => `Available · ${month}`,

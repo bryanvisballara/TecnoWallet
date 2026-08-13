@@ -112,11 +112,10 @@ export default function RootLayout() {
   ]);
 
   useEffect(() => {
-    // Hide native splash as soon as React is alive (overlay owns the rest).
-    void SplashScreen.hideAsync().catch(() => undefined);
+    // Overlay hides the native splash on first layout. Keep a fallback.
     const t = setTimeout(() => {
       void SplashScreen.hideAsync().catch(() => undefined);
-    }, 1200);
+    }, 1600);
     return () => clearTimeout(t);
   }, []);
 

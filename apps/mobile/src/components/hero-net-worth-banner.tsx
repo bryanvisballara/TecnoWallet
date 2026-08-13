@@ -22,6 +22,7 @@ type Props = {
   onToggleHidden?: () => void;
   toggleA11yLabel?: string;
   style?: ViewStyle;
+  compact?: boolean;
 };
 
 function WealthWatermark() {
@@ -63,6 +64,7 @@ export function HeroNetWorthBanner({
   onToggleHidden,
   toggleA11yLabel,
   style,
+  compact = false,
 }: Props) {
   const currency = getActiveMoneyCurrency();
   const amountText = hidden ? '••••••' : moneyAmount(amount);
@@ -74,52 +76,59 @@ export function HeroNetWorthBanner({
         locations={[0, 0.42, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.card}>
+        style={[styles.card, compact && styles.cardCompact]}>
         <WealthWatermark />
 
         <View style={styles.topRow}>
-          <Text style={styles.label}>{label}</Text>
+          <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text>
           {onToggleHidden ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={toggleA11yLabel ?? 'Mostrar u ocultar saldos'}
               hitSlop={8}
               onPress={onToggleHidden}
-              style={({ pressed }) => [styles.eyeBtn, pressed && { opacity: 0.75 }]}>
+              style={({ pressed }) => [
+                styles.eyeBtn,
+                compact && styles.eyeBtnCompact,
+                pressed && { opacity: 0.75 },
+              ]}>
               <AppIcon
                 name={hidden ? 'eye.slash.fill' : 'eye.fill'}
                 color="#FFFFFF"
-                size={17}
+                size={compact ? 15 : 17}
               />
             </Pressable>
           ) : null}
         </View>
 
-        <View style={styles.heroBlock}>
+        <View style={[styles.heroBlock, compact && styles.heroBlockCompact]}>
           <View style={styles.amountRow}>
             <Text
-              style={styles.amount}
+              style={[styles.amount, compact && styles.amountCompact]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.5}>
               {amountText}
             </Text>
-            <Text style={styles.currency}>{currency}</Text>
+            <Text style={[styles.currency, compact && styles.currencyCompact]}>{currency}</Text>
           </View>
-          <Text style={styles.formula}>{formula}</Text>
+          {compact ? null : <Text style={styles.formula}>{formula}</Text>}
         </View>
 
-        <View style={styles.breakdown}>
+        <View style={[styles.breakdown, compact && styles.breakdownCompact]}>
           {stats.map((stat, index) => (
             <View key={stat.label} style={styles.statCell}>
               {index > 0 ? (
-                <Text style={styles.statOp}>{stat.prefix ?? '·'}</Text>
+                <Text style={[styles.statOp, compact && styles.statOpCompact]}>
+                  {stat.prefix ?? '·'}
+                </Text>
               ) : null}
               <View style={styles.statCopy}>
-                <Text style={styles.statLabel}>{stat.label}</Text>
+                <Text style={[styles.statLabel, compact && styles.statLabelCompact]}>{stat.label}</Text>
                 <Text
                   style={[
                     styles.statValue,
+                    compact && styles.statValueCompact,
                     stat.tone === 'negative' && styles.statNegative,
                     stat.tone === 'positive' && styles.statPositive,
                   ]}
@@ -150,6 +159,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 7,
   },
+  cardCompact: {
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    minHeight: 128,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
   watermark: {
     position: 'absolute',
     right: -6,
@@ -167,6 +187,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: -0.15,
   },
+  labelCompact: { fontSize: 13 },
   eyeBtn: {
     width: 34,
     height: 34,
@@ -175,12 +196,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.2)',
   },
+  eyeBtnCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+  },
   heroBlock: {
     marginTop: 20,
     marginBottom: 22,
     gap: 8,
     zIndex: 1,
     paddingRight: 28,
+  },
+  heroBlockCompact: {
+    marginTop: 8,
+    marginBottom: 10,
+    gap: 4,
+    paddingRight: 16,
   },
   amountRow: {
     flexDirection: 'row',
@@ -196,6 +228,10 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     flexShrink: 1,
   },
+  amountCompact: {
+    fontSize: 28,
+    letterSpacing: -1,
+  },
   currency: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -203,6 +239,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     marginTop: 1,
   },
+  currencyCompact: { fontSize: 12 },
   formula: {
     color: 'rgba(255,255,255,0.72)',
     fontSize: 13,
@@ -218,6 +255,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     zIndex: 1,
   },
+  breakdownCompact: {
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
   statCell: {
     flex: 1,
     flexDirection: 'row',
@@ -232,6 +274,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginRight: 2,
   },
+  statOpCompact: { fontSize: 12, width: 12 },
   statCopy: {
     flex: 1,
     alignItems: 'center',
@@ -245,6 +288,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
   },
+  statLabelCompact: { fontSize: 10 },
   statValue: {
     color: '#FFFFFF',
     fontSize: 15,
@@ -254,6 +298,7 @@ const styles = StyleSheet.create({
     width: '100%',
     textAlign: 'center',
   },
+  statValueCompact: { fontSize: 13 },
   statPositive: {
     color: '#D8FFE8',
   },

@@ -281,6 +281,90 @@ export function parseDateKey(key: string) {
   return new Date(y, (m ?? 1) - 1, d ?? 1);
 }
 
+export type CalendarRepeatRule = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+/** Maps UI labels (and light variants) to a recurrence rule. */
+export function parseCalendarRepeat(repeat?: string): CalendarRepeatRule {
+  const value = (repeat || '').trim().toLowerCase();
+  if (!value || value === 'no se repite') return 'none';
+  if (value === 'cada día' || value === 'cada dia' || value === 'daily') return 'daily';
+  if (value === 'cada semana' || value === 'weekly') return 'weekly';
+  if (value === 'cada mes' || value === 'monthly') return 'monthly';
+  if (value === 'cada año' || value === 'cada ano' || value === 'yearly') return 'yearly';
+  return 'none';
+}
+
+function calendarDayDiff(fromKey: string, toKey: string) {
+  const from = parseDateKey(fromKey).getTime();
+  const to = parseDateKey(toKey).getTime();
+  return Math.round((to - from) / 86_400_000);
+}
+
+/** Whether a stored item (with optional `repeat`) falls on `dateKey`. */
+export function calendarItemOccursOn(item: CalendarItem, dateKey: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)) {
+    return false;
+  }
+  if (dateKey < item.date) return false;
+  if (item.endDate && /^\d{4}-\d{2}-\d{2}$/.test(item.endDate) && dateKey > item.endDate) {
+    return false;
+  }
+  if (dateKey === item.date) return true;
+
+  const rule = parseCalendarRepeat(item.repeat);
+  if (rule === 'none') return false;
+
+  const start = parseDateKey(item.date);
+  const target = parseDateKey(dateKey);
+
+  if (rule === 'daily') return true;
+  if (rule === 'weekly') {
+    return start.getDay() === target.getDay() && calendarDayDiff(item.date, dateKey) % 7 === 0;
+  }
+  if (rule === 'monthly') {
+    return start.getDate() === target.getDate();
+  }
+  if (rule === 'yearly') {
+    return start.getMonth() === target.getMonth() && start.getDate() === target.getDate();
+  }
+  return false;
+}
+
+/**
+ * Expands recurring items into dated instances for the given keys.
+ * Non-anchor instances keep the same `id` (edit opens the series) but use the occurrence `date`.
+ */
+export function expandCalendarItemsForDates(
+  items: CalendarItem[],
+  dateKeys: string[],
+): CalendarItem[] {
+  const keys = [...new Set(dateKeys.filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key)))].sort();
+  if (!keys.length) return [];
+
+  const result: CalendarItem[] = [];
+  for (const item of items) {
+    const rule = parseCalendarRepeat(item.repeat);
+    if (rule === 'none') {
+      if (keys.includes(item.date)) result.push(item);
+      continue;
+    }
+    for (const dateKey of keys) {
+      if (!calendarItemOccursOn(item, dateKey)) continue;
+      if (dateKey === item.date) {
+        result.push(item);
+        continue;
+      }
+      result.push({
+        ...item,
+        date: dateKey,
+        // Completion is only tracked on the stored anchor for now.
+        completed: item.type === 'task' ? false : item.completed,
+      });
+    }
+  }
+  return result;
+}
+
 export function formatDayLabel(date: Date, locale: string = 'es') {
   const tag = locale === 'es' ? 'es-ES' : 'en-US';
   return new Intl.DateTimeFormat(tag, { weekday: 'short', day: 'numeric', month: 'short' }).format(date);

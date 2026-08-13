@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppLinearGradient } from '@/components/app-linear-gradient';
 import { useAuthStore } from '@/store/auth';
 import { useCalendarStore } from '@/store/calendar';
 import { useGoalsStore } from '@/store/goals';
@@ -23,8 +24,7 @@ import { usePreferencesStore } from '@/store/preferences';
 import { useRecaudosStore } from '@/store/recaudos';
 
 const GREEN = '#39E639';
-const BG = '#002787';
-const SPLASH_ART = require('@/assets/images/splash-screen.png');
+const LOGO = require('@/assets/images/splash-logo.png');
 
 type BrandSplashOverlayProps = {
   /** When true, fill to 100% and fade out. */
@@ -32,9 +32,8 @@ type BrandSplashOverlayProps = {
 };
 
 /**
- * Brand splash with live hydration progress.
- * Native launch screen already shows the same art; this overlay adds the loader
- * and keeps continuity until stores are ready.
+ * Branded launch overlay: gradient + wordmark, with the hydration loader at the bottom.
+ * Native splash is white so the first frames are not a solid blue hold.
  */
 export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   const insets = useSafeAreaInsets();
@@ -81,10 +80,9 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
     plusHydrated,
   ]);
 
-  useEffect(() => {
-    // Hide native splash as soon as this overlay mounts.
+  const hideNativeSplash = () => {
     void SplashScreen.hideAsync().catch(() => undefined);
-  }, []);
+  };
 
   useEffect(() => {
     if (ready) return;
@@ -131,15 +129,35 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   if (!mounted) return null;
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.overlay, fadeStyle]}>
-      <Image
-        source={SPLASH_ART}
-        style={styles.image}
-        contentFit="cover"
-        transition={0}
-        cachePolicy="memory-disk"
-        priority="high"
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.overlay, fadeStyle]}
+      onLayout={hideNativeSplash}>
+      <AppLinearGradient
+        colors={['#04102C', '#0A2C7A', '#1A58C8']}
+        locations={[0, 0.42, 1]}
+        start={{ x: 0.08, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
       />
+
+      <View style={[styles.stage, { paddingTop: insets.top + 72 }]}>
+        <View style={styles.markWrap}>
+          <Image
+            source={LOGO}
+            style={styles.mark}
+            contentFit="cover"
+            transition={0}
+            cachePolicy="memory-disk"
+            priority="high"
+          />
+        </View>
+        <Text style={styles.wordmark}>
+          TECNO<Text style={styles.wordmarkAccent}>WALLET</Text>
+        </Text>
+        <View style={styles.rule} />
+        <Text style={styles.tagline}>Tu dinero, tu control</Text>
+      </View>
 
       <View style={[styles.loader, { bottom: Math.max(insets.bottom, 16) + 56 }]}>
         <Text style={styles.loadingLabel}>Cargando tu experiencia...</Text>
@@ -158,12 +176,47 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFill,
     zIndex: 1000,
-    backgroundColor: BG,
+    backgroundColor: '#FFFFFF',
   },
-  image: {
-    ...StyleSheet.absoluteFill,
+  stage: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  markWrap: {
+    width: 92,
+    height: 92,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 28,
+  },
+  mark: {
     width: '100%',
     height: '100%',
+  },
+  wordmark: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+  },
+  wordmarkAccent: {
+    color: 'rgba(255,255,255,0.72)',
+    fontWeight: '700',
+  },
+  rule: {
+    width: 36,
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: GREEN,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  tagline: {
+    color: 'rgba(220,230,255,0.72)',
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 0.4,
   },
   loader: {
     position: 'absolute',

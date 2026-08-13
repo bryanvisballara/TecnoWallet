@@ -89,11 +89,6 @@ function modeOptions(locale: string): { value: ContributionMode; label: string; 
           label: "Débito automático",
           icon: "building.columns.fill",
         },
-        {
-          value: "card_simulated",
-          label: "Tarjeta simulada",
-          icon: "creditcard.fill",
-        },
       ]
     : [
         { value: "manual", label: "Manual", icon: "hand.raised.fill" },
@@ -102,15 +97,13 @@ function modeOptions(locale: string): { value: ContributionMode; label: string; 
           label: "Auto debit",
           icon: "building.columns.fill",
         },
-        {
-          value: "card_simulated",
-          label: "Simulated card",
-          icon: "creditcard.fill",
-        },
       ];
 }
 
 const reminderTimes = ["08:00", "12:00", "18:00", "20:00"] as const;
+
+/** Bridge APIs are not approved yet. Hide Unit KYC / ACH until then. */
+const BRIDGE_PAYMENTS_LIVE = false;
 
 function leaveRecaudo() {
   safeGoBack('/(tabs)/recaudos');
@@ -122,6 +115,40 @@ function formatMinor(value: number, currency: string, locale: string) {
     currency,
     maximumFractionDigits: isZeroDecimalCurrency(currency) ? 0 : 2,
   }).format(value / 100);
+}
+
+function daysInMonth(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
+
+/** How many contribution periods fit in the current month for a frequency. */
+function periodsInCurrentMonth(frequency: ContributionFrequency) {
+  const days = daysInMonth();
+  switch (frequency) {
+    case "daily":
+      return days;
+    case "weekly":
+      return days / 7;
+    case "biweekly":
+      return 2;
+    case "monthly":
+    default:
+      return 1;
+  }
+}
+
+function perPersonMonthlyMinor(monthlyTargetMinor: number, memberCount: number) {
+  const n = Math.max(memberCount, 1);
+  return Math.round(monthlyTargetMinor / n);
+}
+
+function installmentMinor(
+  monthlyShareMinor: number,
+  frequency: ContributionFrequency,
+) {
+  const periods = periodsInCurrentMonth(frequency);
+  if (periods <= 0) return monthlyShareMinor;
+  return Math.round(monthlyShareMinor / periods);
 }
 
 function formatDate(value: string, locale: string, withTime = false) {
@@ -211,7 +238,6 @@ export default function RecaudoDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [showManualContribute, setShowManualContribute] = useState(false);
-  const [monthlyAmount, setMonthlyAmount] = useState("");
   const [frequency, setFrequency] = useState<ContributionFrequency>("monthly");
   const [mode, setMode] = useState<ContributionMode>("manual");
   const [remindersEnabled, setRemindersEnabled] = useState(true);
@@ -227,12 +253,13 @@ export default function RecaudoDetailScreen() {
   }, [hydrate, hydrated]);
 
   useEffect(() => {
-    if (!recaudo || demo) return;
+    if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
     void bootstrapForRecaudo(recaudo.id);
   }, [bootstrapForRecaudo, demo, recaudo?.id]);
 
   useEffect(() => {
     if (
+      !BRIDGE_PAYMENTS_LIVE ||
       demo ||
       !recaudo?.isOrganizer ||
       !recaudo.id ||
@@ -243,7 +270,6 @@ export default function RecaudoDetailScreen() {
     ) {
       return;
     }
-    // Open this recaudo's checking once identity is approved (bank link is step 3).
     void ensureRecaudoWallet(recaudo.id).catch(() => undefined);
   }, [
     demo,
@@ -258,7 +284,7 @@ export default function RecaudoDetailScreen() {
   ]);
 
   useEffect(() => {
-    if (!recaudo || demo) return;
+    if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
     const balances = balancesByRecaudo[recaudo.id];
     const inFlight =
       (balances?.pendingMinor ?? 0) + (balances?.processingMinor ?? 0);
@@ -271,9 +297,13 @@ export default function RecaudoDetailScreen() {
 
   useEffect(() => {
     if (!myParticipant || !recaudo) return;
-    setMonthlyAmount(String(myParticipant.monthlyCommitmentMinor / 100));
     setFrequency(myParticipant.frequency);
-    setMode(myParticipant.mode);
+    setMode(
+      myParticipant.mode === "card_simulated" ||
+        (!BRIDGE_PAYMENTS_LIVE && myParticipant.mode === "bank_auto")
+        ? "manual"
+        : myParticipant.mode,
+    );
     setRemindersEnabled(myParticipant.remindersEnabled);
     setReminderTime(myParticipant.reminderTime || "09:00");
     setBankName((current) => current || profile.name || "Mi cuenta");
@@ -317,9 +347,11 @@ export default function RecaudoDetailScreen() {
 
   const category = categoryIcons[recaudo.category];
   const categoryLabel = copy.collections.types[categoryTypeKey[recaudo.category]];
-  const fundingReady = useUnitFundingStore
-    .getState()
-    .isFundingReady(recaudo.id, recaudo.isOrganizer);
+  const fundingReady =
+    BRIDGE_PAYMENTS_LIVE &&
+    useUnitFundingStore
+      .getState()
+      .isFundingReady(recaudo.id, recaudo.isOrganizer);
   const balances = balancesByRecaudo[recaudo.id];
   const availableMinor = balances?.availableMinor ?? 0;
   const pendingMinor = balances?.pendingMinor ?? 0;
@@ -362,6 +394,20 @@ export default function RecaudoDetailScreen() {
   const fmt = (value: number) => formatMinor(value, recaudo.currency, locale);
   const fmtDate = (value: string, withTime = false) =>
     formatDate(value, locale, withTime);
+  const memberCount = Math.max(recaudo.participants.length, 1);
+  const monthlyShareMinor = perPersonMonthlyMinor(
+    recaudo.monthlyTargetMinor,
+    memberCount,
+  );
+  const planInstallmentMinor = installmentMinor(monthlyShareMinor, frequency);
+  const commitmentLabel =
+    frequency === "daily"
+      ? t("Compromiso diario", "Daily commitment")
+      : frequency === "weekly"
+        ? t("Compromiso semanal", "Weekly commitment")
+        : frequency === "biweekly"
+          ? t("Compromiso quincenal", "Biweekly commitment")
+          : t("Compromiso mensual", "Monthly commitment");
 
   const activateUnit = async () => {
     try {
@@ -586,21 +632,18 @@ export default function RecaudoDetailScreen() {
   };
 
   const savePlan = async () => {
-    const monthlyCommitmentMinor = amountToMinorUnits(
-      monthlyAmount,
-      recaudo.currency,
-    );
+    const monthlyCommitmentMinor = planInstallmentMinor;
     if (
       !Number.isSafeInteger(monthlyCommitmentMinor) ||
       monthlyCommitmentMinor <= 0
     ) {
       Alert.alert(
         "Monto inválido",
-        "Define un monto de aporte mayor a cero.",
+        "Este recaudo aún no tiene una meta mensual para calcular tu compromiso.",
       );
       return;
     }
-    if (mode === "bank_auto" && (!fundingReady || demo)) {
+    if (mode === "bank_auto" && (!BRIDGE_PAYMENTS_LIVE || !fundingReady || demo)) {
       Alert.alert(
         "Activa el débito con cuenta",
         "Completa la cuenta digital y vincula tu banco antes de programar el débito automático.",
@@ -676,16 +719,28 @@ export default function RecaudoDetailScreen() {
       right={
         <View style={styles.headerActions}>
           {recaudo.isOrganizer ? (
-            <IconButton
-              icon="person.badge.plus"
-              label={copy.common.inviteTo(recaudo.title)}
-              onPress={() =>
-                router.push({
-                  pathname: "/(tabs)/recaudos",
-                  params: { focus: recaudo.id, tab: "share" },
-                })
-              }
-            />
+            <>
+              <IconButton
+                icon="pencil"
+                label={t("Editar recaudo", "Edit collection")}
+                onPress={() =>
+                  router.push({
+                    pathname: "/add-recaudo",
+                    params: { id: recaudo.id },
+                  })
+                }
+              />
+              <IconButton
+                icon="person.badge.plus"
+                label={copy.common.inviteTo(recaudo.title)}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(tabs)/recaudos",
+                    params: { focus: recaudo.id, tab: "share" },
+                  })
+                }
+              />
+            </>
           ) : null}
           <Pressable
             accessibilityRole="button"
@@ -731,7 +786,7 @@ export default function RecaudoDetailScreen() {
         </View>
       </Card>
 
-      {!demo ? (
+      {!demo && BRIDGE_PAYMENTS_LIVE ? (
         <Card style={styles.balanceCard}>
           <Text style={[styles.cardTitle, { color: theme.text }]}>
             {copy.collectionDetail.moneyTitle}
@@ -774,9 +829,8 @@ export default function RecaudoDetailScreen() {
         </Card>
       ) : null}
 
-      {!demo &&
-      (needsIdentity || identityPending || needsBank || needsWallet) ? (
-        <Card style={styles.formCard}>
+      {!demo && !BRIDGE_PAYMENTS_LIVE ? (
+        <Card style={[styles.formCard, { opacity: 0.78 }]}>
           <View style={styles.formHeading}>
             <View
               style={[styles.smallIcon, { backgroundColor: theme.primarySoft }]}
@@ -784,128 +838,34 @@ export default function RecaudoDetailScreen() {
               <AppIcon name="building.columns.fill" color={theme.primary} size={19} />
             </View>
             <View style={styles.copy}>
-              <Text style={[styles.cardTitle, { color: theme.text }]}>
-                {t(
-                  "Cuenta de banco digital del recaudo",
-                  "Collection digital bank account",
-                )}
-              </Text>
+              <View style={styles.nameLine}>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>
+                  {t(
+                    "Cuenta digital y retiros",
+                    "Digital account and withdrawals",
+                  )}
+                </Text>
+                <Pill tone="neutral">{t("Próximamente", "Coming soon")}</Pill>
+              </View>
               <Text style={[styles.rowMeta, { color: theme.muted }]}>
                 {t(
-                  "Primero se crea la cuenta digital del recaudo y después vinculas el banco de origen para aportar con débito ACH.",
-                  "First the collection’s digital account is created, then you link your source bank to contribute via ACH debit.",
+                  "Pronto podrás abrir una cuenta y retirar entre países con Bridge. Por ahora solo se registran aportes manuales en el recaudo.",
+                  "Soon you’ll be able to open an account and withdraw across countries with Bridge. For now, only manual contributions are recorded.",
                 )}
               </Text>
             </View>
           </View>
-
-          {needsIdentity ? (
-            <PrimaryButton
-              icon="person.crop.circle.badge.checkmark"
-              onPress={setupBusy ? undefined : () => void activateUnit()}
-            >
-              {setupBusy
-                ? t("Abriendo cuenta…", "Opening account…")
-                : t(
-                    "1. Abrir cuenta de banco digital",
-                    "1. Open digital bank account",
-                  )}
-            </PrimaryButton>
-          ) : null}
-
-          {identityPending ? (
-            <>
-              <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                Estado: {identity.status}. Estamos revisando tu solicitud.
-              </Text>
-              <PrimaryButton
-                icon="arrow.clockwise"
-                onPress={setupBusy ? undefined : () => void refreshIdentity()}
-              >
-                Actualizar estado
-              </PrimaryButton>
-            </>
-          ) : null}
-
-          {needsWallet ? (
-            <PrimaryButton
-              icon="wallet.pass.fill"
-              onPress={setupBusy ? undefined : () => void openWallet()}
-            >
-              {setupBusy
-                ? "Abriendo…"
-                : "2. Abrir la cuenta digital del recaudo"}
-            </PrimaryButton>
-          ) : null}
-
-          {needsBank ? (
-            <>
-              <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-                {recaudo.isOrganizer
-                  ? "3. Vincular banco de origen (sandbox)"
-                  : "2. Vincular banco de origen (sandbox)"}
-              </Text>
-              <TextInput
-                value={bankName}
-                onChangeText={setBankName}
-                placeholder="Nombre en la cuenta"
-                placeholderTextColor={theme.muted}
-                style={[
-                  styles.input,
-                  {
-                    color: theme.text,
-                    borderColor: theme.border,
-                    backgroundColor: theme.surfaceSecondary,
-                  },
-                ]}
-              />
-              <TextInput
-                value={routingNumber}
-                onChangeText={setRoutingNumber}
-                placeholder="Routing number"
-                placeholderTextColor={theme.muted}
-                keyboardType="number-pad"
-                style={[
-                  styles.input,
-                  {
-                    color: theme.text,
-                    borderColor: theme.border,
-                    backgroundColor: theme.surfaceSecondary,
-                  },
-                ]}
-              />
-              <TextInput
-                value={accountNumber}
-                onChangeText={setAccountNumber}
-                placeholder="Account number"
-                placeholderTextColor={theme.muted}
-                keyboardType="number-pad"
-                style={[
-                  styles.input,
-                  {
-                    color: theme.text,
-                    borderColor: theme.border,
-                    backgroundColor: theme.surfaceSecondary,
-                  },
-                ]}
-              />
-              <PrimaryButton
-                icon="link"
-                onPress={setupBusy ? undefined : () => void linkBank()}
-              >
-                {setupBusy ? "Vinculando…" : "Vincular banco de origen"}
-              </PrimaryButton>
-            </>
-          ) : null}
-
-          {activeBank ? (
-            <Text style={[styles.rowMeta, { color: theme.muted }]}>
-              Banco de origen: {activeBank.name}
-              {activeBank.accountNumberMask
-                ? ` · •••• ${activeBank.accountNumberMask}`
-                : ""}
+          <View
+            pointerEvents="none"
+            style={[
+              styles.comingSoonBtn,
+              { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
+            ]}
+          >
+            <Text style={{ color: theme.muted, fontWeight: "700" }}>
+              {t("Crear cuenta (próximamente)", "Create account (coming soon)")}
             </Text>
-          ) : null}
+          </View>
         </Card>
       ) : null}
 
@@ -1050,6 +1010,23 @@ export default function RecaudoDetailScreen() {
         </View>
       </Card>
 
+      {recaudo.payoutAccountDetails ? (
+        <Card style={styles.formCard}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>
+            {t("Dinero recaudado", "Collected funds")}
+          </Text>
+          <Text style={[styles.rowMeta, { color: theme.muted }]}>
+            {t(
+              "Cuenta personal del organizador",
+              "Organizer’s personal account",
+            )}
+          </Text>
+          <Text style={[styles.payoutDetails, { color: theme.text }]}>
+            {recaudo.payoutAccountDetails}
+          </Text>
+        </Card>
+      ) : null}
+
       <SectionTitle>{copy.collectionDetail.participants}</SectionTitle>
       <Card style={styles.listCard}>
         {recaudo.participants.map((participant, index) => (
@@ -1101,12 +1078,7 @@ export default function RecaudoDetailScreen() {
         <Text style={[styles.cardTitle, { color: theme.text }]}>
           {fundingReady
             ? t("Aportar desde mi cuenta", "Contribute from my account")
-            : demo
-              ? t("Registrar aporte", "Record contribution")
-              : t(
-                  "Aportar (completa la activación arriba)",
-                  "Contribute (finish activation above)",
-                )}
+            : t("Registrar aporte", "Record contribution")}
         </Text>
         <Text style={[styles.rowMeta, { color: theme.muted }]}>
           {fundingReady
@@ -1114,15 +1086,10 @@ export default function RecaudoDetailScreen() {
                 "Débito ACH a la cuenta digital del recaudo. No suma a disponible hasta que el banco lo confirme.",
                 "ACH debit to the collection’s digital account. It won’t count as available until the bank confirms.",
               )
-            : demo
-              ? t(
-                  "En demo el aporte se registra al instante en el pozo.",
-                  "In demo, contributions are recorded in the pool instantly.",
-                )
-              : t(
-                  "Abre tu cuenta de banco digital y vincula tu banco para aportar dinero real.",
-                  "Open your digital bank account and link your bank to contribute real money.",
-                )}
+            : t(
+                "El aporte se registra en el pozo del recaudo. Las cuentas y retiros con Bridge estarán disponibles pronto.",
+                "The contribution is recorded in the collection pool. Bridge accounts and withdrawals will be available soon.",
+              )}
         </Text>
         <View
           style={[
@@ -1170,7 +1137,7 @@ export default function RecaudoDetailScreen() {
               ? t("Enviando ACH…", "Sending ACH…")
               : t("Aportar con cuenta", "Contribute with account")}
           </PrimaryButton>
-        ) : demo ? (
+        ) : (
           <PrimaryButton
             icon="plus"
             onPress={contributing ? undefined : () => void contribute()}
@@ -1179,13 +1146,9 @@ export default function RecaudoDetailScreen() {
               ? t("Registrando…", "Recording…")
               : t("Registrar aporte", "Record contribution")}
           </PrimaryButton>
-        ) : (
-          <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            El botón de aporte con cuenta se habilita al terminar la activación.
-          </Text>
         )}
 
-        {!demo ? (
+        {fundingReady ? (
           <>
             <Pressable
               onPress={() => setShowManualContribute((value) => !value)}
@@ -1211,9 +1174,22 @@ export default function RecaudoDetailScreen() {
 
       <SectionTitle>{t("Mi configuración", "My settings")}</SectionTitle>
       <Card style={styles.formCard}>
+        <Text style={[styles.planQuestion, { color: theme.text }]}>
+          {t(
+            "¿Cómo voy a decidir hacer mi aporte para cumplir la meta del mes?",
+            "How will I make my contribution to hit this month’s goal?",
+          )}
+        </Text>
+        <Text style={[styles.rowMeta, { color: theme.muted }]}>
+          {t(
+            `Tu parte es la meta mensual del recaudo dividida entre ${memberCount} integrante${memberCount === 1 ? "" : "s"}. Al cambiar la frecuencia, el monto se ajusta para completar esa parte en el mes.`,
+            `Your share is the collection’s monthly goal split among ${memberCount} member${memberCount === 1 ? "" : "s"}. Changing the frequency adjusts the amount so you still cover that share this month.`,
+          )}
+        </Text>
+
         <View>
           <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-            {mode === "bank_auto" ? "Monto por débito" : "Compromiso mensual"}
+            {mode === "bank_auto" ? t("Monto por débito", "Debit amount") : commitmentLabel}
           </Text>
           <View
             style={[
@@ -1224,19 +1200,9 @@ export default function RecaudoDetailScreen() {
               },
             ]}
           >
-            <Text style={[styles.currency, { color: theme.muted }]}>
-              {recaudo.currency}
+            <Text style={[styles.amountField, styles.amountReadout, { color: theme.text }]}>
+              {fmt(planInstallmentMinor)}
             </Text>
-            <TextInput
-              value={monthlyAmount}
-              onChangeText={setMonthlyAmount}
-              keyboardType="decimal-pad"
-              placeholder={
-                mode === "bank_auto" ? "Monto del débito" : "Monto mensual"
-              }
-              placeholderTextColor={theme.muted}
-              style={[styles.amountField, { color: theme.text }]}
-            />
           </View>
         </View>
 
@@ -1278,7 +1244,9 @@ export default function RecaudoDetailScreen() {
           Forma de aporte
         </Text>
         <View style={styles.modeOptions}>
-          {modes.map((item) => {
+          {modes
+            .filter((item) => BRIDGE_PAYMENTS_LIVE || item.value !== "bank_auto")
+            .map((item) => {
             const selected = mode === item.value;
             const bankLocked =
               item.value === "bank_auto" && (!fundingReady || demo);
@@ -1330,16 +1298,6 @@ export default function RecaudoDetailScreen() {
             frecuencia (mismo flujo que el botón “Aportar con cuenta”). Diario y
             quincenal los ejecuta TecnoWallet; semanal/mensual puede usar Unit.
           </Text>
-        ) : null}
-        {mode === "card_simulated" ? (
-          <View style={[styles.simulatedCard, { backgroundColor: "#14213D" }]}>
-            <AppIcon name="creditcard.fill" color="#FFFFFF" size={22} />
-            <View style={styles.copy}>
-              <Text style={styles.cardBrand}>Visa simulada</Text>
-              <Text style={styles.cardNumber}>•••• 4242 · Sin cobro real</Text>
-            </View>
-            <AppIcon name="checkmark.circle.fill" color="#32D583" size={20} />
-          </View>
         ) : null}
 
         <View style={[styles.reminderRow, { borderColor: theme.border }]}>
@@ -1638,6 +1596,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   cardTitle: { fontSize: 15, fontWeight: "700" },
+  payoutDetails: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
   percent: { fontSize: 18, fontWeight: "800" },
   stats: { flexDirection: "row", gap: 8 },
   stat: { flex: 1, borderRadius: 13, padding: 12, gap: 3 },
@@ -1663,6 +1622,14 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 14, fontWeight: "700" },
   rowMeta: { fontSize: 11, lineHeight: 16 },
   formCard: { gap: 11 },
+  comingSoonBtn: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
   formHeading: { flexDirection: "row", alignItems: "center", gap: 10 },
   smallIcon: {
     width: 39,
@@ -1689,6 +1656,8 @@ const styles = StyleSheet.create({
   currency: { fontSize: 11, fontWeight: "800", marginRight: 9 },
   amountField: { flex: 1, paddingVertical: 10, fontSize: 15 },
   fieldLabel: { fontSize: 11, fontWeight: "700", marginBottom: 7 },
+  planQuestion: { fontSize: 16, fontWeight: "700", letterSpacing: -0.2, lineHeight: 22 },
+  amountReadout: { fontWeight: "700", fontVariant: ["tabular-nums"] },
   options: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   option: {
     minWidth: "47%",
@@ -1713,16 +1682,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
   },
-  simulatedCard: {
-    minHeight: 61,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  cardBrand: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-  cardNumber: { color: "#FFFFFFAA", fontSize: 11 },
   reminderRow: {
     minHeight: 60,
     borderTopWidth: StyleSheet.hairlineWidth,

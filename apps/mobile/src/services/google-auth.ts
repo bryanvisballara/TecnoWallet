@@ -17,7 +17,8 @@ export function googleCallbackUrl() {
 }
 
 export function googleStartUrl(params?: { nonce?: string }) {
-  const url = new URL(`${APP_WEB_ORIGIN}/oauth-google/`);
+  // `.html` works on Hostinger even when SPA rewrite is off (same as /auth.html).
+  const url = new URL(`${APP_WEB_ORIGIN}/oauth-google.html`);
   if (params?.nonce) url.searchParams.set('nonce', params.nonce);
   if (Platform.OS !== 'web') url.searchParams.set('native', '1');
   return url.toString();
@@ -33,6 +34,7 @@ export function buildGoogleAuthorizeUrl(input: {
   clientId: string;
   redirectUri: string;
   nonce: string;
+  state?: string;
 }) {
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.searchParams.set('client_id', input.clientId);
@@ -41,6 +43,7 @@ export function buildGoogleAuthorizeUrl(input: {
   url.searchParams.set('scope', 'openid email profile');
   url.searchParams.set('nonce', input.nonce);
   url.searchParams.set('prompt', 'select_account');
+  if (input.state) url.searchParams.set('state', input.state);
   return url.toString();
 }
 

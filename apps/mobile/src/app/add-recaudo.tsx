@@ -1,12 +1,11 @@
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   View,
 } from 'react-native';
 
+import { AppDateField } from '@/components/app-date-field';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
@@ -23,6 +23,7 @@ import {
   amountToMinorUnits,
   currencies,
   currencyLabel,
+  isZeroDecimalCurrency,
   monthlyAmountPlaceholder,
 } from '@/lib/currencies';
 import {
@@ -38,13 +39,26 @@ const categories: { value: RecaudoCategory; label: string; icon: string }[] = [
   { value: 'other', label: 'Otro', icon: 'sparkles' },
 ];
 
-type FieldKey = 'title' | 'target' | 'monthly' | 'deadline';
+type FieldKey = 'title' | 'target' | 'monthly' | 'deadline' | 'payout';
 type FieldErrors = Partial<Record<FieldKey, boolean>>;
+type PayoutMethod = 'digital' | 'personal';
 
 function isValidDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T12:00:00`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function minorToInput(minor: number, currency: string) {
+  const major = minor / 100;
+  if (!Number.isFinite(major) || major <= 0) return '';
+  if (isZeroDecimalCurrency(currency)) return String(Math.round(major));
+  return major.toFixed(2);
+}
+
+function deadlineInput(value?: string) {
+  if (!value) return '';
+  return value.slice(0, 10);
 }
 
 function FieldLabel({
@@ -112,17 +126,53 @@ function AmountInput({
 export default function AddRecaudoScreen() {
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
+  const params = useLocalSearchParams<{ id?: string }>();
   const createRecaudo = useRecaudosStore((state) => state.createRecaudo);
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<RecaudoCategory>('travel');
-  const [currency, setCurrency] = useState('USD');
+  const updateRecaudo = useRecaudosStore((state) => state.updateRecaudo);
+  const recaudos = useRecaudosStore((state) => state.recaudos);
+  const existing = recaudos.find((item) => item.id === params.id);
+  const isEditing = Boolean(existing);
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [category, setCategory] = useState<RecaudoCategory>(existing?.category ?? 'travel');
+  const [currency, setCurrency] = useState(existing?.currency ?? 'USD');
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [currencyQuery, setCurrencyQuery] = useState('');
-  const [target, setTarget] = useState('');
-  const [monthly, setMonthly] = useState('');
-  const [deadline, setDeadline] = useState('');
+  const [target, setTarget] = useState(
+    existing ? minorToInput(existing.targetMinor, existing.currency) : '',
+  );
+  const [monthly, setMonthly] = useState(
+    existing ? minorToInput(existing.monthlyTargetMinor, existing.currency) : '',
+  );
+  const [deadline, setDeadline] = useState(deadlineInput(existing?.deadline));
+  const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>(
+    existing?.payoutMethod === 'digital' ? 'personal' : 'personal',
+  );
+  const [payoutDetails, setPayoutDetails] = useState(existing?.payoutAccountDetails ?? '');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!existing) return;
+    setTitle(existing.title);
+    setCategory(existing.category);
+    setCurrency(existing.currency);
+    setTarget(minorToInput(existing.targetMinor, existing.currency));
+    setMonthly(minorToInput(existing.monthlyTargetMinor, existing.currency));
+    setDeadline(deadlineInput(existing.deadline));
+    setPayoutMethod('personal');
+    setPayoutDetails(existing.payoutAccountDetails ?? '');
+  }, [existing?.id]);
+
+  useEffect(() => {
+    if (!existing) return;
+    if (!existing.isOrganizer) {
+      Alert.alert(
+        'Solo el organizador',
+        'Solo quien organiza el recaudo puede editarlo.',
+      );
+      safeGoBack(`/(tabs)/recaudo/${existing.id}`);
+    }
+  }, [existing?.id, existing?.isOrganizer]);
 
   const filteredCurrencies = useMemo(() => {
     const query = currencyQuery.trim().toLowerCase();
@@ -170,6 +220,10 @@ export default function AddRecaudoScreen() {
       nextErrors.deadline = true;
       missing.push('fecha válida');
     }
+    if (payoutMethod !== 'personal' || payoutDetails.trim().length < 8) {
+      nextErrors.payout = true;
+      missing.push('datos de la cuenta personal');
+    }
 
     if (missing.length) {
       setErrors(nextErrors);
@@ -184,6 +238,25 @@ export default function AddRecaudoScreen() {
     setErrors({});
     setSaving(true);
     try {
+      if (isEditing && existing) {
+        if (!existing.isOrganizer) {
+          Alert.alert('Solo el organizador', 'Solo quien organiza el recaudo puede editarlo.');
+          return;
+        }
+        await updateRecaudo(existing.id, {
+          title: title.trim(),
+          category,
+          targetMinor,
+          monthlyTargetMinor,
+          currency,
+          deadline: deadline.trim() || undefined,
+          payoutMethod: 'personal',
+          payoutAccountDetails: payoutDetails.trim(),
+        });
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        safeGoBack(`/(tabs)/recaudo/${existing.id}`);
+        return;
+      }
       const recaudo = await createRecaudo({
         title: title.trim(),
         category,
@@ -191,6 +264,8 @@ export default function AddRecaudoScreen() {
         monthlyTargetMinor,
         currency,
         deadline: deadline.trim() || undefined,
+        payoutMethod: 'personal',
+        payoutAccountDetails: payoutDetails.trim(),
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // Cierra la hoja y deja el detalle encima de Recaudos para que "atrás" funcione.
@@ -202,7 +277,7 @@ export default function AddRecaudoScreen() {
       router.push({ pathname: '/(tabs)/recaudo/[id]', params: { id: recaudo.id } });
     } catch (error) {
       Alert.alert(
-        'No se pudo crear',
+        isEditing ? 'No se pudo guardar' : 'No se pudo crear',
         error instanceof Error ? error.message : 'Inténtalo de nuevo.',
       );
     } finally {
@@ -211,27 +286,38 @@ export default function AddRecaudoScreen() {
   };
 
   return (
-    <SheetScreen heightRatio={0.75} fallback="/(tabs)/recaudos">
+    <SheetScreen heightRatio={0.75} fallback={isEditing && existing ? `/(tabs)/recaudo/${existing.id}` : '/(tabs)/recaudos'}>
       <View style={styles.flex}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/recaudos')} style={styles.close}>
+          <Pressable
+            accessibilityLabel="Cerrar"
+            onPress={() =>
+              safeGoBack(isEditing && existing ? `/(tabs)/recaudo/${existing.id}` : '/(tabs)/recaudos')
+            }
+            style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel="Crear recaudo"
+            accessibilityLabel={isEditing ? 'Guardar recaudo' : 'Crear recaudo'}
             disabled={saving}
             onPress={() => void save()}
             style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.65 : 1 }]}>
-            <Text style={styles.saveText}>{saving ? 'Creando…' : 'Crear'}</Text>
+            <Text style={styles.saveText}>
+              {saving ? (isEditing ? 'Guardando…' : 'Creando…') : isEditing ? 'Guardar' : 'Crear'}
+            </Text>
           </ScalePressable>
         </View>
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-          <Text style={[styles.title, { color: theme.text }]}>Nuevo recaudo</Text>
+          <Text style={[styles.title, { color: theme.text }]}>
+            {isEditing ? 'Editar recaudo' : 'Nuevo recaudo'}
+          </Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
-            Crea un pozo compartido y define cuánto quieren reunir.
+            {isEditing
+              ? 'Cambia el nombre, la meta, la fecha o la cuenta donde se guarda el dinero.'
+              : 'Crea un pozo compartido y define cuánto quieren reunir.'}
           </Text>
 
           <FieldLabel error={errors.title} color={theme.muted} danger={theme.danger}>
@@ -340,7 +426,7 @@ export default function AddRecaudoScreen() {
           ) : null}
 
           <FieldLabel error={errors.monthly} color={theme.muted} danger={theme.danger}>
-            Meta mensual
+            Meta mensual (se dividirá entre el número de integrantes)
           </FieldLabel>
           <AmountInput
             value={monthly}
@@ -363,52 +449,96 @@ export default function AddRecaudoScreen() {
           <FieldLabel error={errors.deadline} color={theme.muted} danger={theme.danger}>
             Fecha objetivo (opcional)
           </FieldLabel>
-          {Platform.OS === 'web' ? (
-            <input
-              type="date"
-              value={deadline}
-              onChange={(event) => {
-                setDeadline(event.target.value);
-                clearError('deadline');
-              }}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                border: `${errors.deadline ? 1.5 : 1}px solid ${
-                  errors.deadline ? theme.danger : theme.border
-                }`,
-                borderRadius: 14,
-                padding: '12px 14px',
-                fontSize: 15,
-                color: theme.text,
-                backgroundColor: theme.surfaceSecondary,
-                fontFamily: 'inherit',
-              }}
-            />
-          ) : (
-            <TextInput
-              value={deadline}
-              onChangeText={(value) => {
-                setDeadline(value);
-                clearError('deadline');
-              }}
-              onFocus={focusScrollToEnd(scrollRef, 120)}
-              placeholder="AAAA-MM-DD"
-              placeholderTextColor={theme.muted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
-              style={[
-                styles.input,
-                { color: theme.text, backgroundColor: theme.surfaceSecondary },
-                borderFor('deadline'),
-              ]}
-            />
-          )}
+          <AppDateField
+            value={deadline}
+            onChange={(next) => {
+              setDeadline(next);
+              clearError('deadline');
+            }}
+            error={errors.deadline}
+            placeholder="Elegir fecha"
+          />
           {errors.deadline ? (
-            <ErrorText color={theme.danger}>
-              Usa una fecha válida en formato AAAA-MM-DD
-            </ErrorText>
+            <ErrorText color={theme.danger}>Elige una fecha válida</ErrorText>
+          ) : null}
+
+          <FieldLabel error={errors.payout} color={theme.muted} danger={theme.danger}>
+            Forma de recaudo
+          </FieldLabel>
+          <Text style={[styles.hint, { color: theme.muted, marginBottom: 0 }]}>
+            ¿A dónde quieres guardar el dinero recaudado?
+          </Text>
+          <View style={styles.payoutRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: true }}
+              disabled
+              style={[
+                styles.payoutOption,
+                {
+                  borderColor: theme.border,
+                  backgroundColor: theme.surfaceSecondary,
+                  opacity: 0.55,
+                },
+              ]}>
+              <Text style={[styles.payoutOptionTitle, { color: theme.muted }]}>
+                Cuenta digital
+              </Text>
+              <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
+                Próximamente
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: payoutMethod === 'personal' }}
+              onPress={() => setPayoutMethod('personal')}
+              style={[
+                styles.payoutOption,
+                {
+                  borderColor: payoutMethod === 'personal' ? theme.primary : theme.border,
+                  backgroundColor:
+                    payoutMethod === 'personal' ? theme.primarySoft : theme.surfaceSecondary,
+                },
+              ]}>
+              <Text
+                style={[
+                  styles.payoutOptionTitle,
+                  { color: payoutMethod === 'personal' ? theme.primary : theme.text },
+                ]}>
+                Cuenta personal
+              </Text>
+              <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
+                Banco o billetera
+              </Text>
+            </Pressable>
+          </View>
+
+          {payoutMethod === 'personal' ? (
+            <>
+              <TextInput
+                value={payoutDetails}
+                onChangeText={(value) => {
+                  setPayoutDetails(value);
+                  clearError('payout');
+                }}
+                onFocus={focusScrollToEnd(scrollRef, 160)}
+                multiline
+                textAlignVertical="top"
+                placeholder="Ej. Ana Gómez, CC 1.234.567.890, ahorros Bancolombia 01234567890"
+                placeholderTextColor={theme.muted}
+                style={[
+                  styles.input,
+                  styles.payoutDetails,
+                  { color: theme.text, backgroundColor: theme.surfaceSecondary },
+                  borderFor('payout'),
+                ]}
+              />
+              {errors.payout ? (
+                <ErrorText color={theme.danger}>
+                  Escribe los datos de la cuenta: nombre, documento, tipo y número de cuenta
+                </ErrorText>
+              ) : null}
+            </>
           ) : null}
         </FormScrollView>
       </View>
@@ -605,4 +735,18 @@ const styles = StyleSheet.create({
   },
   currency: { fontSize: 12, fontWeight: '800', marginRight: 10 },
   amountTextInput: { flex: 1, paddingVertical: 11, fontSize: 16 },
+  payoutRow: { flexDirection: 'row', gap: 8 },
+  payoutOption: {
+    flex: 1,
+    minHeight: 64,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    gap: 3,
+  },
+  payoutOptionTitle: { fontSize: 13, fontWeight: '800' },
+  payoutOptionHint: { fontSize: 11, fontWeight: '600' },
+  payoutDetails: { minHeight: 96, paddingTop: 12 },
 });

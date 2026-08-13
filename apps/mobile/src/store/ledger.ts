@@ -91,6 +91,10 @@ type LedgerState = {
   ) => Promise<{ pendingSignup?: boolean; delivered?: boolean }>;
   removeMember: (ledgerId: string, memberId: string) => Promise<void>;
   renameLedger: (ledgerId: string, name: string) => Promise<void>;
+  updateLedger: (
+    ledgerId: string,
+    patch: { name?: string; color?: string; icon?: string },
+  ) => Promise<void>;
   setLedgerCurrency: (currency: string) => Promise<void>;
   addTransaction: (value: NewTransaction) => Promise<Transaction>;
   /** Correct a movement: reverse the ledger row and create the replacement. */
@@ -418,12 +422,23 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   },
 
   renameLedger: async (ledgerId, name) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    await updateWorkspace(ledgerId, { name: trimmed });
+    await get().updateLedger(ledgerId, { name });
+  },
+
+  updateLedger: async (ledgerId, patch) => {
+    const body: { name?: string; color?: string; icon?: string } = {};
+    if (patch.name !== undefined) {
+      const trimmed = patch.name.trim();
+      if (!trimmed) return;
+      body.name = trimmed;
+    }
+    if (patch.color !== undefined) body.color = patch.color.trim();
+    if (patch.icon !== undefined) body.icon = patch.icon.trim();
+    if (!Object.keys(body).length) return;
+    await updateWorkspace(ledgerId, body);
     set({
       ledgers: get().ledgers.map((ledger) =>
-        ledger.id === ledgerId ? { ...ledger, name: trimmed } : ledger,
+        ledger.id === ledgerId ? { ...ledger, ...body } : ledger,
       ),
     });
   },

@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 
@@ -34,9 +33,11 @@ export default function OauthGoogleCallbackScreen() {
       return;
     }
 
-    let native = false;
+    const hashOrQuery = window.location.hash.replace(/^#/, '') || window.location.search.replace(/^\?/, '');
+    const returnedState = new URLSearchParams(hashOrQuery).get('state');
+    let native = returnedState === 'native';
     try {
-      native = window.sessionStorage.getItem('tw-google-native') === '1';
+      native = native || window.sessionStorage.getItem('tw-google-native') === '1';
       window.sessionStorage.setItem(WEB_ID_TOKEN_STORAGE_KEY, idToken);
       window.sessionStorage.removeItem('tw-google-native');
     } catch {
@@ -49,7 +50,7 @@ export default function OauthGoogleCallbackScreen() {
       return;
     }
 
-    router.replace('/auth');
+    window.location.replace('/auth.html');
   }, []);
 
   return (

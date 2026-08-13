@@ -41,6 +41,8 @@ export type RecaudoContribution = {
   pending?: boolean;
 };
 
+export type RecaudoPayoutMethod = "digital" | "personal";
+
 export type Recaudo = {
   id: string;
   title: string;
@@ -54,6 +56,8 @@ export type Recaudo = {
   organizerId?: string;
   isOrganizer: boolean;
   shareCode?: string;
+  payoutMethod?: RecaudoPayoutMethod;
+  payoutAccountDetails?: string;
   participants: RecaudoParticipant[];
   contributions: RecaudoContribution[];
   createdAt: string;
@@ -75,6 +79,8 @@ type NewRecaudo = {
   monthlyTargetMinor: number;
   currency: string;
   deadline?: string;
+  payoutMethod?: RecaudoPayoutMethod;
+  payoutAccountDetails?: string;
 };
 
 type MyPlan = {
@@ -94,6 +100,10 @@ type RecaudosState = {
   hydrate: () => Promise<void>;
   refresh: () => Promise<void>;
   createRecaudo: (value: NewRecaudo) => Promise<Recaudo>;
+  updateRecaudo: (
+    recaudoId: string,
+    patch: Partial<NewRecaudo>,
+  ) => Promise<Recaudo>;
   addContribution: (
     recaudoId: string,
     amountMinor: number,
@@ -406,6 +416,12 @@ function normalizeRecaudo(raw: unknown): Recaudo {
       typeof value.shareCode === "string" && value.shareCode.trim()
         ? value.shareCode.trim().toUpperCase()
         : undefined,
+    payoutMethod: value.payoutMethod === "digital" ? "digital" : "personal",
+    payoutAccountDetails:
+      typeof value.payoutAccountDetails === "string" &&
+      value.payoutAccountDetails.trim()
+        ? value.payoutAccountDetails.trim()
+        : undefined,
     participants,
     contributions,
     createdAt: dateString(value.createdAt),
@@ -565,6 +581,51 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
       route: `/(tabs)/recaudo/${created.id}`,
     });
     return created;
+  },
+
+  updateRecaudo: async (recaudoId, patch) => {
+    const current = get().recaudos.find((item) => item.id === recaudoId);
+    if (!current) throw new Error("Recaudo no encontrado.");
+    if (!current.isOrganizer) {
+      throw new Error("Solo el organizador puede editar este recaudo.");
+    }
+    const demo = useAuthStore.getState().demo;
+    if (demo) {
+      const next: Recaudo = {
+        ...current,
+        ...patch,
+        updatedAt: now(),
+      };
+      set({
+        recaudos: get().recaudos.map((item) =>
+          item.id === recaudoId ? next : item,
+        ),
+      });
+      return next;
+    }
+    const updated = normalizeRecaudo(
+      await apiRequest(`/recaudos/${recaudoId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    );
+    set({
+      recaudos: get().recaudos.map((item) =>
+        item.id === recaudoId
+          ? {
+              ...item,
+              ...updated,
+              participants: updated.participants.length
+                ? updated.participants
+                : item.participants,
+              contributions: updated.contributions.length
+                ? updated.contributions
+                : item.contributions,
+            }
+          : item,
+      ),
+    });
+    return updated;
   },
 
   addContribution: async (recaudoId, amountMinor, note) => {

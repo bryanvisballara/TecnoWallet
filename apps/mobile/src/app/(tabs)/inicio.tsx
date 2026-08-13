@@ -2,11 +2,11 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { buildWeeklySpend, DonutChart, WeeklyBars } from '@/components/charts';
+import { buildWeeklySpend, WeeklyBars } from '@/components/charts';
 import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { LedgerSwitcher } from '@/components/ledger-switcher';
 import { MonthSwitcher } from '@/components/month-switcher';
-import { AppIcon, Card, IconButton, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
+import { AppIcon, Card, IconButton, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { getActiveMoneyCurrency, money, moneyAmount } from '@/data/demo';
 import {
   displayLedgerName,
@@ -36,7 +36,7 @@ export default function DashboardScreen() {
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const plusAccess = usePlusStore((state) => state.access);
   const [authUserId, setAuthUserId] = useState('');
-  const { summary, transactions, upcoming, ledger, envelopes, accounts } = useActiveLedger();
+  const { summary, transactions, upcoming, ledger, accounts } = useActiveLedger();
   const ledgers = useLedgerStore((state) => state.ledgers);
   const snapshots = useLedgerStore((state) => state.snapshots);
   const readIds = useNotificationsStore((state) => state.readIds);
@@ -63,7 +63,6 @@ export default function DashboardScreen() {
   useEffect(() => {
     setHidden(hideBalances);
   }, [hideBalances]);
-  const goalRatio = summary.goal > 0 ? summary.goalCurrent / summary.goal : 0;
   const period = useMemo(() => ({ year, month }), [year, month]);
   const monthTransactions = useMemo(
     () => filterTransactionsByMonth(transactions, period),
@@ -90,34 +89,6 @@ export default function DashboardScreen() {
     });
     return unreadCount(feed, readIds, dismissedIds);
   }, [activities, ledgers, snapshots, profile?.name, authUserId, readIds, dismissedIds]);
-
-  const budget = useMemo(() => {
-    const expenseEnvelopes = envelopes.filter((item) => item.kind === 'expense');
-    const assigned = expenseEnvelopes.reduce((sum, item) => sum + item.budget, 0);
-    const spent = monthTransactions
-      .filter((item) => item.amount < 0)
-      .reduce((sum, item) => sum + Math.abs(item.amount), 0);
-    const available = Math.max(assigned - spent, 0);
-    const ratio = assigned > 0 ? available / assigned : 0;
-    const today = new Date();
-    const reference =
-      isCurrentMonth
-        ? today
-        : new Date(year, month + 1, 0);
-    const day = reference.getDate();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const daysLeft = isCurrentMonth ? Math.max(daysInMonth - day + 1, 1) : 1;
-    const daily = available / daysLeft;
-    const status =
-      assigned <= 0
-        ? copy.home.budgetNone
-        : ratio >= 0.4
-          ? copy.home.budgetOk
-          : ratio >= 0.15
-            ? copy.home.budgetTight
-            : copy.home.budgetLow;
-    return { assigned, spent, available, ratio, daily, status };
-  }, [envelopes, monthTransactions, isCurrentMonth, year, month, copy.home]);
 
   const weekAnchor = useMemo(
     () => (isCurrentMonth ? new Date() : new Date(year, month + 1, 0, 12, 0, 0)),
@@ -202,6 +173,7 @@ export default function DashboardScreen() {
       }>
       <MonthSwitcher />
       <HeroBalanceBanner
+        compact
         label={copy.home.totalLiquidity}
         amount={liquidezTotal}
         hidden={hidden}
@@ -230,12 +202,17 @@ export default function DashboardScreen() {
             accessibilityLabel={copy.home.viewIncomeDetail}
             style={styles.metricPress}
             onPress={() => router.push({ pathname: '/(tabs)/cashflow/[type]', params: { type: 'ingresos' } })}>
-            <Card style={styles.metric} delay={40}>
-              <View style={[styles.metricIcon, { backgroundColor: theme.successSoft }]}>
+            <Card
+              style={[
+                styles.metric,
+                { backgroundColor: theme.successSoft, borderColor: theme.successSoft },
+              ]}
+              delay={40}>
+              <View style={[styles.metricIcon, { backgroundColor: 'rgba(255,255,255,0.72)' }]}>
                 <AppIcon name="arrow.down.circle.fill" color={theme.success} />
               </View>
-              <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={1}>
-                {copy.home.income} ({moneyCurrency})
+              <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={2}>
+                {copy.home.registerIncome} ({moneyCurrency})
               </Text>
               <Text
                 style={[styles.metricValue, { color: theme.text }]}
@@ -253,12 +230,17 @@ export default function DashboardScreen() {
             accessibilityLabel={copy.home.viewExpensesDetail}
             style={styles.metricPress}
             onPress={() => router.push({ pathname: '/(tabs)/cashflow/[type]', params: { type: 'gastos' } })}>
-            <Card style={styles.metric} delay={80}>
-              <View style={[styles.metricIcon, { backgroundColor: '#FDECEC' }]}>
+            <Card
+              style={[
+                styles.metric,
+                { backgroundColor: theme.dangerSoft, borderColor: theme.dangerSoft },
+              ]}
+              delay={80}>
+              <View style={[styles.metricIcon, { backgroundColor: 'rgba(255,255,255,0.72)' }]}>
                 <AppIcon name="arrow.up.circle.fill" color={theme.danger} />
               </View>
-              <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={1}>
-                {copy.home.expenses} ({moneyCurrency})
+              <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={2}>
+                {copy.home.registerExpense} ({moneyCurrency})
               </Text>
               <Text
                 style={[styles.metricValue, { color: theme.text }]}
@@ -270,109 +252,7 @@ export default function DashboardScreen() {
             </Card>
           </ScalePressable>
         </View>
-        <View style={styles.metricSlot}>
-          <Card style={styles.metric} delay={120}>
-            <View style={[styles.metricIcon, { backgroundColor: theme.primarySoft }]}>
-              <AppIcon name="wallet.pass.fill" color={theme.primary} />
-            </View>
-            <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={1}>
-              {copy.home.remaining} ({moneyCurrency})
-            </Text>
-            <Text
-              style={[styles.metricValue, { color: theme.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.55}>
-              {amountOnly(cashflow.remaining, true)}
-            </Text>
-          </Card>
-        </View>
       </View>
-
-      <Card>
-        {budget.assigned > 0 ? (
-          <>
-            <View style={uiStyles.between}>
-              <View style={styles.budgetCopy}>
-                <Text style={[styles.cardLabel, { color: theme.muted }]}>
-                  {copy.home.availableMonth(monthLabel)}
-                </Text>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>{budget.status}</Text>
-                <Pill tone="blue">{copy.home.pctAvailable(Math.round(budget.ratio * 100))}</Pill>
-              </View>
-              <DonutChart value={budget.ratio} amount={budget.available} />
-            </View>
-            <View style={[styles.daily, { backgroundColor: theme.surfaceSecondary }]}>
-              <View>
-                <Text style={[styles.dailyLabel, { color: theme.muted }]}>{copy.home.dailySpend}</Text>
-                <Text style={[styles.dailyValue, { color: theme.text }]}>{value(budget.daily)}</Text>
-              </View>
-              <AppIcon name="calendar" color={theme.primary} size={26} />
-            </View>
-          </>
-        ) : (
-          <ScalePressable
-            accessibilityRole="button"
-            accessibilityLabel={copy.home.configureBudgetA11y}
-            onPress={() => router.push('/(tabs)/sobres')}
-            style={styles.noBudgetPress}>
-            <View style={uiStyles.between}>
-              <View style={styles.budgetCopy}>
-                <Text style={[styles.cardLabel, { color: theme.muted }]}>
-                  {copy.home.monthlyBudgetOptional}
-                </Text>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>{copy.home.noBudget}</Text>
-                <Text style={[styles.small, { color: theme.muted }]}>{copy.home.noBudgetHint}</Text>
-              </View>
-              <View style={[styles.noBudgetIcon, { backgroundColor: theme.primarySoft }]}>
-                <AppIcon name="wallet.pass.fill" color={theme.primary} size={28} />
-              </View>
-            </View>
-            <View style={[styles.noBudgetAction, { backgroundColor: theme.surfaceSecondary }]}>
-              <Text style={[styles.noBudgetActionText, { color: theme.text }]}>
-                {copy.home.configureBudget}
-              </Text>
-              <Text style={[styles.optionalText, { color: theme.muted }]}>{copy.common.optional}</Text>
-            </View>
-          </ScalePressable>
-        )}
-      </Card>
-
-      {summary.goal > 0 ? (
-        <ScalePressable
-          accessibilityRole="button"
-          accessibilityLabel={copy.home.viewGoalA11y}
-          onPress={() => router.push({ pathname: '/(tabs)/goal/[id]', params: { id: 'agosto' } })}>
-          <Card>
-            <View style={uiStyles.between}>
-              <View>
-                <Text style={[styles.cardLabel, { color: theme.muted }]}>
-                  {copy.home.goalMonth(monthLabel)}
-                </Text>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>
-                  {copy.home.saveGoal(value(summary.goal))}
-                </Text>
-              </View>
-              <Text style={[styles.percent, { color: theme.success }]}>{Math.round(goalRatio * 100)}%</Text>
-            </View>
-            <ProgressBar value={goalRatio} color={theme.success} label={copy.home.goalProgress} />
-            <View style={uiStyles.between}>
-              <Text style={[styles.small, { color: theme.muted }]}>
-                {copy.home.savedAmount(value(summary.goalCurrent))}
-              </Text>
-              <Text style={[styles.small, { color: theme.muted }]}>
-                {copy.home.remainingAmount(value(Math.max(summary.goal - summary.goalCurrent, 0)))}
-              </Text>
-            </View>
-          </Card>
-        </ScalePressable>
-      ) : (
-        <Card>
-          <Text style={[styles.cardLabel, { color: theme.muted }]}>{copy.home.goalMonth(monthLabel)}</Text>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>{copy.home.noGoalTitle}</Text>
-          <Text style={[styles.small, { color: theme.muted }]}>{copy.home.noGoalHint}</Text>
-        </Card>
-      )}
 
       <SectionTitle>{copy.home.weeklyActivity}</SectionTitle>
       <Card>
@@ -525,30 +405,25 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  metrics: { flexDirection: 'row', gap: 10 },
+  metrics: { flexDirection: 'row', justifyContent: 'center', gap: 10 },
   metricSlot: { flex: 1, minWidth: 0 },
   metricPress: { flex: 1, width: '100%' },
-  metric: { width: '100%', padding: 12, gap: 7, borderRadius: 18 },
+  metric: {
+    width: '100%',
+    padding: 12,
+    gap: 7,
+    borderRadius: 18,
+    alignItems: 'center',
+  },
   metricIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  metricLabel: { fontSize: 12, fontWeight: '600' },
+  metricLabel: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
   metricValue: {
     width: '100%',
     fontSize: 18,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
+    textAlign: 'center',
   },
-  budgetCopy: { flex: 1, gap: 8 },
-  cardLabel: { fontSize: 12, fontWeight: '600' },
-  cardTitle: { fontSize: 20, fontWeight: '700', letterSpacing: -0.4 },
-  daily: { marginTop: 16, borderRadius: 16, padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  dailyLabel: { fontSize: 12, fontWeight: '600' },
-  dailyValue: { fontSize: 20, fontWeight: '700', marginTop: 2 },
-  noBudgetPress: { gap: 16 },
-  noBudgetIcon: { width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginLeft: 14 },
-  noBudgetAction: { minHeight: 48, borderRadius: 16, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  noBudgetActionText: { fontSize: 13, fontWeight: '700' },
-  optionalText: { fontSize: 11, fontWeight: '600' },
-  percent: { fontSize: 22, fontWeight: '700' },
   small: { fontSize: 12, lineHeight: 17 },
   emptyList: { fontSize: 13, lineHeight: 18, paddingVertical: 12, textAlign: 'center' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

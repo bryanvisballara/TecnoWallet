@@ -205,28 +205,31 @@ export function AppDateField({
                     accessibilityState={{ selected: selectedDay, disabled }}
                     accessibilityLabel={cell.key}
                     onPress={() => apply(cell.date)}
-                    style={[
-                      styles.dayCell,
-                      selectedDay ? { backgroundColor: theme.primary } : null,
-                      !selectedDay && isToday
-                        ? { borderColor: theme.primary, borderWidth: 1.5 }
-                        : null,
-                    ]}>
-                    <Text
+                    style={styles.dayCell}>
+                    <View
                       style={[
-                        styles.dayText,
-                        {
-                          color: selectedDay
-                            ? '#FFFFFF'
-                            : muted
-                              ? theme.muted
-                              : theme.text,
-                          opacity: muted && !selectedDay ? 0.45 : 1,
-                          fontWeight: selectedDay || isToday ? '700' : '500',
-                        },
+                        styles.dayBubble,
+                        selectedDay ? { backgroundColor: theme.primary } : null,
+                        !selectedDay && isToday
+                          ? { borderColor: theme.primary, borderWidth: 1.5 }
+                          : null,
                       ]}>
-                      {cell.date.getDate()}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.dayText,
+                          {
+                            color: selectedDay
+                              ? '#FFFFFF'
+                              : muted
+                                ? theme.muted
+                                : theme.text,
+                            opacity: muted && !selectedDay ? 0.45 : 1,
+                            fontWeight: selectedDay || isToday ? '700' : '500',
+                          },
+                        ]}>
+                        {cell.date.getDate()}
+                      </Text>
+                    </View>
                   </Pressable>
                 );
               })}
@@ -296,8 +299,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   weekLabel: {
-    flexGrow: 1,
-    flexBasis: 0,
+    width: `${100 / 7}%`,
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '700',
@@ -307,11 +309,22 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   dayCell: {
-    width: '14.2857%',
-    aspectRatio: 1,
+    width: `${100 / 7}%`,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 999,
   },
-  dayText: { fontSize: 15 },
+  dayBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayText: {
+    fontSize: 15,
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
 });

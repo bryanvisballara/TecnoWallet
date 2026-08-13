@@ -64,9 +64,11 @@ const recaudoCategories = [
   'purchase',
   'other',
 ] as const;
+const payoutMethods = ['digital', 'personal'] as const;
 type PlanFrequency = (typeof planFrequencies)[number];
 type PaymentMode = (typeof paymentModes)[number];
 type RecaudoCategory = (typeof recaudoCategories)[number];
+type RecaudoPayoutMethod = (typeof payoutMethods)[number];
 type ParticipantRole = 'organizer' | 'member';
 
 type SimulatedCard = {
@@ -137,6 +139,14 @@ export class Recaudo {
   /** Short public code for join-by-ID (e.g. TR8F3K2M1Q). */
   @Prop({ uppercase: true, trim: true, unique: true, sparse: true, index: true })
   shareCode?: string;
+
+  /** Where collected funds should be held / sent. */
+  @Prop({ type: String, enum: payoutMethods, default: 'personal' })
+  payoutMethod?: RecaudoPayoutMethod;
+
+  /** Free-text bank/account details when payoutMethod is personal. */
+  @Prop({ trim: true, maxlength: 2000 })
+  payoutAccountDetails?: string;
 
   createdAt!: Date;
   updatedAt!: Date;
@@ -376,6 +386,15 @@ class CreateRecaudoDto {
   @IsOptional()
   @IsDateString()
   deadline?: string;
+
+  @IsOptional()
+  @IsEnum(payoutMethods)
+  payoutMethod?: RecaudoPayoutMethod;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  payoutAccountDetails?: string;
 }
 
 class UpdateRecaudoDto {
@@ -404,8 +423,22 @@ class UpdateRecaudoDto {
   monthlyTargetMinor?: number;
 
   @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  currency?: string;
+
+  @IsOptional()
   @IsDateString()
   deadline?: string;
+
+  @IsOptional()
+  @IsEnum(payoutMethods)
+  payoutMethod?: RecaudoPayoutMethod;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  payoutAccountDetails?: string;
 }
 
 class ContributionDto {
@@ -576,6 +609,18 @@ export class RecaudosService {
     if (dto.deadline && new Date(dto.deadline) <= new Date()) {
       throw new BadRequestException('deadline must be in the future');
     }
+    const payoutMethod = dto.payoutMethod === 'digital' ? 'digital' : 'personal';
+    if (dto.payoutMethod === 'digital') {
+      throw new BadRequestException(
+        'La cuenta digital estará disponible pronto. Elige cuenta personal.',
+      );
+    }
+    const payoutAccountDetails = dto.payoutAccountDetails?.trim() || '';
+    if (dto.payoutMethod === 'personal' && payoutAccountDetails.length < 8) {
+      throw new BadRequestException(
+        'Indica los datos de la cuenta personal donde se guardará el recaudo.',
+      );
+    }
     const shareCode = await this.allocateShareCode();
     const recaudo = await this.recaudos.create({
       workspaceId: dto.workspaceId,
@@ -588,6 +633,8 @@ export class RecaudosService {
       currency: dto.currency.toUpperCase(),
       deadline: dto.deadline ? new Date(dto.deadline) : undefined,
       shareCode,
+      payoutMethod,
+      payoutAccountDetails,
     });
     await this.participants.create({
       recaudoId: recaudo._id,
@@ -701,6 +748,20 @@ export class RecaudosService {
     if (dto.deadline && new Date(dto.deadline) <= new Date()) {
       throw new BadRequestException('deadline must be in the future');
     }
+    if (dto.payoutMethod === 'digital') {
+      throw new BadRequestException(
+        'La cuenta digital estará disponible pronto. Elige cuenta personal.',
+      );
+    }
+    if (
+      dto.payoutMethod === 'personal' &&
+      dto.payoutAccountDetails !== undefined &&
+      dto.payoutAccountDetails.trim().length < 8
+    ) {
+      throw new BadRequestException(
+        'Indica los datos de la cuenta personal donde se guardará el recaudo.',
+      );
+    }
     if (dto.targetMinor !== undefined) {
       const collected = await this.collected(id);
       if (dto.targetMinor < collected) {
@@ -719,8 +780,17 @@ export class RecaudosService {
       ...(dto.monthlyTargetMinor !== undefined
         ? { monthlyTargetMinor: dto.monthlyTargetMinor }
         : {}),
+      ...(dto.currency !== undefined
+        ? { currency: dto.currency.trim().toUpperCase() }
+        : {}),
       ...(dto.deadline !== undefined
         ? { deadline: new Date(dto.deadline) }
+        : {}),
+      ...(dto.payoutMethod !== undefined
+        ? { payoutMethod: dto.payoutMethod }
+        : {}),
+      ...(dto.payoutAccountDetails !== undefined
+        ? { payoutAccountDetails: dto.payoutAccountDetails.trim() }
         : {}),
     });
     await recaudo.save();
@@ -1396,6 +1466,8 @@ export class RecaudosService {
       deadline: recaudo.deadline?.toISOString(),
       closedAt: recaudo.closedAt?.toISOString(),
       shareCode: recaudo.shareCode?.trim().toUpperCase() || undefined,
+      payoutMethod: recaudo.payoutMethod === 'digital' ? 'digital' : 'personal',
+      payoutAccountDetails: recaudo.payoutAccountDetails?.trim() || undefined,
       createdAt: recaudo.createdAt.toISOString(),
       updatedAt: recaudo.updatedAt.toISOString(),
       ...(await this.totals(recaudo)),

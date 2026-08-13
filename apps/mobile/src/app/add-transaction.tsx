@@ -5,11 +5,12 @@ import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { AppDateField } from '@/components/app-date-field';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
 import { getActiveMoneyCurrency, money } from '@/data/demo';
-import { formatDayLabel, parseDateKey, toDateKey } from '@/data/calendar';
+import { toDateKey } from '@/data/calendar';
 import { isLiquidAccount } from '@/lib/accounts';
 import { useLanguageStore } from '@/store/language';
 import { useAuthStore } from '@/store/auth';
@@ -125,15 +126,6 @@ export default function AddTransactionScreen() {
     const timer = setTimeout(() => setHydratedEdit(true), 500);
     return () => clearTimeout(timer);
   }, [existing, envelopes, hydratedEdit, isEditing, liquidAccounts]);
-
-  const dateLabel = useMemo(() => {
-    const todayKey = toDateKey(new Date());
-    if (dateKey === todayKey) return locale === 'es' ? 'Hoy' : 'Today';
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (dateKey === toDateKey(yesterday)) return locale === 'es' ? 'Ayer' : 'Yesterday';
-    return formatDayLabel(parseDateKey(dateKey), locale);
-  }, [dateKey, locale]);
 
   const notifyUser = (title: string, message: string) => {
     setFormError(message);
@@ -412,86 +404,56 @@ export default function AddTransactionScreen() {
             )}
           </Field>
           <Field label="Fecha">
-            {Platform.OS === 'web' ? (
-              <View style={styles.dateBlock}>
-                <input
-                  type="date"
-                  value={dateKey}
-                  onChange={(event) => setDateKey(event.target.value)}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 15,
-                    padding: '12px 14px',
-                    fontSize: 15,
-                    color: theme.text,
-                    backgroundColor: theme.surface,
-                    fontFamily: 'inherit',
-                    minHeight: 50,
-                  }}
-                />
-                <Text style={[styles.hint, { color: theme.muted }]}>{dateLabel}</Text>
-                <View style={styles.dateChips}>
-                  {(
-                    [
-                      {
-                        key: toDateKey(new Date()),
-                        label: locale === 'es' ? 'Hoy' : 'Today',
-                      },
-                      {
-                        key: (() => {
-                          const d = new Date();
-                          d.setDate(d.getDate() - 1);
-                          return toDateKey(d);
-                        })(),
-                        label: locale === 'es' ? 'Ayer' : 'Yesterday',
-                      },
-                    ] as const
-                  ).map((chip) => {
-                    const selected = dateKey === chip.key;
-                    return (
-                      <Pressable
-                        key={chip.key}
-                        onPress={() => setDateKey(chip.key)}
-                        style={[
-                          styles.dateChip,
-                          {
-                            backgroundColor: selected ? theme.primarySoft : theme.surfaceSecondary,
-                            borderColor: selected ? theme.primary : theme.border,
-                          },
-                        ]}>
-                        <Text
-                          style={{
-                            color: selected ? theme.primary : theme.muted,
-                            fontWeight: '700',
-                            fontSize: 12,
-                          }}>
-                          {chip.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+            <View style={styles.dateBlock}>
+              <AppDateField
+                value={dateKey}
+                onChange={setDateKey}
+                placeholder={locale === 'es' ? 'Elegir fecha' : 'Pick a date'}
+              />
+              <View style={styles.dateChips}>
+                {(
+                  [
+                    {
+                      key: toDateKey(new Date()),
+                      label: locale === 'es' ? 'Hoy' : 'Today',
+                    },
+                    {
+                      key: (() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() - 1);
+                        return toDateKey(d);
+                      })(),
+                      label: locale === 'es' ? 'Ayer' : 'Yesterday',
+                    },
+                  ] as const
+                ).map((chip) => {
+                  const selected = dateKey === chip.key;
+                  return (
+                    <Pressable
+                      key={chip.key}
+                      onPress={() => setDateKey(chip.key)}
+                      style={[
+                        styles.dateChip,
+                        {
+                          backgroundColor: selected
+                            ? theme.primarySoft
+                            : theme.surfaceSecondary,
+                          borderColor: selected ? theme.primary : theme.border,
+                        },
+                      ]}>
+                      <Text
+                        style={{
+                          color: selected ? theme.primary : theme.muted,
+                          fontWeight: '700',
+                          fontSize: 12,
+                        }}>
+                        {chip.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-            ) : (
-              <View style={styles.dateBlock}>
-                <TextInput
-                  value={dateKey}
-                  onChangeText={setDateKey}
-                  onFocus={focusScrollToEnd(scrollRef, 120)}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={theme.muted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={[
-                    styles.input,
-                    { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border },
-                  ]}
-                />
-                <Text style={[styles.hint, { color: theme.muted }]}>{dateLabel}</Text>
-              </View>
-            )}
+            </View>
           </Field>
           <Field label="Nota">
             <TextInput

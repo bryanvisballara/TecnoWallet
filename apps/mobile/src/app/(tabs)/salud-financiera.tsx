@@ -311,6 +311,7 @@ export default function SaludFinancieraScreen() {
         </Pressable>
       }>
       <HeroNetWorthBanner
+        compact
         label={copy.health.netWorth}
         amount={patrimonio}
         formula={copy.health.netWorthHint}

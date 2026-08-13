@@ -70,7 +70,13 @@ export default function CashflowDetailScreen() {
       }>
       <Card style={[styles.hero, { backgroundColor: accent }]}>
         <Text style={styles.heroLabel}>{meta.heroLabel}</Text>
-        <Text style={styles.heroValue}>{money(heroTotal || total)}</Text>
+        <Text
+          style={styles.heroValue}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.55}>
+          {money(heroTotal || total)}
+        </Text>
         <View style={styles.heroMeta}>
           <Pill tone={meta.tone}>{copy.cashflow.nMovements(items.length)}</Pill>
           <Text style={styles.heroHint}>Agosto 2026</Text>
@@ -154,9 +160,23 @@ export default function CashflowDetailScreen() {
 
 const styles = StyleSheet.create({
   back: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  hero: { borderWidth: 0, gap: 10 },
+  hero: {
+    borderWidth: 0,
+    gap: 8,
+    minHeight: 128,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 22,
+    justifyContent: 'space-between',
+  },
   heroLabel: { color: '#FFFFFFCC', fontSize: 13, fontWeight: '600' },
-  heroValue: { color: '#FFFFFF', fontSize: 36, fontWeight: '700', letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  heroValue: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
+  },
   heroMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   heroHint: { color: '#FFFFFFCC', fontSize: 12 },
   section: { fontSize: 18, fontWeight: '700', marginTop: 4 },
