@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Recaudo } from '../recaudos/recaudos.module';
-import { isDigitalInactive } from '../recaudos/recaudo-digital-pricing';
+import { isDigitalCurrency, isDigitalInactive } from '../recaudos/recaudo-digital-pricing';
 import { UnitClient } from './unit-client';
 import { UnitRecaudoAccount } from './unit.schemas';
 
@@ -55,9 +55,9 @@ export class UnitAccountService {
         'Este recaudo usa cuenta personal. No se abre cuenta Bridge.',
       );
     }
-    if (recaudo.currency !== 'USD') {
+    if (!isDigitalCurrency(recaudo.currency)) {
       throw new BadRequestException(
-        'La cuenta digital solo opera en USD.',
+        'La cuenta digital guarda el pozo en USDC.',
       );
     }
     if (recaudo.status !== 'open' || recaudo.digitalClosedAt) {

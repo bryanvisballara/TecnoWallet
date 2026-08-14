@@ -1,4 +1,12 @@
-export const DIGITAL_CURRENCY = 'USD';
+export const DIGITAL_CURRENCY = 'USDC';
+export const DIGITAL_CURRENCY_ALIASES = ['USDC', 'USD'] as const;
+
+export function isDigitalCurrency(code: string) {
+  return DIGITAL_CURRENCY_ALIASES.includes(
+    code.trim().toUpperCase() as (typeof DIGITAL_CURRENCY_ALIASES)[number],
+  );
+}
+
 export const DIGITAL_MONTHLY_FEE_MINOR = 299;
 export const DIGITAL_KYC_FEE_MINOR = 299;
 export const DIGITAL_WITHDRAW_BPS = 200;
@@ -14,7 +22,7 @@ export type DigitalPricing = {
   minTargetMinor: number;
   kycAbsorbTargetMinor: number;
   inactiveDays: number;
-  businessIncludedPerMonth: number;
+  businessIncludedPerMonth?: number;
 };
 
 export type DigitalQuote = {

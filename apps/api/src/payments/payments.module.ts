@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
+import { BridgeModule } from '../bridge/bridge.module';
 import { Recaudo, RecaudoSchema, RecaudosModule } from '../recaudos/recaudos.module';
 import { CardPaymentProvider, PaymentProvider } from './payment-provider';
 import { UnconfiguredCardPaymentProvider } from './card-provider.stub';
@@ -17,7 +18,6 @@ import {
   RecurringFundingSchedule,
   RecurringFundingScheduleSchema,
 } from './payments.schemas';
-import { BridgeClient } from '../bridge/bridge-client';
 import { UnitClient } from '../unit/unit-client';
 import { UnitCustomerService } from '../unit/unit-customer.service';
 import { UnitAccountService } from '../unit/unit-account.service';
@@ -45,6 +45,7 @@ import {
   imports: [
     AuthModule,
     RecaudosModule,
+    BridgeModule,
     ScheduleModule.forRoot(),
     MongooseModule.forFeature([
       { name: PaymentIntent.name, schema: PaymentIntentSchema },
@@ -62,7 +63,6 @@ import {
   ],
   controllers: [UnitController, PaymentsController, UnitWebhookController],
   providers: [
-    BridgeClient,
     UnitClient,
     UnitCustomerService,
     UnitAccountService,
@@ -80,7 +80,7 @@ import {
     PaymentProvider,
     CardPaymentProvider,
     PaymentOrchestrationService,
-    BridgeClient,
+    BridgeModule,
     UnitCustomerService,
     UnitAccountService,
     UnitCounterpartyService,

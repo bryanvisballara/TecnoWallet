@@ -76,6 +76,7 @@ export const currencies: CurrencyOption[] = [
 const byCode = new Map(currencies.map((item) => [item.code, item]));
 
 export function currencyLabel(code: string) {
+  if (code.toUpperCase() === 'USDC') return 'USD Coin';
   return byCode.get(code)?.name ?? code;
 }
 

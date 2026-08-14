@@ -1,13 +1,20 @@
 /** Bridge-backed digital recaudo rail. Personal (off-platform) stays free. */
 
-export const DIGITAL_CURRENCY = 'USD';
+export const DIGITAL_CURRENCY = 'USDC';
+export const DIGITAL_CURRENCY_ALIASES = ['USDC', 'USD'] as const;
+
+export function isDigitalCurrency(code: string) {
+  return DIGITAL_CURRENCY_ALIASES.includes(
+    code.trim().toUpperCase() as (typeof DIGITAL_CURRENCY_ALIASES)[number],
+  );
+}
+
 export const DIGITAL_MONTHLY_FEE_MINOR = 299;
 export const DIGITAL_KYC_FEE_MINOR = 299;
 export const DIGITAL_WITHDRAW_BPS = 200;
 export const DIGITAL_MIN_TARGET_MINOR = 25_000;
 export const DIGITAL_KYC_ABSORB_TARGET_MINOR = 100_000;
 export const DIGITAL_INACTIVE_DAYS = 30;
-export const DIGITAL_INCLUDED_PER_MONTH = 1;
 
 export const digitalPricingPublic = {
   currency: DIGITAL_CURRENCY,
@@ -17,7 +24,6 @@ export const digitalPricingPublic = {
   minTargetMinor: DIGITAL_MIN_TARGET_MINOR,
   kycAbsorbTargetMinor: DIGITAL_KYC_ABSORB_TARGET_MINOR,
   inactiveDays: DIGITAL_INACTIVE_DAYS,
-  businessIncludedPerMonth: DIGITAL_INCLUDED_PER_MONTH,
 } as const;
 
 export function monthsActive(from: Date, to: Date): number {
@@ -64,7 +70,6 @@ export function quoteDigitalWithdrawal(input: {
   let months = input.activatedAt
     ? monthsActive(input.activatedAt, now)
     : 0;
-  if (input.monthlyIncluded) months = Math.max(0, months - 1);
   const monthlyDueMinor = Math.max(
     0,
     months * DIGITAL_MONTHLY_FEE_MINOR - (input.monthlyBilledMinor || 0),

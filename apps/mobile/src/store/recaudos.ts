@@ -75,7 +75,18 @@ export type Recaudo = {
     minTargetMinor: number;
     kycAbsorbTargetMinor: number;
     inactiveDays: number;
-    businessIncludedPerMonth: number;
+    businessIncludedPerMonth?: number;
+  };
+  tecnoAccount?: {
+    status?: string;
+    kycUrl?: string;
+    tosUrl?: string;
+    chain?: string;
+    virtualAccounts?: Array<{
+      id: string;
+      currency: string;
+      paymentRails: string[];
+    }>;
   };
   participants: RecaudoParticipant[];
   contributions: RecaudoContribution[];
@@ -441,7 +452,7 @@ function normalizeRecaudo(raw: unknown): Recaudo {
       value.payoutAccountDetails.trim()
         ? value.payoutAccountDetails.trim()
         : undefined,
-    digitalMonthlyIncluded: Boolean(value.digitalMonthlyIncluded),
+    digitalMonthlyIncluded: false,
     digitalActivatedAt:
       typeof value.digitalActivatedAt === "string"
         ? value.digitalActivatedAt
@@ -450,6 +461,35 @@ function normalizeRecaudo(raw: unknown): Recaudo {
       typeof value.digitalClosedAt === "string"
         ? value.digitalClosedAt
         : undefined,
+    tecnoAccount: (() => {
+      const account = value.tecnoAccount;
+      if (!account || typeof account !== "object") return undefined;
+      const row = account as Record<string, unknown>;
+      return {
+        status: typeof row.status === "string" ? row.status : undefined,
+        kycUrl: typeof row.kycUrl === "string" ? row.kycUrl : undefined,
+        tosUrl: typeof row.tosUrl === "string" ? row.tosUrl : undefined,
+        chain: typeof row.chain === "string" ? row.chain : undefined,
+        virtualAccounts: Array.isArray(row.virtualAccounts)
+          ? row.virtualAccounts.flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const va = item as Record<string, unknown>;
+              if (typeof va.id !== "string") return [];
+              return [
+                {
+                  id: va.id,
+                  currency: typeof va.currency === "string" ? va.currency : "",
+                  paymentRails: Array.isArray(va.paymentRails)
+                    ? va.paymentRails.filter(
+                        (rail): rail is string => typeof rail === "string",
+                      )
+                    : [],
+                },
+              ];
+            })
+          : [],
+      };
+    })(),
     digitalQuote: (() => {
       const quote = value.digitalQuote;
       if (!quote || typeof quote !== "object") return null;

@@ -8,6 +8,7 @@ import {
   Get,
   Headers,
   Injectable,
+  Logger,
   Module,
   NotFoundException,
   Param,
@@ -52,15 +53,15 @@ import {
 } from 'mongoose';
 import { AuthModule, CurrentUser, Membership, User } from '../auth/auth.module';
 import type { AuthPrincipal } from '../auth/auth.module';
-import { BillingModule } from '../billing/billing.module';
-import { EntitlementService } from '../billing/entitlement.service';
+import { BridgeModule } from '../bridge/bridge.module';
+import { RecaudoBridgeService } from '../bridge/recaudo-bridge.service';
 import { PushModule } from '../push/push.module';
 import { PushService } from '../push/push.service';
 import {
-  DIGITAL_CURRENCY,
   DIGITAL_KYC_ABSORB_TARGET_MINOR,
   DIGITAL_MIN_TARGET_MINOR,
   digitalPricingPublic,
+  isDigitalCurrency,
   isDigitalInactive,
   quoteDigitalWithdrawal,
 } from './recaudo-digital-pricing';
@@ -151,7 +152,7 @@ export class Recaudo {
   shareCode?: string;
 
   /** Where collected funds should be held / sent. */
-  @Prop({ type: String, enum: payoutMethods, default: 'personal' })
+  @Prop({ type: String, enum: payoutMethods, default: 'digital' })
   payoutMethod?: RecaudoPayoutMethod;
 
   /** Free-text bank/account details when payoutMethod is personal. */
@@ -168,9 +169,24 @@ export class Recaudo {
   @Prop()
   lastDigitalActivityAt?: Date;
 
-  /** Business perk: first digital recaudo of the month skips the $2.99 fee. */
   @Prop({ default: false })
   digitalMonthlyIncluded?: boolean;
+
+  @Prop({ type: Object })
+  tecnoAccount?: {
+    customerId?: string;
+    walletId?: string;
+    walletAddress?: string;
+    chain?: string;
+    kycUrl?: string;
+    tosUrl?: string;
+    status?: string;
+    virtualAccounts?: Array<{
+      id: string;
+      currency: string;
+      paymentRails: string[];
+    }>;
+  };
 
   @Prop({ default: 0 })
   digitalMonthlyBilledMinor?: number;
@@ -421,7 +437,7 @@ class CreateRecaudoDto {
   monthlyTargetMinor!: number;
 
   @IsString()
-  @Length(3, 3)
+  @Length(3, 4)
   currency!: string;
 
   @IsOptional()
@@ -465,7 +481,7 @@ class UpdateRecaudoDto {
 
   @IsOptional()
   @IsString()
-  @Length(3, 3)
+  @Length(3, 4)
   currency?: string;
 
   @IsOptional()
@@ -620,6 +636,8 @@ class ConfiguredRecaudoMailer implements RecaudoMailer {
 
 @Injectable()
 export class RecaudosService {
+  private readonly logger = new Logger(RecaudosService.name);
+
   constructor(
     @InjectModel(Recaudo.name) private readonly recaudos: Model<Recaudo>,
     @InjectModel(Participant.name)
@@ -637,7 +655,7 @@ export class RecaudosService {
     private readonly mailer: RecaudoMailer,
     private readonly config: ConfigService,
     private readonly push: PushService,
-    private readonly entitlements: EntitlementService,
+    private readonly tecnoAccounts: RecaudoBridgeService,
   ) {}
 
   async create(dto: CreateRecaudoDto, principal: AuthPrincipal) {
@@ -651,7 +669,7 @@ export class RecaudosService {
     if (dto.deadline && new Date(dto.deadline) <= new Date()) {
       throw new BadRequestException('deadline must be in the future');
     }
-    const payoutMethod = dto.payoutMethod === 'digital' ? 'digital' : 'personal';
+    const payoutMethod = dto.payoutMethod === 'personal' ? 'personal' : 'digital';
     const payoutAccountDetails = dto.payoutAccountDetails?.trim() || '';
     if (payoutMethod === 'digital') {
       this.assertDigitalEligible(dto.currency, dto.targetMinor);
@@ -661,10 +679,6 @@ export class RecaudosService {
       );
     }
     const shareCode = await this.allocateShareCode();
-    const digitalMonthlyIncluded =
-      payoutMethod === 'digital'
-        ? await this.shouldIncludeDigitalMonthly(principal.userId)
-        : false;
     const recaudo = await this.recaudos.create({
       workspaceId: dto.workspaceId,
       organizerId: principal.userId,
@@ -678,13 +692,16 @@ export class RecaudosService {
       shareCode,
       payoutMethod,
       payoutAccountDetails,
-      digitalMonthlyIncluded,
+      digitalMonthlyIncluded: false,
     });
     await this.participants.create({
       recaudoId: recaudo._id,
       userId: principal.userId,
       role: 'organizer',
     });
+    if (payoutMethod === 'digital') {
+      await this.provisionTecnoAccount(recaudo, principal.userId);
+    }
     return this.detail(recaudo._id.toString(), principal);
   }
 
@@ -1104,7 +1121,7 @@ export class RecaudosService {
         ? quoteDigitalWithdrawal({
             amountMinor: dto.amountMinor,
             activatedAt: recaudo.digitalActivatedAt,
-            monthlyIncluded: Boolean(recaudo.digitalMonthlyIncluded),
+            monthlyIncluded: false,
             monthlyBilledMinor: recaudo.digitalMonthlyBilledMinor ?? 0,
             participantCount,
             kycBilledMinor: recaudo.digitalKycBilledMinor ?? 0,
@@ -1120,7 +1137,7 @@ export class RecaudosService {
           };
     if (quote.netPayoutMinor < 1) {
       throw new BadRequestException(
-        'El pozo no cubre la comisión digital (2% al retiro, cuota mensual y KYC). Retira un monto mayor o usa cuenta personal.',
+        'El pozo no cubre la comisión (2% al retiro, cuota mensual y KYC). Retira un monto mayor.',
       );
     }
     try {
@@ -1554,31 +1571,46 @@ export class RecaudosService {
   }
 
   private assertDigitalEligible(currency: string, targetMinor: number) {
-    if (currency.trim().toUpperCase() !== DIGITAL_CURRENCY) {
+    if (!isDigitalCurrency(currency)) {
       throw new BadRequestException(
-        'La cuenta digital solo opera en USD. Bridge no tiene riel barato en COP; usa cuenta personal o cambia la meta a USD.',
+        'La cuenta TecnoWallet guarda el pozo en USDC.',
       );
     }
     if (targetMinor < DIGITAL_MIN_TARGET_MINOR) {
       throw new BadRequestException(
-        'La cuenta digital requiere una meta de al menos US$ 250. Debajo de eso el costo fijo de Bridge deja el pozo en rojo. Usa cuenta personal.',
+        'La cuenta TecnoWallet requiere una meta de al menos 250 USDC.',
       );
     }
   }
 
-  private async shouldIncludeDigitalMonthly(organizerId: string) {
-    const isBusiness = await this.entitlements.isBusiness(organizerId);
-    if (!isBusiness) return false;
-    const now = new Date();
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const used = await this.recaudos.countDocuments({
-      organizerId,
-      payoutMethod: 'digital',
-      digitalMonthlyIncluded: true,
-      createdAt: { $gte: start },
-      deletedAt: { $exists: false },
+  private async provisionTecnoAccount(
+    recaudo: HydratedDocument<Recaudo>,
+    organizerId: string,
+  ) {
+    const organizer = await this.users.findById(organizerId);
+    if (!organizer?.email) {
+      recaudo.tecnoAccount = { status: 'failed', virtualAccounts: [] };
+      await recaudo.save();
+      return;
+    }
+    const prior = await this.recaudos
+      .findOne({
+        organizerId,
+        'tecnoAccount.customerId': { $exists: true, $nin: [null, ''] },
+        deletedAt: { $exists: false },
+      })
+      .sort({ createdAt: -1 });
+    const snapshot = await this.tecnoAccounts.provision({
+      recaudoId: recaudo._id.toString(),
+      organizerEmail: organizer.email,
+      organizerName: organizer.name,
+      existingCustomerId: prior?.tecnoAccount?.customerId,
     });
-    return used < digitalPricingPublic.businessIncludedPerMonth;
+    recaudo.tecnoAccount = snapshot;
+    this.logger.log(
+      `TecnoWallet account ${snapshot.status} for recaudo ${recaudo._id.toString()}`,
+    );
+    await recaudo.save();
   }
 
   async quoteForRecaudo(
@@ -1603,7 +1635,7 @@ export class RecaudosService {
     return quoteDigitalWithdrawal({
       amountMinor: gross,
       activatedAt: recaudo.digitalActivatedAt,
-      monthlyIncluded: Boolean(recaudo.digitalMonthlyIncluded),
+      monthlyIncluded: false,
       monthlyBilledMinor: recaudo.digitalMonthlyBilledMinor ?? 0,
       participantCount,
       kycBilledMinor: recaudo.digitalKycBilledMinor ?? 0,
@@ -1618,7 +1650,7 @@ export class RecaudosService {
   assertDigitalAccountOpen(recaudo: HydratedDocument<Recaudo>) {
     if (recaudo.payoutMethod !== 'digital') {
       throw new BadRequestException(
-        'Este recaudo usa cuenta personal. No abre cuenta Bridge.',
+        'Este recaudo no usa una cuenta TecnoWallet.',
       );
     }
     if (recaudo.status !== 'open' || recaudo.digitalClosedAt) {
@@ -1626,7 +1658,7 @@ export class RecaudosService {
     }
     if (isDigitalInactive(recaudo.lastDigitalActivityAt)) {
       throw new BadRequestException(
-        'La cuenta digital se cerró por 30 días inactiva. Crea un recaudo nuevo si hace falta.',
+        'Esta cuenta TecnoWallet se cerró por 30 días inactiva. Crea un recaudo nuevo si hace falta.',
       );
     }
   }
@@ -1648,11 +1680,20 @@ export class RecaudosService {
       shareCode: recaudo.shareCode?.trim().toUpperCase() || undefined,
       payoutMethod: recaudo.payoutMethod === 'digital' ? 'digital' : 'personal',
       payoutAccountDetails: recaudo.payoutAccountDetails?.trim() || undefined,
-      digitalMonthlyIncluded: Boolean(recaudo.digitalMonthlyIncluded),
+      digitalMonthlyIncluded: false,
       digitalActivatedAt: recaudo.digitalActivatedAt?.toISOString(),
       digitalClosedAt: recaudo.digitalClosedAt?.toISOString(),
       digitalPricing: digitalPricingPublic,
       digitalQuote: await this.quoteForRecaudo(recaudo),
+      tecnoAccount: recaudo.tecnoAccount
+        ? {
+            status: recaudo.tecnoAccount.status,
+            kycUrl: recaudo.tecnoAccount.kycUrl,
+            tosUrl: recaudo.tecnoAccount.tosUrl,
+            chain: recaudo.tecnoAccount.chain,
+            virtualAccounts: recaudo.tecnoAccount.virtualAccounts ?? [],
+          }
+        : undefined,
       createdAt: recaudo.createdAt.toISOString(),
       updatedAt: recaudo.updatedAt.toISOString(),
       ...(await this.totals(recaudo)),
@@ -1837,7 +1878,7 @@ function escapeHtml(value: string): string {
   imports: [
     AuthModule,
     PushModule,
-    BillingModule,
+    BridgeModule,
     MongooseModule.forFeature([
       { name: Recaudo.name, schema: RecaudoSchema },
       { name: Participant.name, schema: ParticipantSchema },

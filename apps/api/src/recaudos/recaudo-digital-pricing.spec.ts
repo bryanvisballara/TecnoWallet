@@ -40,7 +40,7 @@ describe('recaudo digital pricing', () => {
     );
   });
 
-  it('waives one month for Business included recaudo', () => {
+  it('always charges the monthly fee, including the first month', () => {
     const quote = quoteDigitalWithdrawal({
       amountMinor: 200_000,
       activatedAt: new Date('2026-01-01T00:00:00Z'),
@@ -50,7 +50,7 @@ describe('recaudo digital pricing', () => {
       participantCount: 1,
       kycBilledMinor: 0,
     });
-    expect(quote.monthlyDueMinor).toBe(0);
+    expect(quote.monthlyDueMinor).toBe(DIGITAL_MONTHLY_FEE_MINOR);
     expect(DIGITAL_MIN_TARGET_MINOR).toBe(25_000);
   });
 

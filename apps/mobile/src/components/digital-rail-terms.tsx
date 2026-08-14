@@ -12,11 +12,7 @@ function usd(minor: number, digits = 2) {
   return (minor / 100).toFixed(digits).replace('.', ',');
 }
 
-export function DigitalRailTerms({
-  businessIncluded = false,
-}: {
-  businessIncluded?: boolean;
-}) {
+export function DigitalRailTerms() {
   const theme = useAppTheme();
   const monthly = usd(DIGITAL_MONTHLY_FEE_MINOR);
   const kyc = usd(DIGITAL_KYC_FEE_MINOR);
@@ -27,29 +23,24 @@ export function DigitalRailTerms({
     {
       title: 'Ventajas',
       items: [
-        'El dinero queda en una cuenta del recaudo, no en el Nequi o banco de una persona.',
         'El organizador controla el retiro cuando se cumple la meta.',
-        businessIncluded
-          ? `Plan Business: este recaudo no cobra los US$ ${monthly} del primer mes.`
-          : `Plan Business: 1 recaudo digital al mes sin la cuota de US$ ${monthly}.`,
+        'Puedes programar pagos recurrentes.',
       ],
     },
     {
       title: 'Condiciones',
       items: [
-        `Solo USD. Meta mínima US$ ${min}.`,
-        'La cuenta se abre con el primer aporte real, no al crear el recaudo.',
-        'Cada integrante completa KYC. Sin cripto en el pozo. COP u otra moneda: usa cuenta personal (gratis).',
+        `El pozo se guarda en USDC. Meta mínima ${min} USDC.`,
+        'Puedes aportar en USD, COP, reales, MXN y las demás disponibles, además de tarjeta débito y crédito.',
+        'Cada integrante completa una verificación de identidad.',
       ],
     },
     {
       title: 'Costos',
       items: [
-        `US$ ${monthly}/mes mientras el recaudo esté activo${
-          businessIncluded ? ' (mes 1 incluido)' : ''
-        }.`,
-        '2% al retirar (no pasa por la App Store).',
-        `KYC US$ ${kyc} por persona. TecnoWallet lo cubre si la meta es ≥ US$ ${absorb}.`,
+        `US$ ${monthly}/mes mientras el recaudo esté activo.`,
+        '2% al retirar.',
+        `Verificación US$ ${kyc} por persona. TecnoWallet lo cubre si la meta es ≥ US$ ${absorb}.`,
       ],
     },
   ];

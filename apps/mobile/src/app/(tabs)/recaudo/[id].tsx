@@ -4,6 +4,7 @@ import { safeGoBack } from "@/lib/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Linking,
   Modal,
   Pressable,
   StyleSheet,
@@ -389,7 +390,7 @@ export default function RecaudoDetailScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (next.status === "approved") {
         Alert.alert(
-          "Cuenta digital lista",
+          "Cuenta TecnoWallet lista",
           "Ya puedes vincular tu banco para aportar al recaudo.",
         );
       } else {
@@ -411,12 +412,12 @@ export default function RecaudoDetailScreen() {
       await ensureRecaudoWallet(recaudo.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
-        "Cuenta digital lista",
-        "Este recaudo ya tiene su propia cuenta checking para recibir aportes.",
+        "Cuenta TecnoWallet lista",
+        "Este recaudo ya tiene su cuenta para recibir aportes.",
       );
     } catch (error) {
       Alert.alert(
-        "No se pudo abrir la cuenta digital",
+        "No se pudo abrir la cuenta TecnoWallet",
         error instanceof Error ? error.message : "Inténtalo de nuevo.",
       );
     }
@@ -814,26 +815,53 @@ export default function RecaudoDetailScreen() {
             <View style={styles.copy}>
               <View style={styles.nameLine}>
                 <Text style={[styles.cardTitle, { color: theme.text }]}>
-                  {t("Cuenta digital", "Digital account")}
+                  {t("TecnoWallet", "TecnoWallet")}
                 </Text>
-                <Pill tone={recaudo.digitalActivatedAt ? "green" : "neutral"}>
-                  {recaudo.digitalActivatedAt
-                    ? t("Activa", "Active")
-                    : t("Se abre al primer aporte", "Opens on first deposit")}
+                <Pill
+                  tone={
+                    recaudo.tecnoAccount?.status === "ready"
+                      ? "green"
+                      : recaudo.digitalActivatedAt
+                        ? "green"
+                        : "neutral"
+                  }
+                >
+                  {recaudo.tecnoAccount?.status === "ready"
+                    ? t("Lista", "Ready")
+                    : recaudo.tecnoAccount?.status === "pending_kyc"
+                      ? t("Falta verificación", "Verification needed")
+                      : recaudo.digitalActivatedAt
+                        ? t("Activa", "Active")
+                        : t("Preparando cuenta", "Setting up")}
                 </Pill>
               </View>
             </View>
           </View>
-          <DigitalRailTerms
-            businessIncluded={Boolean(recaudo.digitalMonthlyIncluded)}
-          />
+          <DigitalRailTerms />
+          {recaudo.tecnoAccount?.kycUrl ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                const url = recaudo.tecnoAccount?.kycUrl;
+                if (url) void Linking.openURL(url);
+              }}
+              style={[
+                styles.comingSoonBtn,
+                { borderColor: theme.primary, backgroundColor: theme.primarySoft },
+              ]}
+            >
+              <Text style={[styles.rowTitle, { color: theme.primary }]}>
+                {t("Completar verificación", "Complete verification")}
+              </Text>
+            </Pressable>
+          ) : null}
         </Card>
       ) : !demo && !BRIDGE_PAYMENTS_LIVE ? (
         <Card style={styles.formCard}>
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
             {t(
-              "Este recaudo usa cuenta personal (gratis). El grupo se paga por fuera; TecnoWallet solo anota. La cuenta digital (USD, meta mínima US$ 250) se elige al crear el recaudo.",
-              "This collection uses a personal account (free). The group pays off-platform; TecnoWallet only records it. Digital (USD, US$250 min) is chosen when creating the collection.",
+              "Este recaudo usa una cuenta personal. El grupo se paga por fuera; TecnoWallet solo anota.",
+              "This collection uses a personal account. The group pays off-platform; TecnoWallet only records it.",
             )}
           </Text>
         </Card>
