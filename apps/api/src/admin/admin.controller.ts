@@ -7,12 +7,13 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { AdminOnly } from '../auth/auth.module';
+import { AdminOnly, CurrentUser, type AuthPrincipal } from '../auth/auth.module';
 import {
   AdminPayoutsQueryDto,
   AdminUserSearchQueryDto,
   ManualUpgradeDto,
   MarkCommissionsPaidDto,
+  PayAffiliateDto,
 } from './admin.dto';
 import { AdminService } from './admin.service';
 
@@ -31,6 +32,25 @@ export class AdminController {
   @Get('affiliate/payouts')
   affiliatePayouts(@Query() query: AdminPayoutsQueryDto) {
     return this.admin.affiliatePayouts(query);
+  }
+
+  @Post('affiliate/payouts/simulate')
+  simulatePayouts(@CurrentUser() user: AuthPrincipal) {
+    return this.admin.simulatePayouts(user.userId, user.email);
+  }
+
+  @Post('affiliate/payouts/clear-simulated')
+  clearSimulatedPayouts() {
+    return this.admin.clearSimulatedPayouts();
+  }
+
+  @Post('affiliate/payouts/:affiliateId/pay')
+  payAffiliate(
+    @Param('affiliateId') affiliateId: string,
+    @Body() body: PayAffiliateDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.admin.payAffiliate(affiliateId, body, user.email);
   }
 
   @Post('affiliate/commissions/:id/approve')

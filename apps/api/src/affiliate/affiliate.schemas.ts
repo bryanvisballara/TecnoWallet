@@ -275,6 +275,12 @@ export class CommissionEvent {
   @Prop()
   paidAt?: Date;
 
+  @Prop({ trim: true, maxlength: 280 })
+  payoutNote?: string;
+
+  @Prop({ trim: true, maxlength: 160 })
+  payoutProofName?: string;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

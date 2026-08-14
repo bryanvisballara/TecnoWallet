@@ -1,4 +1,5 @@
 import { Redirect } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,14 +14,16 @@ import {
 import { AppIcon, Card, Pill, PrimaryButton, Screen, useAppTheme } from '@/components/ui';
 import { safeGoBack } from '@/lib/navigation';
 import {
-  approveAdminCommission,
+  clearSimulatedAdminPayouts,
   getAdminAffiliatePayouts,
   getAdminUserDetail,
   getAdminUserStats,
-  markAdminCommissionsPaid,
+  payAdminAffiliate,
   searchAdminUsers,
+  simulateAdminPayouts,
   upgradeAdminUser,
   type AdminAffiliatePayout,
+  type AdminPayoutPolicy,
   type AdminPlan,
   type AdminUserDetail,
   type AdminUserRow,
@@ -77,6 +80,19 @@ function previousMonthRange() {
   return { from: toInputDate(from), to: toInputDate(to) };
 }
 
+function blockCopy(reason: AdminAffiliatePayout['blockReason']) {
+  if (reason === 'no_wallet') {
+    return 'Sin wallet USDT. No se puede pagar. Pídele que la registre en Afiliados.';
+  }
+  if (reason === 'below_minimum') {
+    return 'Bajo el mínimo de USD 100. Se acumula al próximo día 15.';
+  }
+  if (reason === 'already_paid') {
+    return 'Sin saldo pendiente. Ya quedó en 0 para el próximo periodo.';
+  }
+  return '';
+}
+
 export default function AdminPortalScreen() {
   const theme = useAppTheme();
   const platformRole = useAuthStore((state) => state.profile.platformRole);
@@ -86,10 +102,11 @@ export default function AdminPortalScreen() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [payouts, setPayouts] = useState<AdminAffiliatePayout[]>([]);
   const [payoutsLoading, setPayoutsLoading] = useState(false);
+  const [payoutPolicy, setPayoutPolicy] = useState<AdminPayoutPolicy | null>(null);
   const month = useMemo(() => previousMonthRange(), []);
-  const [from, setFrom] = useState(month.from);
+  const [from, setFrom] = useState('');
   const [to, setTo] = useState(month.to);
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [userQuery, setUserQuery] = useState('');
@@ -123,6 +140,7 @@ export default function AdminPortalScreen() {
         status: statusFilter || undefined,
       });
       setPayouts(result.affiliates);
+      setPayoutPolicy(result.policy);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los pagos.');
       setPayouts([]);
@@ -272,10 +290,78 @@ export default function AdminPortalScreen() {
       {tab === 'pagos' ? (
         <>
           <Card style={styles.block}>
-            <Text style={[styles.section, { color: theme.text }]}>Filtro de fechas</Text>
+            <Text style={[styles.section, { color: theme.text }]}>Cómo se paga</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Las comisiones se consolidan mensualmente. Por defecto: mes anterior. Aprueba y
-              marca pagadas tras transferir USDT (~día 15).
+              {payoutPolicy?.rule ??
+                'Un solo día al mes: el 15. Se paga el saldo acumulado hasta el mes anterior, mínimo USD 100, solo si ya hay wallet USDT. El afiliado no elige la fecha.'}
+            </Text>
+            <View style={styles.statGrid}>
+              <StatCard
+                label="Listos ≥ $100"
+                value={String(payouts.filter((row) => row.ready).length)}
+                tone={theme.success}
+              />
+              <StatCard
+                label="Sin wallet"
+                value={String(payouts.filter((row) => row.blockReason === 'no_wallet').length)}
+                tone={theme.warning}
+              />
+              <StatCard
+                label="Bajo mínimo"
+                value={String(payouts.filter((row) => row.blockReason === 'below_minimum').length)}
+                tone={theme.muted}
+              />
+              <StatCard
+                label="A desembolsar"
+                value={moneyMinor(
+                  payouts.filter((row) => row.ready).reduce((sum, row) => sum + row.pendingMinor, 0),
+                  'USD',
+                )}
+                tone={theme.primary}
+              />
+            </View>
+            <PrimaryButton
+              onPress={() => {
+                void (async () => {
+                  try {
+                    const result = await simulateAdminPayouts();
+                    Alert.alert('Cola de prueba', `${result.notice}\nCorreo: ${result.email}`);
+                    setStatusFilter('pending');
+                    await loadPayouts();
+                  } catch (cause) {
+                    Alert.alert(
+                      'Error',
+                      cause instanceof Error ? cause.message : 'No se pudo simular.',
+                    );
+                  }
+                })();
+              }}>
+              Cargar 10 pagos de prueba
+            </PrimaryButton>
+            <Pressable
+              onPress={() => {
+                void (async () => {
+                  try {
+                    await clearSimulatedAdminPayouts();
+                    await loadPayouts();
+                  } catch (cause) {
+                    Alert.alert(
+                      'Error',
+                      cause instanceof Error ? cause.message : 'No se pudieron borrar.',
+                    );
+                  }
+                })();
+              }}>
+              <Text style={{ color: theme.muted, fontWeight: '700', textAlign: 'center' }}>
+                Borrar pagos de prueba
+              </Text>
+            </Pressable>
+          </Card>
+
+          <Card style={styles.block}>
+            <Text style={[styles.section, { color: theme.text }]}>Periodo a pagar</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Vacío en Desde = todo lo acumulado no pagado hasta Hasta (mes anterior).
             </Text>
             <View style={styles.row}>
               <View style={{ flex: 1, gap: 6 }}>
@@ -347,30 +433,6 @@ export default function AdminPortalScreen() {
             <PrimaryButton onPress={() => void loadPayouts()}>
               {payoutsLoading ? 'Cargando…' : 'Aplicar filtro'}
             </PrimaryButton>
-            <PrimaryButton
-              onPress={() => {
-                void (async () => {
-                  try {
-                    const result = await markAdminCommissionsPaid({
-                      from: from || undefined,
-                      to: to || undefined,
-                      note: 'Pago mensual consolidado',
-                    });
-                    Alert.alert(
-                      'Pagos marcados',
-                      `Se actualizaron ${result.modified} comisión(es).`,
-                    );
-                    await loadPayouts();
-                  } catch (cause) {
-                    Alert.alert(
-                      'Error',
-                      cause instanceof Error ? cause.message : 'No se pudo marcar como pagado.',
-                    );
-                  }
-                })();
-              }}>
-              Marcar periodo como pagado
-            </PrimaryButton>
           </Card>
 
           {payoutsLoading ? (
@@ -385,6 +447,7 @@ export default function AdminPortalScreen() {
             payouts.map((row) => {
               const open = expandedId === row.affiliateId;
               const payout = row.payoutMethod;
+              const pending = row.pendingMinor ?? row.commissionTotalMinor;
               return (
                 <Card key={row.affiliateId} style={styles.block}>
                   <Pressable
@@ -395,32 +458,118 @@ export default function AdminPortalScreen() {
                     <View style={{ flex: 1, gap: 4 }}>
                       <Text style={[styles.memberName, { color: theme.text }]}>
                         {row.affiliateName}
+                        {row.simulated ? ' · prueba' : ''}
                       </Text>
                       <Text style={[styles.hint, { color: theme.muted }]}>
                         {row.affiliateCode || row.affiliateId}
+                        {row.email ? ` · ${row.email}` : ''}
                       </Text>
-                      <Text style={[styles.hint, { color: theme.muted }]}>
+                      <Text style={[styles.hint, { color: payout ? theme.text : theme.danger }]}>
                         {payout
-                          ? `USDT ${payout.network.toUpperCase()} · ${payout.address}`
-                          : 'Sin método de pago'}
+                          ? `USDT ${payout.network.toUpperCase()}\n${payout.address}`
+                          : 'Sin wallet USDT'}
                       </Text>
+                      {row.blockReason ? (
+                        <Text style={[styles.hint, { color: theme.warning }]}>
+                          {blockCopy(row.blockReason)}
+                        </Text>
+                      ) : null}
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 6 }}>
                       <Text style={[styles.amount, { color: theme.text }]}>
-                        {moneyMinor(row.commissionTotalMinor, row.currency)}
+                        {moneyMinor(pending, row.currency)}
                       </Text>
                       <Pill
                         tone={
-                          row.status === 'paid'
+                          row.ready
                             ? 'green'
-                            : row.status === 'pending' || row.status === 'approved'
-                              ? 'orange'
-                              : 'neutral'
+                            : row.blockReason === 'already_paid'
+                              ? 'neutral'
+                              : 'orange'
                         }>
-                        {statusLabel[row.status] ?? row.status}
+                        {row.ready
+                          ? 'Listo'
+                          : row.blockReason === 'no_wallet'
+                            ? 'Sin wallet'
+                            : row.blockReason === 'below_minimum'
+                              ? 'Acumula'
+                              : statusLabel[row.status] ?? row.status}
                       </Pill>
                     </View>
                   </Pressable>
+
+                  <PrimaryButton
+                    onPress={() => {
+                      void (async () => {
+                        if (row.blockReason === 'no_wallet') {
+                          Alert.alert(
+                            'No se puede pagar',
+                            'Esta persona no ha puesto wallet USDT. Escríbele para que la registre en Afiliados. El saldo se queda pendiente.',
+                          );
+                          return;
+                        }
+                        if (row.blockReason === 'below_minimum') {
+                          Alert.alert(
+                            'Bajo el mínimo',
+                            'Mínimo de desembolso: USD 100. No pagues ahora. Se suma al próximo día 15.',
+                          );
+                          return;
+                        }
+                        if (row.blockReason === 'already_paid' || pending <= 0) {
+                          Alert.alert('Ya pagado', 'Este saldo ya quedó en 0.');
+                          return;
+                        }
+                        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (!permission.granted) {
+                          Alert.alert(
+                            'Permiso',
+                            'Necesitas acceso a fotos para adjuntar el comprobante de la transferencia.',
+                          );
+                          return;
+                        }
+                        const picked = await ImagePicker.launchImageLibraryAsync({
+                          mediaTypes: ['images'],
+                          quality: 0.7,
+                          base64: true,
+                        });
+                        if (picked.canceled || !picked.assets[0]?.base64) {
+                          Alert.alert(
+                            'Comprobante',
+                            'Sube la captura de la transferencia USDT para enviar el correo y marcar pagado.',
+                          );
+                          return;
+                        }
+                        const asset = picked.assets[0];
+                        setBusyId(row.affiliateId);
+                        try {
+                          const result = await payAdminAffiliate(row.affiliateId, {
+                            from: from || undefined,
+                            to: to || undefined,
+                            note: 'Pago USDT día 15',
+                            proofName: asset.fileName || `comprobante-${row.affiliateCode || 'pago'}.jpg`,
+                            proofBase64: asset.base64,
+                          });
+                          Alert.alert(
+                            'Pagado',
+                            `${moneyMinor(result.paidMinor, result.currency)} a ${result.wallet.network.toUpperCase()} ${result.wallet.address}\nCorreo ${result.emailDelivered ? 'enviado' : 'registrado'} a ${result.email}.\nSaldo del periodo: USD 0.00`,
+                          );
+                          await loadPayouts();
+                        } catch (cause) {
+                          Alert.alert(
+                            'No se pagó',
+                            cause instanceof Error ? cause.message : 'Revisa wallet y mínimo.',
+                          );
+                        } finally {
+                          setBusyId(null);
+                        }
+                      })();
+                    }}>
+                    {busyId === row.affiliateId
+                      ? 'Pagando…'
+                      : row.ready
+                        ? 'Pagar · subir comprobante y avisar'
+                        : 'Por qué no se puede pagar'}
+                  </PrimaryButton>
 
                   {open
                     ? row.commissions.map((commission) => (
@@ -439,39 +588,12 @@ export default function AdminPortalScreen() {
                               {statusLabel[commission.status]}
                             </Text>
                           </View>
-                          <View style={{ alignItems: 'flex-end', gap: 8 }}>
-                            <Text style={[styles.amount, { color: theme.text }]}>
-                              {moneyMinor(
-                                commission.commissionAmountMinor,
-                                commission.currency,
-                              )}
-                            </Text>
-                            {commission.status === 'pending' ? (
-                              <Pressable
-                                onPress={() => {
-                                  void (async () => {
-                                    setBusyId(commission.id);
-                                    try {
-                                      await approveAdminCommission(commission.id);
-                                      await loadPayouts();
-                                    } catch (cause) {
-                                      Alert.alert(
-                                        'Error',
-                                        cause instanceof Error
-                                          ? cause.message
-                                          : 'No se pudo aprobar.',
-                                      );
-                                    } finally {
-                                      setBusyId(null);
-                                    }
-                                  })();
-                                }}>
-                                <Text style={{ color: theme.primary, fontWeight: '700' }}>
-                                  {busyId === commission.id ? '…' : 'Aprobar'}
-                                </Text>
-                              </Pressable>
-                            ) : null}
-                          </View>
+                          <Text style={[styles.amount, { color: theme.text }]}>
+                            {moneyMinor(
+                              commission.commissionAmountMinor,
+                              commission.currency,
+                            )}
+                          </Text>
                         </View>
                       ))
                     : null}

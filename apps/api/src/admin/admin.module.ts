@@ -12,6 +12,7 @@ import {
   Subscription,
   SubscriptionSchema,
 } from '../billing/billing.schemas';
+import { MailModule } from '../mail/mail.module';
 import { AdminController } from './admin.controller';
 import { AdminBootstrapService } from './admin-bootstrap.service';
 import { AdminService } from './admin.service';
@@ -20,6 +21,7 @@ import { AdminService } from './admin.service';
   imports: [
     AuthModule,
     BillingModule,
+    MailModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Subscription.name, schema: SubscriptionSchema },

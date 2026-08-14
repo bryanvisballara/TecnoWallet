@@ -30,15 +30,29 @@ export type AdminCommissionRow = {
   paidAt: string | null;
 };
 
+export type AdminPayoutBlock = 'no_wallet' | 'below_minimum' | 'already_paid' | null;
+
 export type AdminAffiliatePayout = {
   affiliateId: string;
   affiliateName: string;
   affiliateCode: string;
+  email: string | null;
   commissionTotalMinor: number;
+  pendingMinor: number;
   currency: string;
   status: 'pending' | 'approved' | 'paid' | 'reversed';
+  simulated?: boolean;
+  ready: boolean;
+  blockReason: AdminPayoutBlock;
   payoutMethod: AdminPayoutMethod | null;
   commissions: AdminCommissionRow[];
+};
+
+export type AdminPayoutPolicy = {
+  paydayDay: number;
+  minimumUsd: number;
+  minimumMinor: number;
+  rule: string;
 };
 
 export type AdminPlan = 'free' | 'plus' | 'business';
@@ -116,8 +130,53 @@ export function getAdminAffiliatePayouts(input?: {
     from: string | null;
     to: string | null;
     status: string | null;
+    policy: AdminPayoutPolicy;
     affiliates: AdminAffiliatePayout[];
   }>(`/admin/affiliate/payouts${suffix}`);
+}
+
+export function simulateAdminPayouts() {
+  return apiRequest<{
+    created: number;
+    email: string;
+    notice: string;
+    rows: Array<{ name: string; amountUsd: number; hasWallet: boolean }>;
+  }>('/admin/affiliate/payouts/simulate', {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
+export function clearSimulatedAdminPayouts() {
+  return apiRequest<{ commissions: number; affiliates: number }>(
+    '/admin/affiliate/payouts/clear-simulated',
+    { method: 'POST', body: '{}' },
+  );
+}
+
+export function payAdminAffiliate(
+  affiliateId: string,
+  input: {
+    from?: string;
+    to?: string;
+    note?: string;
+    proofName?: string;
+    proofBase64?: string;
+  },
+) {
+  return apiRequest<{
+    affiliateId: string;
+    paidMinor: number;
+    currency: string;
+    paidAt: string;
+    email: string;
+    emailDelivered: boolean;
+    remainingPendingMinor: number;
+    wallet: { asset: string; network: string; address: string };
+  }>(`/admin/affiliate/payouts/${encodeURIComponent(affiliateId)}/pay`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 export function approveAdminCommission(id: string) {

@@ -12,6 +12,7 @@ export class BrevoMailer {
     to: string;
     subject: string;
     htmlContent: string;
+    attachments?: Array<{ name: string; content: string }>;
   }): Promise<{ delivered: boolean }> {
     const apiKey = this.config.get<string>('BREVO_API_KEY');
     if (!apiKey?.trim()) {
@@ -38,6 +39,14 @@ export class BrevoMailer {
         to: [{ email: input.to }],
         subject: input.subject,
         htmlContent: input.htmlContent,
+        ...(input.attachments?.length
+          ? {
+              attachment: input.attachments.map((file) => ({
+                name: file.name,
+                content: file.content,
+              })),
+            }
+          : {}),
       }),
     });
     if (!response.ok) {

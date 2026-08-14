@@ -14,11 +14,17 @@ import {
 import { User } from '../auth/auth.module';
 import { Subscription } from '../billing/billing.schemas';
 import { EntitlementService } from '../billing/entitlement.service';
+import { BrevoMailer } from '../mail/brevo';
 import type {
   AdminPayoutsQueryDto,
   ManualUpgradeDto,
   MarkCommissionsPaidDto,
+  PayAffiliateDto,
 } from './admin.dto';
+import { affiliatePayoutEmailHtml } from './payout-email';
+
+export const AFFILIATE_PAYOUT_MIN_MINOR = 10_000;
+export const AFFILIATE_PAYOUT_DAY = 15;
 
 @Injectable()
 export class AdminService {
@@ -32,7 +38,17 @@ export class AdminService {
     private readonly affiliates: Model<Affiliate>,
     private readonly entitlements: EntitlementService,
     private readonly config: ConfigService,
+    private readonly mailer: BrevoMailer,
   ) {}
+
+  payoutPolicy() {
+    return {
+      paydayDay: AFFILIATE_PAYOUT_DAY,
+      minimumUsd: AFFILIATE_PAYOUT_MIN_MINOR / 100,
+      minimumMinor: AFFILIATE_PAYOUT_MIN_MINOR,
+      rule: 'Un solo día de pago al mes (día 15). Se desembolsa el saldo acumulado no pagado hasta el mes anterior, solo si es ≥ USD 100 y el afiliado ya registró wallet USDT. Ellos no eligen la fecha.',
+    };
+  }
 
   async userStats() {
     const users = await this.users
@@ -105,6 +121,20 @@ export class AdminService {
             .lean()
         : Promise.resolve([]),
     ]);
+    const ownerIds = [
+      ...new Set(
+        affiliates
+          .map((row) => row.ownerUserId?.toString())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const owners = ownerIds.length
+      ? await this.users
+          .find({ _id: { $in: ownerIds.map((id) => new Types.ObjectId(id)) } })
+          .select('name email')
+          .lean()
+      : [];
+    const ownerById = new Map(owners.map((row) => [row._id.toString(), row]));
     const affiliateById = new Map(
       affiliates.map((row) => [row.affiliateId, row]),
     );
@@ -116,9 +146,12 @@ export class AdminService {
       affiliateId: string;
       affiliateName: string;
       affiliateCode: string;
+      email: string | null;
       commissionTotalMinor: number;
+      pendingMinor: number;
       currency: string;
       status: CommissionEventStatus;
+      simulated: boolean;
       payoutMethod: {
         type: string;
         asset: string;
@@ -149,13 +182,19 @@ export class AdminService {
       let bucket = byAffiliate.get(row.affiliateId);
       if (!bucket) {
         const payout = affiliate?.payoutMethod;
+        const owner = affiliate?.ownerUserId
+          ? ownerById.get(affiliate.ownerUserId.toString())
+          : undefined;
         bucket = {
           affiliateId: row.affiliateId,
           affiliateName: affiliate?.name ?? row.affiliateId,
           affiliateCode: affiliate?.code ?? '',
+          email: owner?.email ?? null,
           commissionTotalMinor: 0,
+          pendingMinor: 0,
           currency: row.currency || 'USD',
           status: row.status,
+          simulated: row.eventType === 'admin_simulate',
           payoutMethod:
             payout?.address && payout.network
               ? {
@@ -172,6 +211,10 @@ export class AdminService {
       if (row.status !== 'reversed') {
         bucket.commissionTotalMinor += row.commissionAmountMinor;
       }
+      if (row.status === 'pending' || row.status === 'approved') {
+        bucket.pendingMinor += row.commissionAmountMinor;
+      }
+      if (row.eventType === 'admin_simulate') bucket.simulated = true;
       bucket.commissions.push({
         id: row._id.toString(),
         userId: row.userId.toString(),
@@ -192,18 +235,33 @@ export class AdminService {
       });
     }
 
-    const affiliatesOut = [...byAffiliate.values()].map((bucket) => ({
-      ...bucket,
-      status: this.dominantStatus(bucket.commissions.map((c) => c.status)),
-    }));
-    affiliatesOut.sort(
-      (a, b) => b.commissionTotalMinor - a.commissionTotalMinor,
-    );
+    const affiliatesOut = [...byAffiliate.values()].map((bucket) => {
+      const status = this.dominantStatus(bucket.commissions.map((c) => c.status));
+      const hasWallet = Boolean(bucket.payoutMethod?.address);
+      let blockReason: 'no_wallet' | 'below_minimum' | 'already_paid' | null =
+        null;
+      if (bucket.pendingMinor <= 0) blockReason = 'already_paid';
+      else if (!hasWallet) blockReason = 'no_wallet';
+      else if (bucket.pendingMinor < AFFILIATE_PAYOUT_MIN_MINOR) {
+        blockReason = 'below_minimum';
+      }
+      return {
+        ...bucket,
+        status,
+        ready: blockReason == null,
+        blockReason,
+      };
+    });
+    affiliatesOut.sort((a, b) => {
+      if (a.ready !== b.ready) return a.ready ? -1 : 1;
+      return b.pendingMinor - a.pendingMinor;
+    });
 
     return {
       from: query.from ?? null,
       to: query.to ?? null,
       status: query.status ?? null,
+      policy: this.payoutPolicy(),
       affiliates: affiliatesOut,
     };
   }
@@ -497,6 +555,223 @@ export class AdminService {
       expiresAt: subscription.expiresAt,
       provider: 'manual',
       months,
+    };
+  }
+
+  async simulatePayouts(adminUserId: string, adminEmail: string) {
+    await this.clearSimulatedPayouts();
+    const now = new Date();
+    const occurredAt = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 12, 15, 0, 0),
+    );
+    const ownerId = new Types.ObjectId(adminUserId);
+    const seeds: Array<{
+      name: string;
+      usd: number;
+      network?: 'bep20' | 'trc20' | 'erc20' | 'sol';
+      address?: string;
+    }> = [
+      { name: 'Ana Torres', usd: 180, network: 'bep20', address: '0xANA1111111111111111111111111111111111111' },
+      { name: 'Carlos Méndez', usd: 250, network: 'trc20', address: 'TCar1osUsdtWallet111111111111111111' },
+      { name: 'Diana Ruiz', usd: 100, network: 'sol', address: 'SoLDianaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1' },
+      { name: 'Elena Castro', usd: 99, network: 'erc20', address: '0xELE9999999999999999999999999999999999999' },
+      { name: 'Fabio López' , usd: 220 },
+      { name: 'Gabriela Díaz', usd: 45, network: 'bep20', address: '0xGAB4545454545454545454545454545454545454' },
+      { name: 'Hugo Ríos', usd: 80 },
+      { name: 'Irene Salas', usd: 320, network: 'trc20', address: 'TIreNeUsdtWallet222222222222222222' },
+      { name: 'Julián Pardo', usd: 150, network: 'bep20', address: '0xJUL1501501501501501501501501501501501501' },
+      { name: 'Karina Vega', usd: 500, network: 'sol', address: 'SoLKarinaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1' },
+    ];
+
+    const created = [];
+    for (let i = 0; i < seeds.length; i += 1) {
+      const seed = seeds[i];
+      const code = `SIM${String(i + 1).padStart(2, '0')}`;
+      const affiliateId = `sim-${code.toLowerCase()}`;
+      await this.affiliates.create({
+        code,
+        name: seed.name,
+        affiliateId,
+        commissionPercent: 20,
+        active: true,
+        revenueShareMonths: 12,
+        ...(seed.network && seed.address
+          ? {
+              payoutMethod: {
+                type: 'usdt_wallet',
+                asset: 'USDT',
+                network: seed.network,
+                address: seed.address,
+                updatedAt: now,
+              },
+            }
+          : {}),
+      });
+      await this.commissions.create({
+        providerEventId: `sim-${affiliateId}-${occurredAt.getTime()}`,
+        userId: ownerId,
+        affiliateId,
+        product: 'tecnowallet_plus',
+        eventType: 'admin_simulate',
+        grossAmountMinor: seed.usd * 500,
+        netAmountMinor: seed.usd * 500,
+        storeFeeAmountMinor: 0,
+        commissionAmountMinor: seed.usd * 100,
+        currency: 'USD',
+        status: 'pending',
+        occurredAt,
+        monthsSinceAttribution: 1,
+        commissionRate: 20,
+      });
+      created.push({
+        name: seed.name,
+        amountUsd: seed.usd,
+        hasWallet: Boolean(seed.address),
+      });
+    }
+
+    return {
+      created: created.length,
+      email: adminEmail,
+      notice:
+        '10 pagos de prueba del mes anterior. El correo de pago llega a tu email de admin.',
+      rows: created,
+    };
+  }
+
+  async clearSimulatedPayouts() {
+    const simulated = await this.affiliates
+      .find({ affiliateId: { $regex: /^sim-/ } })
+      .select('affiliateId')
+      .lean();
+    const ids = simulated.map((row) => row.affiliateId);
+    const commissions = await this.commissions.deleteMany({
+      $or: [
+        { eventType: 'admin_simulate' },
+        ids.length ? { affiliateId: { $in: ids } } : { affiliateId: '__none__' },
+      ],
+    });
+    const affiliates = await this.affiliates.deleteMany({
+      affiliateId: { $regex: /^sim-/ },
+    });
+    return {
+      commissions: commissions.deletedCount,
+      affiliates: affiliates.deletedCount,
+    };
+  }
+
+  async payAffiliate(
+    affiliateId: string,
+    dto: PayAffiliateDto,
+    adminEmail: string,
+  ) {
+    const affiliate = await this.affiliates.findOne({ affiliateId }).lean();
+    if (!affiliate) throw new NotFoundException('Affiliate not found');
+
+    const wallet = affiliate.payoutMethod;
+    if (!wallet?.address || !wallet.network) {
+      throw new BadRequestException(
+        'NO_WALLET: Este afiliado no ha registrado wallet USDT. No se puede pagar. Pídele que la cargue en Afiliados.',
+      );
+    }
+
+    const filter: Record<string, unknown> = {
+      affiliateId,
+      status: { $in: ['pending', 'approved'] },
+    };
+    const occurredAt: { $gte?: Date; $lte?: Date } = {};
+    if (dto.from) {
+      const from = new Date(dto.from);
+      if (Number.isNaN(from.getTime())) {
+        throw new BadRequestException('Invalid from date');
+      }
+      occurredAt.$gte = from;
+    }
+    if (dto.to) {
+      const to = new Date(dto.to);
+      if (Number.isNaN(to.getTime())) {
+        throw new BadRequestException('Invalid to date');
+      }
+      occurredAt.$lte = to;
+    } else {
+      const now = new Date();
+      occurredAt.$lte = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59),
+      );
+    }
+    if (Object.keys(occurredAt).length) filter.occurredAt = occurredAt;
+
+    const unpaid = await this.commissions.find(filter).lean();
+    const pendingMinor = unpaid.reduce(
+      (sum, row) => sum + row.commissionAmountMinor,
+      0,
+    );
+    if (pendingMinor <= 0) {
+      throw new BadRequestException('ALREADY_PAID: No hay saldo pendiente.');
+    }
+    if (pendingMinor < AFFILIATE_PAYOUT_MIN_MINOR) {
+      throw new BadRequestException(
+        `BELOW_MINIMUM: El saldo es USD ${(pendingMinor / 100).toFixed(2)}. Mínimo de desembolso: USD 100. Se acumula al próximo día 15.`,
+      );
+    }
+
+    const paidAt = new Date();
+    const ids = unpaid.map((row) => row._id);
+    await this.commissions.updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          status: 'paid',
+          paidAt,
+          payoutNote: dto.note?.trim() || 'Pago USDT día 15',
+          payoutProofName: dto.proofName?.trim() || undefined,
+        },
+      },
+    );
+
+    const owner = affiliate.ownerUserId
+      ? await this.users
+          .findById(affiliate.ownerUserId)
+          .select('name email')
+          .lean()
+      : null;
+    const to = owner?.email || adminEmail;
+    const amount = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(pendingMinor / 100);
+    const period = `${dto.from || 'acumulado'} → ${dto.to || 'mes anterior'}`;
+    const proof = dto.proofBase64?.replace(/^data:[^;]+;base64,/, '').trim();
+    const delivery = await this.mailer.sendHtml({
+      to,
+      subject: `TecnoWallet · Comisión pagada ${amount}`,
+      htmlContent: affiliatePayoutEmailHtml({
+        name: affiliate.name,
+        amount,
+        network: wallet.network.toUpperCase(),
+        address: wallet.address,
+        period,
+        hasProof: Boolean(proof && dto.proofName),
+      }),
+      attachments:
+        proof && dto.proofName
+          ? [{ name: dto.proofName, content: proof }]
+          : undefined,
+    });
+
+    return {
+      affiliateId,
+      paidMinor: pendingMinor,
+      currency: 'USD',
+      paidAt,
+      email: to,
+      emailDelivered: delivery.delivered,
+      wallet: {
+        asset: wallet.asset ?? 'USDT',
+        network: wallet.network,
+        address: wallet.address,
+      },
+      remainingPendingMinor: 0,
     };
   }
 

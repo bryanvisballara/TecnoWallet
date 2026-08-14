@@ -27,6 +27,32 @@ export class AdminPayoutsQueryDto {
   status?: (typeof commissionEventStatuses)[number];
 }
 
+export class PayAffiliateDto {
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  proofName?: string;
+
+  /** Raw base64 (no data: prefix). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_500_000)
+  proofBase64?: string;
+}
+
 export class MarkCommissionsPaidDto {
   @IsOptional()
   @IsDateString()
