@@ -21,18 +21,11 @@ export function DigitalRailTerms() {
 
   const sections = [
     {
-      title: 'Ventajas',
-      items: [
-        'El organizador controla el retiro cuando se cumple la meta.',
-        'Puedes programar pagos recurrentes.',
-      ],
-    },
-    {
       title: 'Condiciones',
       items: [
-        `El pozo se guarda en USDC. Meta mínima ${min} USDC.`,
-        'Puedes aportar en USD, COP, reales, MXN y las demás disponibles, además de tarjeta débito y crédito.',
-        'Cada integrante completa una verificación de identidad.',
+        `El recaudo se ahorra en USDc. Meta y retiro mínimo ${min} USDc.`,
+        'Puedes realizar tus aportes en USD, COP, Rs, MXN, EUR, entre otras, además de tarjetas de crédito y débito internacionales.',
+        'Puedes programar pagos recurrentes y automáticos con tus tarjetas.',
       ],
     },
     {
@@ -41,6 +34,7 @@ export function DigitalRailTerms() {
         `US$ ${monthly}/mes mientras el recaudo esté activo.`,
         '2% al retirar.',
         `Verificación US$ ${kyc} por persona. TecnoWallet lo cubre si la meta es ≥ US$ ${absorb}.`,
+        'Todos los costos se debitarán del recaudo.',
       ],
     },
   ];

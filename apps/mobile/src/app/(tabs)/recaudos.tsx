@@ -21,10 +21,12 @@ import {
   Screen,
   useAppTheme,
 } from '@/components/ui';
+import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { useAppCopy, type AppCopy } from '@/i18n/app-copy';
 import { intlLocale } from '@/i18n/locale-format';
 import { safeGoBack } from '@/lib/navigation';
 import { isZeroDecimalCurrency } from '@/lib/currencies';
+import { recaudoIntlCurrency } from '@/lib/recaudo-digital-pricing';
 import { useLanguageStore } from '@/store/language';
 import {
   useRecaudosStore,
@@ -70,7 +72,7 @@ async function copyText(value: string) {
 function formatMinor(value: number, currency: string, locale: string) {
   return new Intl.NumberFormat(intlLocale(locale), {
     style: 'currency',
-    currency,
+    currency: recaudoIntlCurrency(currency),
     maximumFractionDigits: isZeroDecimalCurrency(currency) ? 0 : 2,
   }).format(value / 100);
 }
@@ -173,6 +175,7 @@ function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
 export default function RecaudosScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const { fabBottom } = useSafeLayout();
   const params = useLocalSearchParams<{ focus?: string; tab?: string }>();
   const shareMode = params.tab === 'share';
   const recaudos = useRecaudosStore((state) => state.recaudos);
@@ -507,13 +510,15 @@ export default function RecaudosScreen() {
           : copy.collections.subtitle
       }
       floating={
-        <ScalePressable
-          accessibilityRole="button"
-          accessibilityLabel="Crear recaudo"
-          onPress={() => router.push('/add-recaudo')}
-          style={[styles.fab, { backgroundColor: theme.primary, shadowColor: theme.shadow }]}>
-          <AppIcon name="plus" color="#FFFFFF" size={28} />
-        </ScalePressable>
+        <View pointerEvents="box-none" style={[styles.fabHost, { bottom: fabBottom }]}>
+          <ScalePressable
+            accessibilityRole="button"
+            accessibilityLabel="Crear recaudo"
+            onPress={() => router.push('/add-recaudo')}
+            style={[styles.fab, { backgroundColor: theme.primarySoft }]}>
+            <AppIcon name="plus" color={theme.primary} size={26} />
+          </ScalePressable>
+        </View>
       }>
       {active.length > 0 ? (
         <Card style={[styles.hero, { backgroundColor: theme.primary }]}>
@@ -620,19 +625,23 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   footerItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   footerText: { fontSize: 11 },
-  fab: {
+  fabHost: {
     position: 'absolute',
-    right: 22,
-    bottom: 104,
+    right: 18,
+    alignItems: 'flex-end',
+    zIndex: 20,
+  },
+  fab: {
     width: 58,
     height: 58,
-    borderRadius: 29,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    shadowColor: '#0B1D3A',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
   emptyCard: { alignItems: 'center', gap: 12, paddingVertical: 24, paddingHorizontal: 4 },
   emptyIcon: {

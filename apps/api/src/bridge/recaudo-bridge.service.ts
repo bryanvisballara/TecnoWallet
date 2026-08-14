@@ -4,10 +4,28 @@ import { BridgeClient } from './bridge-client';
 
 export type TecnoAccountStatus = 'pending_kyc' | 'ready' | 'failed';
 
+export type TecnoDepositInstructions = {
+  currency: string;
+  paymentRails: string[];
+  bankName?: string;
+  bankAddress?: string;
+  beneficiaryName?: string;
+  accountHolderName?: string;
+  accountNumber?: string;
+  routingNumber?: string;
+  clabe?: string;
+  iban?: string;
+  bic?: string;
+  pixCode?: string;
+  breBKey?: string;
+  depositMessage?: string;
+};
+
 export type TecnoVirtualAccount = {
   id: string;
   currency: string;
   paymentRails: string[];
+  instructions?: TecnoDepositInstructions;
 };
 
 export type TecnoAccountSnapshot = {
@@ -46,14 +64,29 @@ type BridgeKycLink = {
   kyc_status?: string;
 };
 
+type BridgeDepositInstructions = {
+  currency?: string;
+  payment_rails?: string[];
+  payment_rail?: string;
+  bank_name?: string;
+  bank_address?: string;
+  bank_beneficiary_name?: string;
+  bank_account_number?: string;
+  bank_routing_number?: string;
+  account_number?: string;
+  clabe?: string;
+  iban?: string;
+  bic?: string;
+  br_code?: string;
+  bre_b_key?: string;
+  deposit_message?: string;
+  account_holder_name?: string;
+};
+
 type BridgeVirtualAccount = {
   id?: string;
   status?: string;
-  source_deposit_instructions?: {
-    currency?: string;
-    payment_rails?: string[];
-    payment_rail?: string;
-  };
+  source_deposit_instructions?: BridgeDepositInstructions;
 };
 
 const VA_CURRENCIES = ['usd', 'cop', 'mxn', 'brl'] as const;
@@ -199,8 +232,20 @@ export class RecaudoBridgeService {
     recaudoId: string;
     walletAddress: string;
   }): Promise<TecnoVirtualAccount[]> {
-    const opened: TecnoVirtualAccount[] = [];
+    const listed = await this.bridge
+      .get<BridgeList<BridgeVirtualAccount> | BridgeVirtualAccount[]>(
+        `/v0/customers/${input.customerId}/virtual_accounts`,
+      )
+      .catch(() => ({ data: [] as BridgeVirtualAccount[] }));
+    const existingRows = Array.isArray(listed) ? listed : (listed.data ?? []);
+    const byCurrency = new Map<string, TecnoVirtualAccount>();
+    for (const row of existingRows) {
+      const mapped = mapVirtualAccount(row);
+      if (mapped) byCurrency.set(mapped.currency.toLowerCase(), mapped);
+    }
+
     for (const currency of VA_CURRENCIES) {
+      if (byCurrency.has(currency)) continue;
       try {
         const account = await this.bridge.post<BridgeVirtualAccount>(
           `/v0/customers/${input.customerId}/virtual_accounts`,
@@ -214,18 +259,8 @@ export class RecaudoBridgeService {
           },
           `recaudo-va-${input.recaudoId}-${currency}`,
         );
-        if (!account.id) continue;
-        const rails =
-          account.source_deposit_instructions?.payment_rails ??
-          (account.source_deposit_instructions?.payment_rail
-            ? [account.source_deposit_instructions.payment_rail]
-            : []);
-        opened.push({
-          id: account.id,
-          currency:
-            account.source_deposit_instructions?.currency ?? currency,
-          paymentRails: rails,
-        });
+        const mapped = mapVirtualAccount(account);
+        if (mapped) byCurrency.set(mapped.currency.toLowerCase(), mapped);
       } catch (error) {
         this.logger.warn(
           `Virtual account ${currency} skipped: ${
@@ -234,6 +269,42 @@ export class RecaudoBridgeService {
         );
       }
     }
-    return opened;
+    return [...byCurrency.values()];
   }
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function mapVirtualAccount(
+  account: BridgeVirtualAccount,
+): TecnoVirtualAccount | null {
+  if (!account.id) return null;
+  const raw = account.source_deposit_instructions;
+  const rails =
+    raw?.payment_rails ?? (raw?.payment_rail ? [raw.payment_rail] : []);
+  const currency = (raw?.currency ?? '').toLowerCase();
+  const instructions: TecnoDepositInstructions = {
+    currency,
+    paymentRails: rails,
+    bankName: text(raw?.bank_name),
+    bankAddress: text(raw?.bank_address),
+    beneficiaryName: text(raw?.bank_beneficiary_name),
+    accountHolderName: text(raw?.account_holder_name),
+    accountNumber: text(raw?.bank_account_number) ?? text(raw?.account_number),
+    routingNumber: text(raw?.bank_routing_number),
+    clabe: text(raw?.clabe),
+    iban: text(raw?.iban),
+    bic: text(raw?.bic),
+    pixCode: text(raw?.br_code),
+    breBKey: text(raw?.bre_b_key),
+    depositMessage: text(raw?.deposit_message),
+  };
+  return {
+    id: account.id,
+    currency,
+    paymentRails: rails,
+    instructions,
+  };
 }

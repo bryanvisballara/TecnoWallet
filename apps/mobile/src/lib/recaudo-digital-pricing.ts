@@ -1,10 +1,21 @@
 export const DIGITAL_CURRENCY = 'USDC';
+/** Stored on the API as ISO USD; shown in recaudo UI as USDc. */
+export const DIGITAL_CURRENCY_STORED = 'USD';
+export const DIGITAL_CURRENCY_DISPLAY = 'USDc';
 export const DIGITAL_CURRENCY_ALIASES = ['USDC', 'USD'] as const;
 
 export function isDigitalCurrency(code: string) {
   return DIGITAL_CURRENCY_ALIASES.includes(
     code.trim().toUpperCase() as (typeof DIGITAL_CURRENCY_ALIASES)[number],
   );
+}
+
+export function recaudoDisplayCurrency(code: string) {
+  return isDigitalCurrency(code) ? DIGITAL_CURRENCY_DISPLAY : code;
+}
+
+export function recaudoIntlCurrency(code: string) {
+  return isDigitalCurrency(code) ? DIGITAL_CURRENCY_STORED : code;
 }
 
 export const DIGITAL_MONTHLY_FEE_MINOR = 299;

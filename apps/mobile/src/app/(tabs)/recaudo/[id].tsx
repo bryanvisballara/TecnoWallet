@@ -1,10 +1,9 @@
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { safeGoBack } from "@/lib/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Linking,
   Modal,
   Pressable,
   StyleSheet,
@@ -27,6 +26,7 @@ import {
   useAppTheme,
 } from "@/components/ui";
 import { DigitalRailTerms } from "@/components/digital-rail-terms";
+import { TecnoAccountPanel } from "@/components/tecno-account-panel";
 import { useAppCopy, type AppCopy } from "@/i18n/app-copy";
 import { intlLocale } from "@/i18n/locale-format";
 import {
@@ -38,6 +38,8 @@ import { useAuthStore } from "@/store/auth";
 import { useLanguageStore } from "@/store/language";
 import {
   quoteDigitalPayout,
+  recaudoDisplayCurrency,
+  recaudoIntlCurrency,
 } from "@/lib/recaudo-digital-pricing";
 import {
   useRecaudosStore,
@@ -117,7 +119,7 @@ function leaveRecaudo() {
 function formatMinor(value: number, currency: string, locale: string) {
   return new Intl.NumberFormat(intlLocale(locale), {
     style: "currency",
-    currency,
+    currency: recaudoIntlCurrency(currency),
     maximumFractionDigits: isZeroDecimalCurrency(currency) ? 0 : 2,
   }).format(value / 100);
 }
@@ -191,6 +193,8 @@ export default function RecaudoDetailScreen() {
   const updateMyPlan = useRecaudosStore((state) => state.updateMyPlan);
   const deleteRecaudo = useRecaudosStore((state) => state.deleteRecaudo);
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
+  const updateRecaudo = useRecaudosStore((state) => state.updateRecaudo);
+  const syncTecnoAccount = useRecaudosStore((state) => state.syncTecnoAccount);
   const profile = useAuthStore((state) => state.profile);
   const demo = useAuthStore((state) => state.demo);
   const recaudo = recaudos.find((item) => item.id === id);
@@ -256,6 +260,28 @@ export default function RecaudoDetailScreen() {
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrate, hydrated]);
+
+  const syncedAccountRef = useRef<string>();
+  useEffect(() => {
+    if (!recaudo || demo || !recaudo.isOrganizer || recaudo.payoutMethod !== "digital") {
+      return;
+    }
+    if (syncedAccountRef.current === recaudo.id) return;
+    const status = recaudo.tecnoAccount?.status;
+    const details = recaudo.tecnoAccount?.virtualAccounts ?? [];
+    const hasDeposit = details.some(
+      (item) =>
+        item.instructions?.accountNumber ||
+        item.instructions?.clabe ||
+        item.instructions?.breBKey ||
+        item.instructions?.pixCode ||
+        item.instructions?.iban,
+    );
+    if (status === "ready" && hasDeposit) return;
+    if (status === "pending_kyc" && recaudo.tecnoAccount?.kycUrl) return;
+    syncedAccountRef.current = recaudo.id;
+    void syncTecnoAccount(recaudo.id).catch(() => undefined);
+  }, [demo, recaudo, syncTecnoAccount]);
 
   useEffect(() => {
     if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
@@ -805,57 +831,19 @@ export default function RecaudoDetailScreen() {
       ) : null}
 
       {!demo && recaudo.payoutMethod === "digital" ? (
-        <Card style={styles.formCard}>
-          <View style={styles.formHeading}>
-            <View
-              style={[styles.smallIcon, { backgroundColor: theme.primarySoft }]}
-            >
-              <AppIcon name="building.columns.fill" color={theme.primary} size={19} />
-            </View>
-            <View style={styles.copy}>
-              <View style={styles.nameLine}>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>
-                  {t("TecnoWallet", "TecnoWallet")}
-                </Text>
-                <Pill
-                  tone={
-                    recaudo.tecnoAccount?.status === "ready"
-                      ? "green"
-                      : recaudo.digitalActivatedAt
-                        ? "green"
-                        : "neutral"
-                  }
-                >
-                  {recaudo.tecnoAccount?.status === "ready"
-                    ? t("Lista", "Ready")
-                    : recaudo.tecnoAccount?.status === "pending_kyc"
-                      ? t("Falta verificación", "Verification needed")
-                      : recaudo.digitalActivatedAt
-                        ? t("Activa", "Active")
-                        : t("Preparando cuenta", "Setting up")}
-                </Pill>
-              </View>
-            </View>
-          </View>
+        <>
+          <TecnoAccountPanel
+            recaudo={recaudo}
+            isOrganizer={recaudo.isOrganizer}
+            onSync={() => syncTecnoAccount(recaudo.id).then(() => undefined)}
+            onSavePayout={(details) =>
+              updateRecaudo(recaudo.id, { payoutAccountDetails: details }).then(
+                () => undefined,
+              )
+            }
+          />
           <DigitalRailTerms />
-          {recaudo.tecnoAccount?.kycUrl ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                const url = recaudo.tecnoAccount?.kycUrl;
-                if (url) void Linking.openURL(url);
-              }}
-              style={[
-                styles.comingSoonBtn,
-                { borderColor: theme.primary, backgroundColor: theme.primarySoft },
-              ]}
-            >
-              <Text style={[styles.rowTitle, { color: theme.primary }]}>
-                {t("Completar verificación", "Complete verification")}
-              </Text>
-            </Pressable>
-          ) : null}
-        </Card>
+        </>
       ) : !demo && !BRIDGE_PAYMENTS_LIVE ? (
         <Card style={styles.formCard}>
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
@@ -1110,8 +1098,8 @@ export default function RecaudoDetailScreen() {
                 "ACH debit to the collection’s digital account. It won’t count as available until the bank confirms.",
               )
             : t(
-                "El aporte se registra en el pozo del recaudo. Las cuentas y retiros con Bridge estarán disponibles pronto.",
-                "The contribution is recorded in the collection pool. Bridge accounts and withdrawals will be available soon.",
+                "Registra el aporte cuando ya transferiste a los datos de la cuenta TecnoWallet. El recaudo se ahorra en USDc.",
+                "Record the contribution after you transfer to the TecnoWallet account details. The collection is saved in USDc.",
               )}
         </Text>
         <View
@@ -1124,7 +1112,7 @@ export default function RecaudoDetailScreen() {
           ]}
         >
           <Text style={[styles.currency, { color: theme.muted }]}>
-            {recaudo.currency}
+            {recaudoDisplayCurrency(recaudo.currency)}
           </Text>
           <TextInput
             value={contributionAmount}

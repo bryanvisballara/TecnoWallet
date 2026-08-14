@@ -127,7 +127,8 @@ export class Recaudo {
   @Prop({ required: true, min: 1 })
   monthlyTargetMinor!: number;
 
-  @Prop({ required: true, uppercase: true, minlength: 3, maxlength: 3 })
+  /** ISO-4217 (USD) or 4-letter tickers. Digital pots store USD and display as USDc. */
+  @Prop({ required: true, uppercase: true, minlength: 3, maxlength: 4 })
   currency!: string;
 
   @Prop({
@@ -185,7 +186,9 @@ export class Recaudo {
       id: string;
       currency: string;
       paymentRails: string[];
+      instructions?: Record<string, unknown>;
     }>;
+    error?: string;
   };
 
   @Prop({ default: 0 })
@@ -679,6 +682,9 @@ export class RecaudosService {
       );
     }
     const shareCode = await this.allocateShareCode();
+    // Persist ISO USD for digital pots: USDC is not ISO-4217 (breaks Intl + old maxlength: 3).
+    const currency =
+      payoutMethod === 'digital' ? 'USD' : dto.currency.toUpperCase();
     const recaudo = await this.recaudos.create({
       workspaceId: dto.workspaceId,
       organizerId: principal.userId,
@@ -687,7 +693,7 @@ export class RecaudosService {
       description: dto.description,
       targetMinor: dto.targetMinor,
       monthlyTargetMinor: dto.monthlyTargetMinor,
-      currency: dto.currency.toUpperCase(),
+      currency,
       deadline: dto.deadline ? new Date(dto.deadline) : undefined,
       shareCode,
       payoutMethod,
@@ -700,7 +706,17 @@ export class RecaudosService {
       role: 'organizer',
     });
     if (payoutMethod === 'digital') {
-      await this.provisionTecnoAccount(recaudo, principal.userId);
+      try {
+        await this.provisionTecnoAccount(recaudo, principal.userId);
+      } catch (error) {
+        this.logger.warn(
+          `TecnoWallet provision skipped: ${
+            error instanceof Error ? error.message : 'error'
+          }`,
+        );
+        recaudo.tecnoAccount = { status: 'failed', virtualAccounts: [] };
+        await recaudo.save();
+      }
     }
     return this.detail(recaudo._id.toString(), principal);
   }
@@ -844,7 +860,12 @@ export class RecaudosService {
         ? { monthlyTargetMinor: dto.monthlyTargetMinor }
         : {}),
       ...(dto.currency !== undefined
-        ? { currency: dto.currency.trim().toUpperCase() }
+        ? {
+            currency:
+              (dto.payoutMethod ?? recaudo.payoutMethod) === 'digital'
+                ? 'USD'
+                : dto.currency.trim().toUpperCase(),
+          }
         : {}),
       ...(dto.deadline !== undefined
         ? { deadline: new Date(dto.deadline) }
@@ -1538,7 +1559,9 @@ export class RecaudosService {
     const who = actor?.name?.trim() || 'Un colaborador';
     const amount = (input.amountMinor / 100).toLocaleString('es-CO', {
       style: 'currency',
-      currency: input.recaudo.currency || 'COP',
+      currency: isDigitalCurrency(input.recaudo.currency)
+        ? 'USD'
+        : input.recaudo.currency || 'COP',
       maximumFractionDigits: 0,
     });
     this.push.notifyUsers(recipientIds, input.actorUserId, {
@@ -1573,12 +1596,12 @@ export class RecaudosService {
   private assertDigitalEligible(currency: string, targetMinor: number) {
     if (!isDigitalCurrency(currency)) {
       throw new BadRequestException(
-        'La cuenta TecnoWallet guarda el pozo en USDC.',
+        'El recaudo TecnoWallet se ahorra en USDc.',
       );
     }
     if (targetMinor < DIGITAL_MIN_TARGET_MINOR) {
       throw new BadRequestException(
-        'La cuenta TecnoWallet requiere una meta de al menos 250 USDC.',
+        'El recaudo TecnoWallet pide una meta de al menos 250 USDc.',
       );
     }
   }
@@ -1611,6 +1634,29 @@ export class RecaudosService {
       `TecnoWallet account ${snapshot.status} for recaudo ${recaudo._id.toString()}`,
     );
     await recaudo.save();
+  }
+
+  async syncTecnoAccount(id: string, principal: AuthPrincipal) {
+    await this.assertOrganizer(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException('Este recaudo no usa una cuenta TecnoWallet.');
+    }
+    try {
+      await this.provisionTecnoAccount(recaudo, recaudo.organizerId.toString());
+    } catch (error) {
+      this.logger.warn(
+        `TecnoWallet sync failed: ${error instanceof Error ? error.message : 'error'}`,
+      );
+      recaudo.tecnoAccount = {
+        ...(recaudo.tecnoAccount ?? {}),
+        status: 'failed',
+        virtualAccounts: recaudo.tecnoAccount?.virtualAccounts ?? [],
+        error: 'sync_failed',
+      };
+      await recaudo.save();
+    }
+    return this.detail(id, principal);
   }
 
   async quoteForRecaudo(
@@ -1691,7 +1737,15 @@ export class RecaudosService {
             kycUrl: recaudo.tecnoAccount.kycUrl,
             tosUrl: recaudo.tecnoAccount.tosUrl,
             chain: recaudo.tecnoAccount.chain,
-            virtualAccounts: recaudo.tecnoAccount.virtualAccounts ?? [],
+            error: recaudo.tecnoAccount.error,
+            virtualAccounts: (recaudo.tecnoAccount.virtualAccounts ?? []).map(
+              (item) => ({
+                id: item.id,
+                currency: item.currency,
+                paymentRails: item.paymentRails ?? [],
+                instructions: item.instructions ?? undefined,
+              }),
+            ),
           }
         : undefined,
       createdAt: recaudo.createdAt.toISOString(),
@@ -1817,6 +1871,14 @@ class RecaudosController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     return this.service.withdraw(id, dto, idempotencyKey, user);
+  }
+
+  @Post(':id/tecno-account')
+  syncTecnoAccount(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.syncTecnoAccount(id, user);
   }
 
   @Post(':id/invites')

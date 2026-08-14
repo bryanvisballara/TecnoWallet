@@ -1,11 +1,9 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  FlatList,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,15 +20,16 @@ import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
   amountPlaceholder,
   amountToMinorUnits,
-  currencies,
-  currencyLabel,
   isZeroDecimalCurrency,
   monthlyAmountPlaceholder,
 } from '@/lib/currencies';
 import {
   DIGITAL_CURRENCY,
+  DIGITAL_CURRENCY_DISPLAY,
+  DIGITAL_CURRENCY_STORED,
   DIGITAL_MIN_TARGET_MINOR,
   isDigitalCurrency,
+  recaudoDisplayCurrency,
 } from '@/lib/recaudo-digital-pricing';
 import {
   useRecaudosStore,
@@ -146,8 +145,6 @@ export default function AddRecaudoScreen() {
   const [currency, setCurrency] = useState(
     existing?.currency ?? DIGITAL_CURRENCY,
   );
-  const [currencyOpen, setCurrencyOpen] = useState(false);
-  const [currencyQuery, setCurrencyQuery] = useState('');
   const [target, setTarget] = useState(
     existing ? minorToInput(existing.targetMinor, existing.currency) : '',
   );
@@ -191,16 +188,6 @@ export default function AddRecaudoScreen() {
     }
   }, [existing?.id, existing?.isOrganizer]);
 
-  const filteredCurrencies = useMemo(() => {
-    const query = currencyQuery.trim().toLowerCase();
-    if (!query) return currencies;
-    return currencies.filter(
-      (item) =>
-        item.code.toLowerCase().includes(query) ||
-        item.name.toLowerCase().includes(query),
-    );
-  }, [currencyQuery]);
-
   const clearError = (key: FieldKey) => {
     setErrors((current) => {
       if (!current[key]) return current;
@@ -242,11 +229,11 @@ export default function AddRecaudoScreen() {
     if (method === 'digital') {
       if (!isDigitalCurrency(currency)) {
         nextErrors.target = true;
-        missing.push('pozo en USDC');
+        missing.push('recaudo en USDc');
       }
       if (!Number.isSafeInteger(targetMinor) || targetMinor < DIGITAL_MIN_TARGET_MINOR) {
         nextErrors.target = true;
-        missing.push('meta de al menos 250 USDC');
+        missing.push('meta de al menos 250 USDc');
       }
     } else if (payoutDetails.trim().length < 8) {
       nextErrors.payout = true;
@@ -276,7 +263,7 @@ export default function AddRecaudoScreen() {
           category,
           targetMinor,
           monthlyTargetMinor,
-          currency,
+          currency: method === 'digital' ? DIGITAL_CURRENCY_STORED : currency,
           deadline: deadline.trim() || undefined,
           payoutMethod: method,
           payoutAccountDetails:
@@ -291,7 +278,7 @@ export default function AddRecaudoScreen() {
         category,
         targetMinor,
         monthlyTargetMinor,
-        currency,
+        currency: method === 'digital' ? DIGITAL_CURRENCY_STORED : currency,
         deadline: deadline.trim() || undefined,
         payoutMethod: method,
         payoutAccountDetails:
@@ -347,7 +334,7 @@ export default function AddRecaudoScreen() {
           <Text style={[styles.hint, { color: theme.muted }]}>
             {isEditing
               ? 'Cambia el nombre, la meta, la fecha o la cuenta donde se guarda el dinero.'
-              : 'Crea un pozo compartido y define cuánto quieren reunir.'}
+              : 'Crea un recaudo compartido y define cuánto quieren reunir.'}
           </Text>
 
           <FieldLabel error={errors.title} color={theme.muted} danger={theme.danger}>
@@ -408,39 +395,6 @@ export default function AddRecaudoScreen() {
             })}
           </View>
 
-          <FieldLabel color={theme.muted} danger={theme.danger}>
-            Moneda
-          </FieldLabel>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Elegir moneda"
-            onPress={() => {
-              if (payoutMethod === 'digital') {
-                Alert.alert(
-                  'TecnoWallet',
-                  'El pozo se guarda en USDC. Puedes aportar en USD, COP, reales, MXN y las demás disponibles, además de tarjeta débito y crédito.',
-                );
-                return;
-              }
-              setCurrencyQuery('');
-              setCurrencyOpen(true);
-            }}
-            style={[
-              styles.currencyPicker,
-              {
-                borderColor: theme.border,
-                backgroundColor: theme.surfaceSecondary,
-              },
-            ]}>
-            <View style={styles.currencyPickerCopy}>
-              <Text style={[styles.currencyCode, { color: theme.text }]}>{currency}</Text>
-              <Text style={[styles.currencyName, { color: theme.muted }]}>
-                {currencyLabel(currency)}
-              </Text>
-            </View>
-            <AppIcon name="chevron.down" color={theme.muted} size={18} />
-          </Pressable>
-
           <FieldLabel error={errors.target} color={theme.muted} danger={theme.danger}>
             Objetivo
           </FieldLabel>
@@ -452,7 +406,7 @@ export default function AddRecaudoScreen() {
             }}
             onFocus={focusScrollToEnd(scrollRef, 120)}
             placeholder={amountPlaceholder(currency)}
-            currency={currency}
+            currency={recaudoDisplayCurrency(currency)}
             muted={theme.muted}
             text={theme.text}
             surfaceSecondary={theme.surfaceSecondary}
@@ -461,7 +415,7 @@ export default function AddRecaudoScreen() {
           {errors.target ? (
             <ErrorText color={theme.danger}>
               {payoutMethod === 'digital'
-                ? 'La cuenta TecnoWallet pide una meta de al menos 250 USDC'
+                ? `La cuenta TecnoWallet pide una meta de al menos 250 ${DIGITAL_CURRENCY_DISPLAY}`
                 : 'Indica un objetivo mayor a cero'}
             </ErrorText>
           ) : null}
@@ -477,7 +431,7 @@ export default function AddRecaudoScreen() {
             }}
             onFocus={focusScrollToEnd(scrollRef, 120)}
             placeholder={monthlyAmountPlaceholder(currency)}
-            currency={currency}
+            currency={recaudoDisplayCurrency(currency)}
             muted={theme.muted}
             text={theme.text}
             surfaceSecondary={theme.surfaceSecondary}
@@ -503,74 +457,76 @@ export default function AddRecaudoScreen() {
             <ErrorText color={theme.danger}>Elige una fecha válida</ErrorText>
           ) : null}
 
-          <FieldLabel error={errors.payout} color={theme.muted} danger={theme.danger}>
-            Forma de recaudo
-          </FieldLabel>
-          <Text style={[styles.hint, { color: theme.muted, marginBottom: 0 }]}>
-            ¿A dónde quieres guardar el dinero recaudado?
-          </Text>
-          <View style={styles.payoutRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: payoutMethod === 'digital' }}
-              onPress={() => {
-                setPayoutMethod('digital');
-                setCurrency(DIGITAL_CURRENCY);
-                clearError('payout');
-                clearError('target');
-              }}
-              style={[
-                styles.payoutOption,
-                {
-                  borderColor: payoutMethod === 'digital' ? theme.primary : theme.border,
-                  backgroundColor:
-                    payoutMethod === 'digital' ? theme.primarySoft : theme.surfaceSecondary,
-                },
-              ]}>
-              <Text
-                style={[
-                  styles.payoutOptionTitle,
-                  { color: payoutMethod === 'digital' ? theme.primary : theme.text },
-                ]}>
-                TecnoWallet
+          {PERSONAL_PAYOUT_VISIBLE ? (
+            <>
+              <FieldLabel error={errors.payout} color={theme.muted} danger={theme.danger}>
+                Forma de recaudo
+              </FieldLabel>
+              <Text style={[styles.hint, { color: theme.muted, marginBottom: 0 }]}>
+                ¿A dónde quieres guardar el dinero recaudado?
               </Text>
-              <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
-                Pozo en USDC
-              </Text>
-            </Pressable>
-            {PERSONAL_PAYOUT_VISIBLE ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: payoutMethod === 'personal' }}
-              onPress={() => {
-                setPayoutMethod('personal');
-                if (isDigitalCurrency(currency)) setCurrency('USD');
-              }}
-              style={[
-                styles.payoutOption,
-                {
-                  borderColor: payoutMethod === 'personal' ? theme.primary : theme.border,
-                  backgroundColor:
-                    payoutMethod === 'personal' ? theme.primarySoft : theme.surfaceSecondary,
-                },
-              ]}>
-              <Text
-                style={[
-                  styles.payoutOptionTitle,
-                  { color: payoutMethod === 'personal' ? theme.primary : theme.text },
-                ]}>
-                Cuenta personal
-              </Text>
-              <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
-                Gratis · tu banco
-              </Text>
-            </Pressable>
-            ) : null}
-          </View>
+              <View style={styles.payoutRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: payoutMethod === 'digital' }}
+                  onPress={() => {
+                    setPayoutMethod('digital');
+                    setCurrency(DIGITAL_CURRENCY);
+                    clearError('payout');
+                    clearError('target');
+                  }}
+                  style={[
+                    styles.payoutOption,
+                    {
+                      borderColor: payoutMethod === 'digital' ? theme.primary : theme.border,
+                      backgroundColor:
+                        payoutMethod === 'digital' ? theme.primarySoft : theme.surfaceSecondary,
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.payoutOptionTitle,
+                      { color: payoutMethod === 'digital' ? theme.primary : theme.text },
+                    ]}>
+                    TecnoWallet
+                  </Text>
+                  <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
+                    Recaudo en {DIGITAL_CURRENCY_DISPLAY}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: payoutMethod === 'personal' }}
+                  onPress={() => {
+                    setPayoutMethod('personal');
+                    if (isDigitalCurrency(currency)) setCurrency('USD');
+                  }}
+                  style={[
+                    styles.payoutOption,
+                    {
+                      borderColor: payoutMethod === 'personal' ? theme.primary : theme.border,
+                      backgroundColor:
+                        payoutMethod === 'personal' ? theme.primarySoft : theme.surfaceSecondary,
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.payoutOptionTitle,
+                      { color: payoutMethod === 'personal' ? theme.primary : theme.text },
+                    ]}>
+                    Cuenta personal
+                  </Text>
+                  <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
+                    Gratis · tu banco
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
 
           {payoutMethod === 'digital' ? (
             <DigitalRailTerms />
-          ) : (
+          ) : PERSONAL_PAYOUT_VISIBLE ? (
             <>
               <TextInput
                 value={payoutDetails}
@@ -596,100 +552,11 @@ export default function AddRecaudoScreen() {
                 </ErrorText>
               ) : null}
             </>
+          ) : (
+            <DigitalRailTerms />
           )}
         </FormScrollView>
       </View>
-
-      <Modal
-        visible={currencyOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCurrencyOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCurrencyOpen(false)} />
-          <View style={[styles.currencyModal, { backgroundColor: theme.surface }]}>
-            <View style={styles.currencyModalHeader}>
-              <Text style={[styles.currencyModalTitle, { color: theme.text }]}>
-                Elegir moneda
-              </Text>
-              <Pressable
-                accessibilityLabel="Cerrar monedas"
-                onPress={() => setCurrencyOpen(false)}
-                style={styles.close}>
-                <AppIcon name="xmark" color={theme.text} size={20} />
-              </Pressable>
-            </View>
-            <TextInput
-              value={currencyQuery}
-              onChangeText={setCurrencyQuery}
-              placeholder="Buscar por código o nombre"
-              placeholderTextColor={theme.muted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[
-                styles.input,
-                {
-                  color: theme.text,
-                  backgroundColor: theme.surfaceSecondary,
-                  borderColor: theme.border,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  marginHorizontal: 16,
-                },
-              ]}
-            />
-            <FlatList
-              data={filteredCurrencies}
-              keyExtractor={(item) => item.code}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.currencyList}
-              renderItem={({ item }) => {
-                const selected = currency === item.code;
-                return (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    onPress={() => {
-                      setCurrency(item.code);
-                      clearError('target');
-                      clearError('monthly');
-                      setCurrencyOpen(false);
-                    }}
-                    style={[
-                      styles.currencyRow,
-                      {
-                        backgroundColor: selected
-                          ? theme.primarySoft
-                          : theme.surface,
-                        borderBottomColor: theme.border,
-                      },
-                    ]}>
-                    <View style={styles.currencyPickerCopy}>
-                      <Text
-                        style={[
-                          styles.currencyCode,
-                          { color: selected ? theme.primary : theme.text },
-                        ]}>
-                        {item.code}
-                      </Text>
-                      <Text style={[styles.currencyName, { color: theme.muted }]}>
-                        {item.name}
-                      </Text>
-                    </View>
-                    {selected ? (
-                      <AppIcon name="checkmark" color={theme.primary} size={18} />
-                    ) : null}
-                  </Pressable>
-                );
-              }}
-              ListEmptyComponent={
-                <Text style={[styles.emptyCurrencies, { color: theme.muted }]}>
-                  No hay monedas con ese criterio.
-                </Text>
-              }
-            />
-          </View>
-        </View>
-      </Modal>
     </SheetScreen>
   );
 }
@@ -732,57 +599,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   categoryText: { fontSize: 13, fontWeight: '700' },
-  currencyPicker: {
-    minHeight: 52,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  currencyPickerCopy: { flex: 1, minWidth: 0, gap: 2 },
-  currencyCode: { fontSize: 15, fontWeight: '800' },
-  currencyName: { fontSize: 12 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: '#00000066',
-    justifyContent: 'flex-end',
-  },
-  currencyModal: {
-    maxHeight: '78%',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: 18,
-    gap: 10,
-  },
-  currencyModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingTop: 8,
-  },
-  currencyModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    paddingHorizontal: 10,
-  },
-  currencyList: { paddingBottom: 12 },
-  currencyRow: {
-    minHeight: 56,
-    paddingHorizontal: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  emptyCurrencies: {
-    textAlign: 'center',
-    paddingVertical: 28,
-    fontSize: 13,
-  },
   amountInput: {
     minHeight: 48,
     borderRadius: 14,

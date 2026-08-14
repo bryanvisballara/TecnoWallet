@@ -82,10 +82,27 @@ export type Recaudo = {
     kycUrl?: string;
     tosUrl?: string;
     chain?: string;
+    error?: string;
     virtualAccounts?: Array<{
       id: string;
       currency: string;
       paymentRails: string[];
+      instructions?: {
+        currency?: string;
+        paymentRails?: string[];
+        bankName?: string;
+        bankAddress?: string;
+        beneficiaryName?: string;
+        accountHolderName?: string;
+        accountNumber?: string;
+        routingNumber?: string;
+        clabe?: string;
+        iban?: string;
+        bic?: string;
+        pixCode?: string;
+        breBKey?: string;
+        depositMessage?: string;
+      };
     }>;
   };
   participants: RecaudoParticipant[];
@@ -158,6 +175,8 @@ type RecaudosState = {
     plan: MyPlan,
   ) => Promise<{ reminderScheduled: boolean }>;
   acceptInvite: (token: string) => Promise<Recaudo>;
+  /** Organizer: reopen / refresh the TecnoWallet digital account. */
+  syncTecnoAccount: (recaudoId: string) => Promise<Recaudo>;
   /** Organizer only. Fails if the pot still has funds. */
   deleteRecaudo: (recaudoId: string) => Promise<void>;
 };
@@ -470,11 +489,20 @@ function normalizeRecaudo(raw: unknown): Recaudo {
         kycUrl: typeof row.kycUrl === "string" ? row.kycUrl : undefined,
         tosUrl: typeof row.tosUrl === "string" ? row.tosUrl : undefined,
         chain: typeof row.chain === "string" ? row.chain : undefined,
+        error: typeof row.error === "string" ? row.error : undefined,
         virtualAccounts: Array.isArray(row.virtualAccounts)
           ? row.virtualAccounts.flatMap((item) => {
               if (!item || typeof item !== "object") return [];
               const va = item as Record<string, unknown>;
               if (typeof va.id !== "string") return [];
+              const rawInstructions =
+                va.instructions && typeof va.instructions === "object"
+                  ? (va.instructions as Record<string, unknown>)
+                  : undefined;
+              const str = (key: string) =>
+                rawInstructions && typeof rawInstructions[key] === "string"
+                  ? (rawInstructions[key] as string)
+                  : undefined;
               return [
                 {
                   id: va.id,
@@ -484,6 +512,28 @@ function normalizeRecaudo(raw: unknown): Recaudo {
                         (rail): rail is string => typeof rail === "string",
                       )
                     : [],
+                  instructions: rawInstructions
+                    ? {
+                        currency: str("currency"),
+                        paymentRails: Array.isArray(rawInstructions.paymentRails)
+                          ? rawInstructions.paymentRails.filter(
+                              (rail): rail is string => typeof rail === "string",
+                            )
+                          : [],
+                        bankName: str("bankName"),
+                        bankAddress: str("bankAddress"),
+                        beneficiaryName: str("beneficiaryName"),
+                        accountHolderName: str("accountHolderName"),
+                        accountNumber: str("accountNumber"),
+                        routingNumber: str("routingNumber"),
+                        clabe: str("clabe"),
+                        iban: str("iban"),
+                        bic: str("bic"),
+                        pixCode: str("pixCode"),
+                        breBKey: str("breBKey"),
+                        depositMessage: str("depositMessage"),
+                      }
+                    : undefined,
                 },
               ];
             })
@@ -1035,6 +1085,36 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     ];
     set({ recaudos });
     return recaudo;
+  },
+
+  syncTecnoAccount: async (recaudoId) => {
+    const current = get().recaudos.find((item) => item.id === recaudoId);
+    if (!current) throw new Error("Recaudo no encontrado.");
+    if (!current.isOrganizer) {
+      throw new Error("Solo el organizador puede abrir la cuenta digital.");
+    }
+    const updated = normalizeRecaudo(
+      await apiRequest(`/recaudos/${recaudoId}/tecno-account`, {
+        method: "POST",
+      }),
+    );
+    set({
+      recaudos: get().recaudos.map((item) =>
+        item.id === recaudoId
+          ? {
+              ...item,
+              ...updated,
+              participants: updated.participants.length
+                ? updated.participants
+                : item.participants,
+              contributions: updated.contributions.length
+                ? updated.contributions
+                : item.contributions,
+            }
+          : item,
+      ),
+    });
+    return get().recaudos.find((item) => item.id === recaudoId) ?? updated;
   },
 
   deleteRecaudo: async (recaudoId) => {
