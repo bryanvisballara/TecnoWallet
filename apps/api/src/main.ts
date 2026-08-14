@@ -21,6 +21,7 @@ export async function bootstrap(): Promise<void> {
       redact: ['req.headers.authorization', 'req.headers.cookie'],
     },
     requestIdHeader: 'x-request-id',
+    bodyLimit: 8 * 1024 * 1024,
   });
   // Disable Nest's default JSON parser so we can register a single parser that
   // keeps rawBody for Unit webhook HMAC (X-Unit-Signature) + JsonAPI payloads.

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { AppIcon, Card, Pill, PrimaryButton, Screen, useAppTheme } from '@/components/ui';
+import { copyText } from '@/lib/copy-text';
 import { safeGoBack } from '@/lib/navigation';
 import {
   clearSimulatedAdminPayouts,
@@ -78,6 +79,56 @@ function previousMonthRange() {
   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59));
   return { from: toInputDate(from), to: toInputDate(to) };
+}
+
+const MAX_PROOF_B64 = 900_000;
+
+async function pickCompressedProof() {
+  const picked = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    quality: 0.28,
+    base64: true,
+  });
+  if (picked.canceled || !picked.assets[0]) {
+    return { canceled: true as const };
+  }
+  const asset = picked.assets[0];
+  const raw = (asset.base64 ?? '').replace(/^data:[^;]+;base64,/, '').trim();
+  if (!raw) {
+    return { canceled: true as const };
+  }
+  const tooLarge = raw.length > MAX_PROOF_B64;
+  return {
+    canceled: false as const,
+    name: asset.fileName || 'comprobante.jpg',
+    base64: tooLarge ? undefined : raw,
+    omitted: tooLarge,
+  };
+}
+
+async function copyValue(value: string, okMessage: string) {
+  const mode = await copyText(value);
+  Alert.alert(
+    mode === 'copied' ? 'Copiado' : 'Listo para copiar',
+    mode === 'copied' ? okMessage : 'Ábrelo en Notas o Mensajes y cópialo desde ahí.',
+  );
+}
+
+function payoutOrigin(row: AdminAffiliatePayout) {
+  const rate =
+    row.tier?.commissionPercent ??
+    row.commissions[0]?.commissionRate ??
+    20;
+  const refs = row.referralCount ?? new Set(row.commissions.map((c) => c.userId)).size;
+  const net =
+    row.netMinor ??
+    row.commissions.reduce((sum, item) => sum + (item.netAmountMinor ?? 0), 0);
+  return {
+    rate,
+    refs,
+    net,
+    tierLabel: row.tier?.label ?? 'Partner',
+  };
 }
 
 function blockCopy(reason: AdminAffiliatePayout['blockReason']) {
@@ -448,6 +499,7 @@ export default function AdminPortalScreen() {
               const open = expandedId === row.affiliateId;
               const payout = row.payoutMethod;
               const pending = row.pendingMinor ?? row.commissionTotalMinor;
+              const origin = payoutOrigin(row);
               return (
                 <Card key={row.affiliateId} style={styles.block}>
                   <Pressable
@@ -498,6 +550,65 @@ export default function AdminPortalScreen() {
                     </View>
                   </Pressable>
 
+                  <View
+                    style={[
+                      styles.originBox,
+                      {
+                        backgroundColor: theme.surfaceSecondary,
+                        borderColor: theme.border,
+                      },
+                    ]}>
+                    <View style={styles.between}>
+                      <Text style={[styles.label, { color: theme.text }]}>
+                        {origin.tierLabel} · {origin.rate}%
+                      </Text>
+                      <Pill
+                        tone={
+                          origin.tierLabel === 'Ambassador'
+                            ? 'blue'
+                            : origin.tierLabel === 'Creator'
+                              ? 'green'
+                              : 'neutral'
+                        }>
+                        {origin.refs} suscrip.
+                      </Pill>
+                    </View>
+                    <Text style={[styles.hint, { color: theme.muted }]}>
+                      {origin.refs} suscripción{origin.refs === 1 ? '' : 'es'} bajo su
+                      recomendación. Comisión = {origin.rate}% del neto.
+                    </Text>
+                    <Text style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
+                      {origin.rate}% de {moneyMinor(origin.net, row.currency)} ={' '}
+                      {moneyMinor(pending, row.currency)}
+                    </Text>
+                  </View>
+
+                  {payout ? (
+                    <Pressable
+                      onPress={() => {
+                        void copyValue(
+                          payout.address,
+                          `Wallet USDT ${payout.network.toUpperCase()} copiada.`,
+                        ).catch((cause) =>
+                          Alert.alert(
+                            'No se copió',
+                            cause instanceof Error ? cause.message : 'Intenta de nuevo.',
+                          ),
+                        );
+                      }}
+                      style={[
+                        styles.copyBtn,
+                        {
+                          borderColor: theme.primary,
+                          backgroundColor: theme.primarySoft,
+                        },
+                      ]}>
+                      <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
+                        Copiar wallet
+                      </Text>
+                    </Pressable>
+                  ) : null}
+
                   <PrimaryButton
                     onPress={() => {
                       void (async () => {
@@ -527,31 +638,30 @@ export default function AdminPortalScreen() {
                           );
                           return;
                         }
-                        const picked = await ImagePicker.launchImageLibraryAsync({
-                          mediaTypes: ['images'],
-                          quality: 0.7,
-                          base64: true,
-                        });
-                        if (picked.canceled || !picked.assets[0]?.base64) {
+                        const proof = await pickCompressedProof();
+                        if (proof.canceled) {
                           Alert.alert(
                             'Comprobante',
                             'Sube la captura de la transferencia USDT para enviar el correo y marcar pagado.',
                           );
                           return;
                         }
-                        const asset = picked.assets[0];
                         setBusyId(row.affiliateId);
                         try {
                           const result = await payAdminAffiliate(row.affiliateId, {
                             from: from || undefined,
                             to: to || undefined,
                             note: 'Pago USDT día 15',
-                            proofName: asset.fileName || `comprobante-${row.affiliateCode || 'pago'}.jpg`,
-                            proofBase64: asset.base64,
+                            proofName: proof.name,
+                            proofBase64: proof.base64,
                           });
                           Alert.alert(
                             'Pagado',
-                            `${moneyMinor(result.paidMinor, result.currency)} a ${result.wallet.network.toUpperCase()} ${result.wallet.address}\nCorreo ${result.emailDelivered ? 'enviado' : 'registrado'} a ${result.email}.\nSaldo del periodo: USD 0.00`,
+                            `${moneyMinor(result.paidMinor, result.currency)} a ${result.wallet.network.toUpperCase()} ${result.wallet.address}\nCorreo ${result.emailDelivered ? 'enviado' : 'registrado'} a ${result.email}.${
+                              proof.omitted
+                                ? '\nLa foto era muy pesada: el pago sí quedó, el correo va sin adjunto.'
+                                : ''
+                            }\nSaldo del periodo: USD 0.00`,
                           );
                           await loadPayouts();
                         } catch (cause) {
@@ -571,6 +681,17 @@ export default function AdminPortalScreen() {
                         : 'Por qué no se puede pagar'}
                   </PrimaryButton>
 
+                  <Pressable
+                    onPress={() =>
+                      setExpandedId(open ? null : row.affiliateId)
+                    }>
+                    <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
+                      {open
+                        ? 'Ocultar suscriptores'
+                        : `Ver quiénes son (${origin.refs})`}
+                    </Text>
+                  </Pressable>
+
                   {open
                     ? row.commissions.map((commission) => (
                         <View
@@ -584,8 +705,12 @@ export default function AdminPortalScreen() {
                               {commission.userLabel}
                             </Text>
                             <Text style={[styles.hint, { color: theme.muted }]}>
-                              {commission.planLabel} · {commission.commissionRate}% ·{' '}
-                              {statusLabel[commission.status]}
+                              {commission.planLabel} · {commission.commissionRate}% de{' '}
+                              {moneyMinor(
+                                commission.netAmountMinor ?? 0,
+                                commission.currency,
+                              )}{' '}
+                              · {statusLabel[commission.status]}
                             </Text>
                           </View>
                           <Text style={[styles.amount, { color: theme.text }]}>
@@ -876,6 +1001,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   block: { gap: 12 },
+  originBox: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 12,
+    gap: 6,
+  },
+  copyBtn: {
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
   section: { fontSize: 18, fontWeight: '700' },
   hint: { fontSize: 13, lineHeight: 18 },
   label: { fontSize: 12, fontWeight: '700' },

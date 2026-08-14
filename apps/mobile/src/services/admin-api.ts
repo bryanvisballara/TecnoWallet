@@ -22,6 +22,7 @@ export type AdminCommissionRow = {
   subscriptionId: string | null;
   commissionRate: number;
   commissionAmountMinor: number;
+  netAmountMinor?: number;
   currency: string;
   status: 'pending' | 'approved' | 'paid' | 'reversed';
   product: string;
@@ -44,6 +45,15 @@ export type AdminAffiliatePayout = {
   simulated?: boolean;
   ready: boolean;
   blockReason: AdminPayoutBlock;
+  tier?: {
+    id: 'partner' | 'creator' | 'ambassador';
+    label: string;
+    commissionPercent: number;
+    rangeLabel: string;
+    activePaidCount: number;
+  };
+  referralCount?: number;
+  netMinor?: number;
   payoutMethod: AdminPayoutMethod | null;
   commissions: AdminCommissionRow[];
 };

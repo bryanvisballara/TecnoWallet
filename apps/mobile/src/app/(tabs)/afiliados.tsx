@@ -15,6 +15,7 @@ import {
 import { AppIcon, Card, Pill, PrimaryButton, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
 import { intlLocale } from '@/i18n/locale-format';
+import { copyText } from '@/lib/copy-text';
 import { safeGoBack } from '@/lib/navigation';
 import {
   enrollAffiliatePartner,
@@ -333,6 +334,31 @@ export default function AffiliatesScreen() {
     }
   };
 
+  const copyValue = async (value: string, okEs: string, okEn: string) => {
+    try {
+      const mode = await copyText(value);
+      if (mode === 'copied') {
+        Alert.alert(locale === 'es' ? 'Copiado' : 'Copied', locale === 'es' ? okEs : okEn);
+        return;
+      }
+      Alert.alert(
+        locale === 'es' ? 'Listo para copiar' : 'Ready to copy',
+        locale === 'es'
+          ? 'Ábrelo en Notas o Mensajes y cópialo desde ahí.'
+          : 'Open it in Notes or Messages and copy it from there.',
+      );
+    } catch (cause) {
+      Alert.alert(
+        locale === 'es' ? 'No se copió' : 'Could not copy',
+        cause instanceof Error
+          ? cause.message
+          : locale === 'es'
+            ? 'Intenta de nuevo.'
+            : 'Try again.',
+      );
+    }
+  };
+
   const savePayout = async () => {
     const address = payoutAddress.trim();
     if (!address) {
@@ -550,6 +576,40 @@ export default function AffiliatesScreen() {
             }}>
             {copy.affiliates.shareLink}
           </PrimaryButton>
+          <View style={styles.copyRow}>
+            <Pressable
+              onPress={() => {
+                void copyValue(
+                  affiliate.code,
+                  'Código copiado.',
+                  'Code copied.',
+                );
+              }}
+              style={[
+                styles.copyChip,
+                { borderColor: theme.border, backgroundColor: theme.surfaceSecondary },
+              ]}>
+              <Text style={[styles.copyChipText, { color: theme.text }]}>
+                {locale === 'es' ? 'Copiar código' : 'Copy code'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                void copyValue(
+                  shareUrl,
+                  'Enlace copiado.',
+                  'Link copied.',
+                );
+              }}
+              style={[
+                styles.copyChip,
+                { borderColor: theme.border, backgroundColor: theme.surfaceSecondary },
+              ]}>
+              <Text style={[styles.copyChipText, { color: theme.text }]}>
+                {locale === 'es' ? 'Copiar enlace' : 'Copy link'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </Card>
 
@@ -680,6 +740,37 @@ export default function AffiliatesScreen() {
         <Text style={[styles.hint, { color: theme.muted }]}>
           {copy.affiliates.walletWarning}
         </Text>
+
+        <Pressable
+          onPress={() => {
+            const address = payoutAddress.trim();
+            if (!address) {
+              Alert.alert(
+                locale === 'es' ? 'Wallet' : 'Wallet',
+                locale === 'es'
+                  ? 'Primero escribe o guarda tu dirección USDT.'
+                  : 'Enter or save your USDT address first.',
+              );
+              return;
+            }
+            void copyValue(
+              address,
+              'Dirección de wallet copiada.',
+              'Wallet address copied.',
+            );
+          }}
+          style={[
+            styles.copyChip,
+            {
+              alignSelf: 'flex-start',
+              borderColor: theme.primary,
+              backgroundColor: theme.primarySoft,
+            },
+          ]}>
+          <Text style={[styles.copyChipText, { color: theme.primary }]}>
+            {locale === 'es' ? 'Copiar wallet' : 'Copy wallet'}
+          </Text>
+        </Pressable>
 
         <PrimaryButton
           icon="checkmark.circle.fill"
@@ -837,7 +928,15 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 12, lineHeight: 16 },
   code: { fontSize: 28, fontWeight: '800', letterSpacing: 1 },
-  actions: { width: '100%' },
+  actions: { width: '100%', gap: 10 },
+  copyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  copyChip: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  copyChipText: { fontSize: 13, fontWeight: '700' },
   statsCard: { paddingVertical: 4 },
   statRow: {
     minHeight: 48,

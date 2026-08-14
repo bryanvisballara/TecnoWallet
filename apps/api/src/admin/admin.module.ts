@@ -5,6 +5,8 @@ import {
   AffiliateSchema,
   CommissionEvent,
   CommissionEventSchema,
+  UserAttribution,
+  UserAttributionSchema,
 } from '../affiliate/affiliate.schemas';
 import { AuthModule, User, UserSchema } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
@@ -27,6 +29,7 @@ import { AdminService } from './admin.service';
       { name: Subscription.name, schema: SubscriptionSchema },
       { name: CommissionEvent.name, schema: CommissionEventSchema },
       { name: Affiliate.name, schema: AffiliateSchema },
+      { name: UserAttribution.name, schema: UserAttributionSchema },
     ]),
   ],
   controllers: [AdminController],
