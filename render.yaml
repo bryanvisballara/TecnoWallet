@@ -55,6 +55,12 @@ services:
         sync: false
       - key: UNIT_DEPOSIT_PRODUCT
         value: checking
+      - key: BRIDGE_API_URL
+        value: https://api.sandbox.bridge.xyz
+      - key: BRIDGE_API_KEY
+        sync: false
+      - key: BRIDGE_WEBHOOK_SECRET
+        sync: false
       - key: GOOGLE_CLIENT_ID_WEB
         sync: false
       - key: GOOGLE_CLIENT_ID_IOS

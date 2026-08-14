@@ -30,6 +30,11 @@ const schema = Joi.object({
   UNIT_API_URL: Joi.string().uri().default('https://api.s.unit.sh'),
   UNIT_API_TOKEN: Joi.string().optional().allow(''),
   UNIT_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  BRIDGE_API_URL: Joi.string()
+    .uri()
+    .default('https://api.sandbox.bridge.xyz'),
+  BRIDGE_API_KEY: Joi.string().optional().allow(''),
+  BRIDGE_WEBHOOK_SECRET: Joi.string().optional().allow(''),
   UNIT_WALLET_TERMS: Joi.string().default('walletDefault'),
   /** Deposit product id for individual-customer recaudo accounts (sandbox: checking). */
   UNIT_DEPOSIT_PRODUCT: Joi.string().default('checking'),

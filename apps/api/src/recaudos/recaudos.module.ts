@@ -52,8 +52,18 @@ import {
 } from 'mongoose';
 import { AuthModule, CurrentUser, Membership, User } from '../auth/auth.module';
 import type { AuthPrincipal } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
+import { EntitlementService } from '../billing/entitlement.service';
 import { PushModule } from '../push/push.module';
 import { PushService } from '../push/push.service';
+import {
+  DIGITAL_CURRENCY,
+  DIGITAL_KYC_ABSORB_TARGET_MINOR,
+  DIGITAL_MIN_TARGET_MINOR,
+  digitalPricingPublic,
+  isDigitalInactive,
+  quoteDigitalWithdrawal,
+} from './recaudo-digital-pricing';
 
 const planFrequencies = ['daily', 'weekly', 'biweekly', 'monthly'] as const;
 const paymentModes = ['manual', 'card_simulated', 'bank_ach'] as const;
@@ -147,6 +157,26 @@ export class Recaudo {
   /** Free-text bank/account details when payoutMethod is personal. */
   @Prop({ trim: true, maxlength: 2000 })
   payoutAccountDetails?: string;
+
+  /** First funded (bank) contribution — Bridge VA may open only after this. */
+  @Prop()
+  digitalActivatedAt?: Date;
+
+  @Prop()
+  digitalClosedAt?: Date;
+
+  @Prop()
+  lastDigitalActivityAt?: Date;
+
+  /** Business perk: first digital recaudo of the month skips the $2.99 fee. */
+  @Prop({ default: false })
+  digitalMonthlyIncluded?: boolean;
+
+  @Prop({ default: 0 })
+  digitalMonthlyBilledMinor?: number;
+
+  @Prop({ default: 0 })
+  digitalKycBilledMinor?: number;
 
   createdAt!: Date;
   updatedAt!: Date;
@@ -252,6 +282,17 @@ export class Withdrawal {
 
   @Prop({ required: true })
   idempotencyKey!: string;
+
+  /** 2% facilitator spread; 0 on personal rail. */
+  @Prop({ default: 0 })
+  platformFeeMinor?: number;
+
+  /** Accrued monthly VA + KYC taken from the pot. */
+  @Prop({ default: 0 })
+  digitalFeesMinor?: number;
+
+  @Prop({ default: 0 })
+  netPayoutMinor?: number;
 
   createdAt!: Date;
 }
@@ -596,6 +637,7 @@ export class RecaudosService {
     private readonly mailer: RecaudoMailer,
     private readonly config: ConfigService,
     private readonly push: PushService,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   async create(dto: CreateRecaudoDto, principal: AuthPrincipal) {
@@ -610,18 +652,19 @@ export class RecaudosService {
       throw new BadRequestException('deadline must be in the future');
     }
     const payoutMethod = dto.payoutMethod === 'digital' ? 'digital' : 'personal';
-    if (dto.payoutMethod === 'digital') {
-      throw new BadRequestException(
-        'La cuenta digital estará disponible pronto. Elige cuenta personal.',
-      );
-    }
     const payoutAccountDetails = dto.payoutAccountDetails?.trim() || '';
-    if (dto.payoutMethod === 'personal' && payoutAccountDetails.length < 8) {
+    if (payoutMethod === 'digital') {
+      this.assertDigitalEligible(dto.currency, dto.targetMinor);
+    } else if (payoutAccountDetails.length < 8) {
       throw new BadRequestException(
         'Indica los datos de la cuenta personal donde se guardará el recaudo.',
       );
     }
     const shareCode = await this.allocateShareCode();
+    const digitalMonthlyIncluded =
+      payoutMethod === 'digital'
+        ? await this.shouldIncludeDigitalMonthly(principal.userId)
+        : false;
     const recaudo = await this.recaudos.create({
       workspaceId: dto.workspaceId,
       organizerId: principal.userId,
@@ -635,6 +678,7 @@ export class RecaudosService {
       shareCode,
       payoutMethod,
       payoutAccountDetails,
+      digitalMonthlyIncluded,
     });
     await this.participants.create({
       recaudoId: recaudo._id,
@@ -749,12 +793,14 @@ export class RecaudosService {
       throw new BadRequestException('deadline must be in the future');
     }
     if (dto.payoutMethod === 'digital') {
-      throw new BadRequestException(
-        'La cuenta digital estará disponible pronto. Elige cuenta personal.',
+      this.assertDigitalEligible(
+        dto.currency ?? recaudo.currency,
+        dto.targetMinor ?? recaudo.targetMinor,
       );
     }
     if (
-      dto.payoutMethod === 'personal' &&
+      (dto.payoutMethod === 'personal' ||
+        (!dto.payoutMethod && recaudo.payoutMethod !== 'digital')) &&
       dto.payoutAccountDetails !== undefined &&
       dto.payoutAccountDetails.trim().length < 8
     ) {
@@ -803,6 +849,7 @@ export class RecaudosService {
     if (recaudo.status === 'closed') return this.detail(id, principal);
     recaudo.status = 'closed';
     recaudo.closedAt = new Date();
+    recaudo.digitalClosedAt = recaudo.digitalClosedAt ?? new Date();
     await recaudo.save();
     return this.detail(id, principal);
   }
@@ -827,6 +874,7 @@ export class RecaudosService {
     recaudo.deletedAt = new Date();
     recaudo.status = 'closed';
     recaudo.closedAt = recaudo.closedAt ?? new Date();
+    recaudo.digitalClosedAt = recaudo.digitalClosedAt ?? new Date();
     await recaudo.save();
     // Revoke pending invites so they cannot be accepted after delete.
     await this.invites.updateMany(
@@ -897,7 +945,13 @@ export class RecaudosService {
       { amountMinor: input.amountMinor, note: input.note },
       input.idempotencyKey,
       { userId: input.userId, email: '', platformRole: 'user' },
-    );
+    ).then(async (result) => {
+      const recaudo = await this.findRecaudo(input.recaudoId);
+      if (recaudo.payoutMethod === 'digital') {
+        await this.markDigitalActive(recaudo);
+      }
+      return result;
+    });
   }
 
   /**
@@ -967,6 +1021,9 @@ export class RecaudosService {
             : undefined,
         idempotencyKey,
       });
+      if (recaudo.payoutMethod === 'digital' && paymentMode === 'bank_ach') {
+        await this.markDigitalActive(recaudo);
+      }
       void this.notifyRecaudoActivity({
         recaudo,
         actorUserId: principal.userId,
@@ -1039,6 +1096,33 @@ export class RecaudosService {
         'amountMinor cannot exceed the collected pool',
       );
     }
+    const participantCount = await this.participants.countDocuments({
+      recaudoId: id,
+    });
+    const quote =
+      recaudo.payoutMethod === 'digital' && recaudo.digitalActivatedAt
+        ? quoteDigitalWithdrawal({
+            amountMinor: dto.amountMinor,
+            activatedAt: recaudo.digitalActivatedAt,
+            monthlyIncluded: Boolean(recaudo.digitalMonthlyIncluded),
+            monthlyBilledMinor: recaudo.digitalMonthlyBilledMinor ?? 0,
+            participantCount,
+            kycBilledMinor: recaudo.digitalKycBilledMinor ?? 0,
+            absorbKyc:
+              recaudo.targetMinor >= DIGITAL_KYC_ABSORB_TARGET_MINOR,
+          })
+        : {
+            spreadMinor: 0,
+            monthlyDueMinor: 0,
+            kycDueMinor: 0,
+            digitalFeesMinor: 0,
+            netPayoutMinor: dto.amountMinor,
+          };
+    if (quote.netPayoutMinor < 1) {
+      throw new BadRequestException(
+        'El pozo no cubre la comisión digital (2% al retiro, cuota mensual y KYC). Retira un monto mayor o usa cuenta personal.',
+      );
+    }
     try {
       const withdrawal = await this.withdrawals.create({
         recaudoId: recaudo._id,
@@ -1047,7 +1131,16 @@ export class RecaudosService {
         currency: recaudo.currency,
         note: dto.note,
         idempotencyKey,
+        platformFeeMinor: quote.spreadMinor,
+        digitalFeesMinor: quote.digitalFeesMinor,
+        netPayoutMinor: quote.netPayoutMinor,
       });
+      recaudo.digitalMonthlyBilledMinor =
+        (recaudo.digitalMonthlyBilledMinor ?? 0) + quote.monthlyDueMinor;
+      recaudo.digitalKycBilledMinor =
+        (recaudo.digitalKycBilledMinor ?? 0) + quote.kycDueMinor;
+      recaudo.lastDigitalActivityAt = new Date();
+      await recaudo.save();
       void this.notifyRecaudoActivity({
         recaudo,
         actorUserId: principal.userId,
@@ -1059,10 +1152,12 @@ export class RecaudosService {
       if (totals.collectedMinor <= 0) {
         recaudo.status = 'closed';
         recaudo.closedAt = new Date();
+        recaudo.digitalClosedAt = recaudo.digitalClosedAt ?? new Date();
         await recaudo.save();
       }
       return {
         withdrawal,
+        fees: quote,
         ...totals,
         idempotentReplay: false,
       };
@@ -1451,6 +1546,91 @@ export class RecaudosService {
     };
   }
 
+  private async markDigitalActive(recaudo: HydratedDocument<Recaudo>) {
+    const now = new Date();
+    recaudo.lastDigitalActivityAt = now;
+    if (!recaudo.digitalActivatedAt) recaudo.digitalActivatedAt = now;
+    await recaudo.save();
+  }
+
+  private assertDigitalEligible(currency: string, targetMinor: number) {
+    if (currency.trim().toUpperCase() !== DIGITAL_CURRENCY) {
+      throw new BadRequestException(
+        'La cuenta digital solo opera en USD. Bridge no tiene riel barato en COP; usa cuenta personal o cambia la meta a USD.',
+      );
+    }
+    if (targetMinor < DIGITAL_MIN_TARGET_MINOR) {
+      throw new BadRequestException(
+        'La cuenta digital requiere una meta de al menos US$ 250. Debajo de eso el costo fijo de Bridge deja el pozo en rojo. Usa cuenta personal.',
+      );
+    }
+  }
+
+  private async shouldIncludeDigitalMonthly(organizerId: string) {
+    const isBusiness = await this.entitlements.isBusiness(organizerId);
+    if (!isBusiness) return false;
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const used = await this.recaudos.countDocuments({
+      organizerId,
+      payoutMethod: 'digital',
+      digitalMonthlyIncluded: true,
+      createdAt: { $gte: start },
+      deletedAt: { $exists: false },
+    });
+    return used < digitalPricingPublic.businessIncludedPerMonth;
+  }
+
+  async quoteForRecaudo(
+    recaudo: HydratedDocument<Recaudo>,
+    amountMinor?: number,
+  ) {
+    if (recaudo.payoutMethod !== 'digital') return null;
+    const collectedMinor = await this.collected(recaudo._id.toString());
+    const participantCount = await this.participants.countDocuments({
+      recaudoId: recaudo._id,
+    });
+    const gross = amountMinor ?? collectedMinor;
+    if (gross <= 0) {
+      return {
+        spreadMinor: 0,
+        monthlyDueMinor: 0,
+        kycDueMinor: 0,
+        digitalFeesMinor: 0,
+        netPayoutMinor: 0,
+      };
+    }
+    return quoteDigitalWithdrawal({
+      amountMinor: gross,
+      activatedAt: recaudo.digitalActivatedAt,
+      monthlyIncluded: Boolean(recaudo.digitalMonthlyIncluded),
+      monthlyBilledMinor: recaudo.digitalMonthlyBilledMinor ?? 0,
+      participantCount,
+      kycBilledMinor: recaudo.digitalKycBilledMinor ?? 0,
+      absorbKyc: recaudo.targetMinor >= DIGITAL_KYC_ABSORB_TARGET_MINOR,
+    });
+  }
+
+  digitalPricing() {
+    return digitalPricingPublic;
+  }
+
+  assertDigitalAccountOpen(recaudo: HydratedDocument<Recaudo>) {
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException(
+        'Este recaudo usa cuenta personal. No abre cuenta Bridge.',
+      );
+    }
+    if (recaudo.status !== 'open' || recaudo.digitalClosedAt) {
+      throw new BadRequestException('Este recaudo digital ya está cerrado.');
+    }
+    if (isDigitalInactive(recaudo.lastDigitalActivityAt)) {
+      throw new BadRequestException(
+        'La cuenta digital se cerró por 30 días inactiva. Crea un recaudo nuevo si hace falta.',
+      );
+    }
+  }
+
   private async present(recaudo: HydratedDocument<Recaudo>) {
     return {
       id: recaudo._id.toString(),
@@ -1468,6 +1648,11 @@ export class RecaudosService {
       shareCode: recaudo.shareCode?.trim().toUpperCase() || undefined,
       payoutMethod: recaudo.payoutMethod === 'digital' ? 'digital' : 'personal',
       payoutAccountDetails: recaudo.payoutAccountDetails?.trim() || undefined,
+      digitalMonthlyIncluded: Boolean(recaudo.digitalMonthlyIncluded),
+      digitalActivatedAt: recaudo.digitalActivatedAt?.toISOString(),
+      digitalClosedAt: recaudo.digitalClosedAt?.toISOString(),
+      digitalPricing: digitalPricingPublic,
+      digitalQuote: await this.quoteForRecaudo(recaudo),
       createdAt: recaudo.createdAt.toISOString(),
       updatedAt: recaudo.updatedAt.toISOString(),
       ...(await this.totals(recaudo)),
@@ -1484,6 +1669,11 @@ class RecaudosController {
   @Get()
   list(@CurrentUser() user: AuthPrincipal) {
     return this.service.list(user);
+  }
+
+  @Get('digital-pricing')
+  digitalPricing() {
+    return this.service.digitalPricing();
   }
 
   @Post()
@@ -1647,6 +1837,7 @@ function escapeHtml(value: string): string {
   imports: [
     AuthModule,
     PushModule,
+    BillingModule,
     MongooseModule.forFeature([
       { name: Recaudo.name, schema: RecaudoSchema },
       { name: Participant.name, schema: ParticipantSchema },

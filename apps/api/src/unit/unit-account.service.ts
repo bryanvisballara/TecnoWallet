@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { Recaudo } from '../recaudos/recaudos.module';
+import { isDigitalInactive } from '../recaudos/recaudo-digital-pricing';
 import { UnitClient } from './unit-client';
 import { UnitRecaudoAccount } from './unit.schemas';
 
@@ -16,6 +18,8 @@ export class UnitAccountService {
     private readonly config: ConfigService,
     @InjectModel(UnitRecaudoAccount.name)
     private readonly accounts: Model<UnitRecaudoAccount>,
+    @InjectModel(Recaudo.name)
+    private readonly recaudos: Model<Recaudo>,
   ) {}
 
   async getByRecaudoId(recaudoId: string) {
@@ -23,14 +27,38 @@ export class UnitAccountService {
   }
 
   /**
-   * Ensures a dedicated Unit deposit account exists for this recaudo.
-   * Individual customers use depositAccount (checking); one pot per recaudo.
+   * Opens the Bridge/Unit pot only for a digital recaudo, and only when money
+   * is about to move (first funded contribution) — never at recaudo create.
    */
   async ensureRecaudoWallet(input: {
     recaudoId: string;
     workspaceId: string;
     unitCustomerId: string;
   }) {
+    const recaudo = await this.recaudos.findById(input.recaudoId);
+    if (!recaudo || recaudo.deletedAt) {
+      throw new NotFoundException('Recaudo not found');
+    }
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException(
+        'Este recaudo usa cuenta personal. No se abre cuenta Bridge.',
+      );
+    }
+    if (recaudo.currency !== 'USD') {
+      throw new BadRequestException(
+        'La cuenta digital solo opera en USD.',
+      );
+    }
+    if (recaudo.status !== 'open' || recaudo.digitalClosedAt) {
+      throw new BadRequestException('Este recaudo digital ya está cerrado.');
+    }
+    if (isDigitalInactive(recaudo.lastDigitalActivityAt)) {
+      await this.closeWallet(input.recaudoId);
+      throw new BadRequestException(
+        'La cuenta digital se cerró por 30 días inactiva.',
+      );
+    }
+
     const existing = await this.getByRecaudoId(input.recaudoId);
     if (existing?.unitWalletId && existing.status === 'open') {
       return existing;
@@ -98,7 +126,26 @@ export class UnitAccountService {
     );
   }
 
+  async closeWallet(recaudoId: string) {
+    return this.accounts.findOneAndUpdate(
+      { recaudoId },
+      { $set: { status: 'closed' } },
+      { new: true },
+    );
+  }
+
   async requireOpenWalletId(recaudoId: string): Promise<string> {
+    const recaudo = await this.recaudos.findById(recaudoId);
+    if (recaudo && (recaudo.digitalClosedAt || recaudo.status !== 'open')) {
+      await this.closeWallet(recaudoId);
+      throw new BadRequestException('Este recaudo digital ya está cerrado.');
+    }
+    if (recaudo && isDigitalInactive(recaudo.lastDigitalActivityAt)) {
+      await this.closeWallet(recaudoId);
+      throw new BadRequestException(
+        'La cuenta digital se cerró por 30 días inactiva.',
+      );
+    }
     const account = await this.getByRecaudoId(recaudoId);
     if (!account?.unitWalletId || account.status !== 'open') {
       throw new BadRequestException(

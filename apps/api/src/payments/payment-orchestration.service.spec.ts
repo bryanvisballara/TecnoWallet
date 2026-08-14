@@ -41,6 +41,7 @@ describe('PaymentOrchestrationService', () => {
     getFundingContext: jest.Mock;
     createSettledContributionFromIntent: jest.Mock;
     createSettledWithdrawalFromIntent: jest.Mock;
+    assertDigitalAccountOpen: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -77,8 +78,10 @@ describe('PaymentOrchestrationService', () => {
         recaudo: {
           _id: recaudoId,
           workspaceId,
+          organizerId: userId,
           status: 'open',
           currency: 'USD',
+          payoutMethod: 'digital',
         },
         participant: { _id: participantId, plan: null },
       }),
@@ -88,6 +91,7 @@ describe('PaymentOrchestrationService', () => {
       createSettledWithdrawalFromIntent: jest.fn().mockResolvedValue({
         withdrawal: { _id: new Types.ObjectId() },
       }),
+      assertDigitalAccountOpen: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -118,6 +122,9 @@ describe('PaymentOrchestrationService', () => {
           provide: UnitAccountService,
           useValue: {
             requireOpenWalletId: jest.fn().mockResolvedValue('wallet-1'),
+            ensureRecaudoWallet: jest.fn().mockResolvedValue({
+              unitWalletId: 'wallet-1',
+            }),
             markWalletOpen: jest.fn(),
           },
         },

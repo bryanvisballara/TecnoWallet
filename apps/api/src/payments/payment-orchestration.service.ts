@@ -155,9 +155,16 @@ export class PaymentOrchestrationService {
     }
 
     await this.customers.requireApprovedCustomerId(input.principal.userId);
-    const walletId = await this.accounts.requireOpenWalletId(
-      context.recaudo._id.toString(),
+    this.recaudos.assertDigitalAccountOpen(context.recaudo);
+    const organizerCustomerId = await this.customers.requireApprovedCustomerId(
+      context.recaudo.organizerId.toString(),
     );
+    const wallet = await this.accounts.ensureRecaudoWallet({
+      recaudoId: context.recaudo._id.toString(),
+      workspaceId: context.recaudo.workspaceId.toString(),
+      unitCustomerId: organizerCustomerId,
+    });
+    const walletId = wallet.unitWalletId;
     const counterparty = await this.counterparties.getActive(
       input.principal.userId,
       input.counterpartyId,
@@ -358,9 +365,16 @@ export class PaymentOrchestrationService {
     if (!counterparty) {
       throw new BadRequestException('Link a bank counterparty first');
     }
-    const walletId = await this.accounts.requireOpenWalletId(
-      context.recaudo._id.toString(),
+    this.recaudos.assertDigitalAccountOpen(context.recaudo);
+    const organizerCustomerId = await this.customers.requireApprovedCustomerId(
+      context.recaudo.organizerId.toString(),
     );
+    const wallet = await this.accounts.ensureRecaudoWallet({
+      recaudoId: context.recaudo._id.toString(),
+      workspaceId: context.recaudo.workspaceId.toString(),
+      unitCustomerId: organizerCustomerId,
+    });
+    const walletId = wallet.unitWalletId;
 
     const frequency = plan.frequency;
     const useNative = frequency === 'weekly' || frequency === 'monthly';

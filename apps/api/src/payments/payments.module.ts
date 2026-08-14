@@ -17,6 +17,7 @@ import {
   RecurringFundingSchedule,
   RecurringFundingScheduleSchema,
 } from './payments.schemas';
+import { BridgeClient } from '../bridge/bridge-client';
 import { UnitClient } from '../unit/unit-client';
 import { UnitCustomerService } from '../unit/unit-customer.service';
 import { UnitAccountService } from '../unit/unit-account.service';
@@ -61,6 +62,7 @@ import {
   ],
   controllers: [UnitController, PaymentsController, UnitWebhookController],
   providers: [
+    BridgeClient,
     UnitClient,
     UnitCustomerService,
     UnitAccountService,
@@ -78,6 +80,7 @@ import {
     PaymentProvider,
     CardPaymentProvider,
     PaymentOrchestrationService,
+    BridgeClient,
     UnitCustomerService,
     UnitAccountService,
     UnitCounterpartyService,

@@ -58,6 +58,25 @@ export type Recaudo = {
   shareCode?: string;
   payoutMethod?: RecaudoPayoutMethod;
   payoutAccountDetails?: string;
+  digitalMonthlyIncluded?: boolean;
+  digitalActivatedAt?: string;
+  digitalClosedAt?: string;
+  digitalQuote?: {
+    spreadMinor: number;
+    monthlyDueMinor: number;
+    kycDueMinor: number;
+    digitalFeesMinor: number;
+    netPayoutMinor: number;
+  } | null;
+  digitalPricing?: {
+    monthlyFeeMinor: number;
+    kycFeeMinor: number;
+    withdrawBps: number;
+    minTargetMinor: number;
+    kycAbsorbTargetMinor: number;
+    inactiveDays: number;
+    businessIncludedPerMonth: number;
+  };
   participants: RecaudoParticipant[];
   contributions: RecaudoContribution[];
   createdAt: string;
@@ -422,6 +441,27 @@ function normalizeRecaudo(raw: unknown): Recaudo {
       value.payoutAccountDetails.trim()
         ? value.payoutAccountDetails.trim()
         : undefined,
+    digitalMonthlyIncluded: Boolean(value.digitalMonthlyIncluded),
+    digitalActivatedAt:
+      typeof value.digitalActivatedAt === "string"
+        ? value.digitalActivatedAt
+        : undefined,
+    digitalClosedAt:
+      typeof value.digitalClosedAt === "string"
+        ? value.digitalClosedAt
+        : undefined,
+    digitalQuote: (() => {
+      const quote = value.digitalQuote;
+      if (!quote || typeof quote !== "object") return null;
+      const row = quote as Record<string, unknown>;
+      return {
+        spreadMinor: Number(row.spreadMinor) || 0,
+        monthlyDueMinor: Number(row.monthlyDueMinor) || 0,
+        kycDueMinor: Number(row.kycDueMinor) || 0,
+        digitalFeesMinor: Number(row.digitalFeesMinor) || 0,
+        netPayoutMinor: Number(row.netPayoutMinor) || 0,
+      };
+    })(),
     participants,
     contributions,
     createdAt: dateString(value.createdAt),

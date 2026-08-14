@@ -25,6 +25,7 @@ import {
   SectionTitle,
   useAppTheme,
 } from "@/components/ui";
+import { DigitalRailTerms } from "@/components/digital-rail-terms";
 import { useAppCopy, type AppCopy } from "@/i18n/app-copy";
 import { intlLocale } from "@/i18n/locale-format";
 import {
@@ -34,6 +35,9 @@ import {
 } from "@/lib/currencies";
 import { useAuthStore } from "@/store/auth";
 import { useLanguageStore } from "@/store/language";
+import {
+  quoteDigitalPayout,
+} from "@/lib/recaudo-digital-pricing";
 import {
   useRecaudosStore,
   type ContributionFrequency,
@@ -258,32 +262,6 @@ export default function RecaudoDetailScreen() {
   }, [bootstrapForRecaudo, demo, recaudo?.id]);
 
   useEffect(() => {
-    if (
-      !BRIDGE_PAYMENTS_LIVE ||
-      demo ||
-      !recaudo?.isOrganizer ||
-      !recaudo.id ||
-      identity.status !== "approved" ||
-      !identity.unitCustomerId ||
-      (wallet?.unitWalletId && wallet.status === "open") ||
-      setupBusy
-    ) {
-      return;
-    }
-    void ensureRecaudoWallet(recaudo.id).catch(() => undefined);
-  }, [
-    demo,
-    ensureRecaudoWallet,
-    identity.status,
-    identity.unitCustomerId,
-    recaudo?.id,
-    recaudo?.isOrganizer,
-    setupBusy,
-    wallet?.status,
-    wallet?.unitWalletId,
-  ]);
-
-  useEffect(() => {
     if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
     const balances = balancesByRecaudo[recaudo.id];
     const inFlight =
@@ -379,11 +357,7 @@ export default function RecaudoDetailScreen() {
     (identity.status === "pending" ||
       identity.status === "awaitingDocuments");
   // Order: identity → recaudo digital account (organizer) → source bank link.
-  const needsWallet =
-    !demo &&
-    recaudo.isOrganizer &&
-    identity.status === "approved" &&
-    !(wallet?.unitWalletId && wallet.status === "open");
+  const needsWallet = false;
   const walletReady = Boolean(wallet?.unitWalletId && wallet.status === "open");
   const needsBank =
     !demo &&
@@ -829,8 +803,8 @@ export default function RecaudoDetailScreen() {
         </Card>
       ) : null}
 
-      {!demo && !BRIDGE_PAYMENTS_LIVE ? (
-        <Card style={[styles.formCard, { opacity: 0.78 }]}>
+      {!demo && recaudo.payoutMethod === "digital" ? (
+        <Card style={styles.formCard}>
           <View style={styles.formHeading}>
             <View
               style={[styles.smallIcon, { backgroundColor: theme.primarySoft }]}
@@ -840,32 +814,28 @@ export default function RecaudoDetailScreen() {
             <View style={styles.copy}>
               <View style={styles.nameLine}>
                 <Text style={[styles.cardTitle, { color: theme.text }]}>
-                  {t(
-                    "Cuenta digital y retiros",
-                    "Digital account and withdrawals",
-                  )}
+                  {t("Cuenta digital", "Digital account")}
                 </Text>
-                <Pill tone="neutral">{t("Próximamente", "Coming soon")}</Pill>
+                <Pill tone={recaudo.digitalActivatedAt ? "green" : "neutral"}>
+                  {recaudo.digitalActivatedAt
+                    ? t("Activa", "Active")
+                    : t("Se abre al primer aporte", "Opens on first deposit")}
+                </Pill>
               </View>
-              <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                {t(
-                  "Pronto podrás abrir una cuenta y retirar entre países con Bridge. Por ahora solo se registran aportes manuales en el recaudo.",
-                  "Soon you’ll be able to open an account and withdraw across countries with Bridge. For now, only manual contributions are recorded.",
-                )}
-              </Text>
             </View>
           </View>
-          <View
-            pointerEvents="none"
-            style={[
-              styles.comingSoonBtn,
-              { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
-            ]}
-          >
-            <Text style={{ color: theme.muted, fontWeight: "700" }}>
-              {t("Crear cuenta (próximamente)", "Create account (coming soon)")}
-            </Text>
-          </View>
+          <DigitalRailTerms
+            businessIncluded={Boolean(recaudo.digitalMonthlyIncluded)}
+          />
+        </Card>
+      ) : !demo && !BRIDGE_PAYMENTS_LIVE ? (
+        <Card style={styles.formCard}>
+          <Text style={[styles.rowMeta, { color: theme.muted }]}>
+            {t(
+              "Este recaudo usa cuenta personal (gratis). El grupo se paga por fuera; TecnoWallet solo anota. La cuenta digital (USD, meta mínima US$ 250) se elige al crear el recaudo.",
+              "This collection uses a personal account (free). The group pays off-platform; TecnoWallet only records it. Digital (USD, US$250 min) is chosen when creating the collection.",
+            )}
+          </Text>
         </Card>
       ) : null}
 
@@ -911,6 +881,31 @@ export default function RecaudoDetailScreen() {
                   ? t(" (ACH a tu cuenta)", " (ACH to your account)")
                   : t(" (registro manual)", " (manual record)")}
               </Text>
+              {recaudo.payoutMethod === "digital" && recaudo.digitalActivatedAt
+                ? (() => {
+                    const amountMinor = amountToMinorUnits(
+                      withdrawAmount,
+                      recaudo.currency,
+                    );
+                    const gross =
+                      Number.isSafeInteger(amountMinor) && amountMinor > 0
+                        ? amountMinor
+                        : withdrawableMinor;
+                    const quote = quoteDigitalPayout(gross, recaudo.digitalQuote);
+                    return (
+                      <Text style={[styles.rowMeta, { color: theme.muted }]}>
+                        {t("2% comisión", "2% fee")} {fmt(quote.spreadMinor)}
+                        {quote.monthlyDueMinor
+                          ? ` · ${t("cuota", "monthly")} ${fmt(quote.monthlyDueMinor)}`
+                          : ""}
+                        {quote.kycDueMinor
+                          ? ` · KYC ${fmt(quote.kycDueMinor)}`
+                          : ""}
+                        {` · ${t("Neto", "Net")} ${fmt(Math.max(0, quote.netPayoutMinor))}`}
+                      </Text>
+                    );
+                  })()
+                : null}
               <View
                 style={[
                   styles.amountInput,

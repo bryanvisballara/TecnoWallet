@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 
 import { AppDateField } from '@/components/app-date-field';
+import { DigitalRailTerms } from '@/components/digital-rail-terms';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
@@ -26,6 +27,12 @@ import {
   isZeroDecimalCurrency,
   monthlyAmountPlaceholder,
 } from '@/lib/currencies';
+import {
+  DIGITAL_CURRENCY,
+  DIGITAL_MIN_TARGET_MINOR,
+} from '@/lib/recaudo-digital-pricing';
+import { isBusinessPlan } from '@/services/plus-api';
+import { usePlusStore } from '@/store/plus';
 import {
   useRecaudosStore,
   type RecaudoCategory,
@@ -132,6 +139,7 @@ export default function AddRecaudoScreen() {
   const recaudos = useRecaudosStore((state) => state.recaudos);
   const existing = recaudos.find((item) => item.id === params.id);
   const isEditing = Boolean(existing);
+  const isBusiness = isBusinessPlan(usePlusStore((state) => state.access));
   const [title, setTitle] = useState(existing?.title ?? '');
   const [category, setCategory] = useState<RecaudoCategory>(existing?.category ?? 'travel');
   const [currency, setCurrency] = useState(existing?.currency ?? 'USD');
@@ -145,7 +153,7 @@ export default function AddRecaudoScreen() {
   );
   const [deadline, setDeadline] = useState(deadlineInput(existing?.deadline));
   const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>(
-    existing?.payoutMethod === 'digital' ? 'personal' : 'personal',
+    existing?.payoutMethod === 'digital' ? 'digital' : 'personal',
   );
   const [payoutDetails, setPayoutDetails] = useState(existing?.payoutAccountDetails ?? '');
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -159,7 +167,7 @@ export default function AddRecaudoScreen() {
     setTarget(minorToInput(existing.targetMinor, existing.currency));
     setMonthly(minorToInput(existing.monthlyTargetMinor, existing.currency));
     setDeadline(deadlineInput(existing.deadline));
-    setPayoutMethod('personal');
+    setPayoutMethod(existing.payoutMethod === 'digital' ? 'digital' : 'personal');
     setPayoutDetails(existing.payoutAccountDetails ?? '');
   }, [existing?.id]);
 
@@ -220,7 +228,16 @@ export default function AddRecaudoScreen() {
       nextErrors.deadline = true;
       missing.push('fecha válida');
     }
-    if (payoutMethod !== 'personal' || payoutDetails.trim().length < 8) {
+    if (payoutMethod === 'digital') {
+      if (currency !== DIGITAL_CURRENCY) {
+        nextErrors.target = true;
+        missing.push('moneda USD');
+      }
+      if (!Number.isSafeInteger(targetMinor) || targetMinor < DIGITAL_MIN_TARGET_MINOR) {
+        nextErrors.target = true;
+        missing.push('meta de al menos US$ 250');
+      }
+    } else if (payoutDetails.trim().length < 8) {
       nextErrors.payout = true;
       missing.push('datos de la cuenta personal');
     }
@@ -250,8 +267,9 @@ export default function AddRecaudoScreen() {
           monthlyTargetMinor,
           currency,
           deadline: deadline.trim() || undefined,
-          payoutMethod: 'personal',
-          payoutAccountDetails: payoutDetails.trim(),
+          payoutMethod,
+          payoutAccountDetails:
+            payoutMethod === 'personal' ? payoutDetails.trim() : undefined,
         });
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         safeGoBack(`/(tabs)/recaudo/${existing.id}`);
@@ -264,8 +282,9 @@ export default function AddRecaudoScreen() {
         monthlyTargetMinor,
         currency,
         deadline: deadline.trim() || undefined,
-        payoutMethod: 'personal',
-        payoutAccountDetails: payoutDetails.trim(),
+        payoutMethod,
+        payoutAccountDetails:
+          payoutMethod === 'personal' ? payoutDetails.trim() : undefined,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // Cierra la hoja y deja el detalle encima de Recaudos para que "atrás" funcione.
@@ -385,6 +404,13 @@ export default function AddRecaudoScreen() {
             accessibilityRole="button"
             accessibilityLabel="Elegir moneda"
             onPress={() => {
+              if (payoutMethod === 'digital') {
+                Alert.alert(
+                  'Cuenta digital',
+                  'El riel Bridge solo opera en USD. Para COP u otra moneda usa cuenta personal (gratis).',
+                );
+                return;
+              }
               setCurrencyQuery('');
               setCurrencyOpen(true);
             }}
@@ -422,7 +448,11 @@ export default function AddRecaudoScreen() {
             errorStyle={borderFor('target')}
           />
           {errors.target ? (
-            <ErrorText color={theme.danger}>Indica un objetivo mayor a cero</ErrorText>
+            <ErrorText color={theme.danger}>
+              {payoutMethod === 'digital'
+                ? 'La cuenta digital pide meta de al menos US$ 250, solo en USD'
+                : 'Indica un objetivo mayor a cero'}
+            </ErrorText>
           ) : null}
 
           <FieldLabel error={errors.monthly} color={theme.muted} danger={theme.danger}>
@@ -471,21 +501,30 @@ export default function AddRecaudoScreen() {
           <View style={styles.payoutRow}>
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ disabled: true }}
-              disabled
+              accessibilityState={{ selected: payoutMethod === 'digital' }}
+              onPress={() => {
+                setPayoutMethod('digital');
+                setCurrency(DIGITAL_CURRENCY);
+                clearError('payout');
+                clearError('target');
+              }}
               style={[
                 styles.payoutOption,
                 {
-                  borderColor: theme.border,
-                  backgroundColor: theme.surfaceSecondary,
-                  opacity: 0.55,
+                  borderColor: payoutMethod === 'digital' ? theme.primary : theme.border,
+                  backgroundColor:
+                    payoutMethod === 'digital' ? theme.primarySoft : theme.surfaceSecondary,
                 },
               ]}>
-              <Text style={[styles.payoutOptionTitle, { color: theme.muted }]}>
+              <Text
+                style={[
+                  styles.payoutOptionTitle,
+                  { color: payoutMethod === 'digital' ? theme.primary : theme.text },
+                ]}>
                 Cuenta digital
               </Text>
               <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
-                Próximamente
+                USD · lista
               </Text>
             </Pressable>
             <Pressable
@@ -508,12 +547,14 @@ export default function AddRecaudoScreen() {
                 Cuenta personal
               </Text>
               <Text style={[styles.payoutOptionHint, { color: theme.muted }]}>
-                Banco o billetera
+                Gratis · Nequi / banco
               </Text>
             </Pressable>
           </View>
 
-          {payoutMethod === 'personal' ? (
+          {payoutMethod === 'digital' ? (
+            <DigitalRailTerms businessIncluded={isBusiness} />
+          ) : (
             <>
               <TextInput
                 value={payoutDetails}
@@ -539,7 +580,7 @@ export default function AddRecaudoScreen() {
                 </ErrorText>
               ) : null}
             </>
-          ) : null}
+          )}
         </FormScrollView>
       </View>
 
