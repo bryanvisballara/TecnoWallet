@@ -7,6 +7,17 @@ import { isDigitalInactive } from '../recaudos/recaudo-digital-pricing';
 import { UnitClient } from './unit-client';
 import { UnitRecaudoAccount } from './unit.schemas';
 
+type OpenRecaudoWallet = UnitRecaudoAccount & { unitWalletId: string };
+
+function requireOpenWallet(
+  account: UnitRecaudoAccount | null,
+): OpenRecaudoWallet {
+  if (!account?.unitWalletId) {
+    throw new BadRequestException('No se pudo abrir la cuenta digital');
+  }
+  return account as OpenRecaudoWallet;
+}
+
 function stripQuotes(value: string) {
   return value.trim().replace(/^['"]|['"]$/g, '');
 }
@@ -34,7 +45,7 @@ export class UnitAccountService {
     recaudoId: string;
     workspaceId: string;
     unitCustomerId: string;
-  }) {
+  }): Promise<OpenRecaudoWallet> {
     const recaudo = await this.recaudos.findById(input.recaudoId);
     if (!recaudo || recaudo.deletedAt) {
       throw new NotFoundException('Recaudo not found');
@@ -61,7 +72,7 @@ export class UnitAccountService {
 
     const existing = await this.getByRecaudoId(input.recaudoId);
     if (existing?.unitWalletId && existing.status === 'open') {
-      return existing;
+      return requireOpenWallet(existing);
     }
 
     const depositProduct = stripQuotes(
@@ -69,18 +80,20 @@ export class UnitAccountService {
     );
 
     if (!this.unit.configured) {
-      return this.accounts.findOneAndUpdate(
-        { recaudoId: input.recaudoId },
-        {
-          $set: {
-            workspaceId: input.workspaceId,
-            unitCustomerId: input.unitCustomerId,
-            unitWalletId: `sandbox-wallet-${input.recaudoId}`,
-            walletTerms: depositProduct,
-            status: 'open',
+      return requireOpenWallet(
+        await this.accounts.findOneAndUpdate(
+          { recaudoId: input.recaudoId },
+          {
+            $set: {
+              workspaceId: input.workspaceId,
+              unitCustomerId: input.unitCustomerId,
+              unitWalletId: `sandbox-wallet-${input.recaudoId}`,
+              walletTerms: depositProduct,
+              status: 'open',
+            },
           },
-        },
-        { upsert: true, new: true },
+          { upsert: true, new: true },
+        ),
       );
     }
 
@@ -111,18 +124,20 @@ export class UnitAccountService {
     );
     const resource = this.unit.single(doc);
     const statusAttr = String(resource.attributes?.status ?? 'Open');
-    return this.accounts.findOneAndUpdate(
-      { recaudoId: input.recaudoId },
-      {
-        $set: {
-          workspaceId: input.workspaceId,
-          unitCustomerId: input.unitCustomerId,
-          unitWalletId: resource.id,
-          walletTerms: depositProduct,
-          status: statusAttr === 'Open' ? 'open' : 'pending',
+    return requireOpenWallet(
+      await this.accounts.findOneAndUpdate(
+        { recaudoId: input.recaudoId },
+        {
+          $set: {
+            workspaceId: input.workspaceId,
+            unitCustomerId: input.unitCustomerId,
+            unitWalletId: resource.id,
+            walletTerms: depositProduct,
+            status: statusAttr === 'Open' ? 'open' : 'pending',
+          },
         },
-      },
-      { upsert: true, new: true },
+        { upsert: true, new: true },
+      ),
     );
   }
 
