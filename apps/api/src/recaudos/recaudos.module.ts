@@ -55,6 +55,7 @@ import { AuthModule, CurrentUser, Membership, User } from '../auth/auth.module';
 import type { AuthPrincipal } from '../auth/auth.module';
 import { BridgeModule } from '../bridge/bridge.module';
 import { RecaudoBridgeService } from '../bridge/recaudo-bridge.service';
+import { BridgeKycService } from '../bridge/bridge-kyc.service';
 import { PushModule } from '../push/push.module';
 import { PushService } from '../push/push.service';
 import {
@@ -181,6 +182,9 @@ export class Recaudo {
     chain?: string;
     kycUrl?: string;
     tosUrl?: string;
+    kycLinkId?: string;
+    kycStatus?: string;
+    tosStatus?: string;
     status?: string;
     virtualAccounts?: Array<{
       id: string;
@@ -659,6 +663,7 @@ export class RecaudosService {
     private readonly config: ConfigService,
     private readonly push: PushService,
     private readonly tecnoAccounts: RecaudoBridgeService,
+    private readonly kyc: BridgeKycService,
   ) {}
 
   async create(dto: CreateRecaudoDto, principal: AuthPrincipal) {
@@ -706,6 +711,7 @@ export class RecaudosService {
       role: 'organizer',
     });
     if (payoutMethod === 'digital') {
+      await this.kyc.requireVerified(principal.userId);
       try {
         await this.provisionTecnoAccount(recaudo, principal.userId);
       } catch (error) {
@@ -1627,9 +1633,18 @@ export class RecaudosService {
       recaudoId: recaudo._id.toString(),
       organizerEmail: organizer.email,
       organizerName: organizer.name,
-      existingCustomerId: prior?.tecnoAccount?.customerId,
+      existingCustomerId:
+        organizer.bridgeKyc?.customerId || prior?.tecnoAccount?.customerId,
     });
-    recaudo.tecnoAccount = snapshot;
+    recaudo.tecnoAccount = {
+      ...snapshot,
+      kycLinkId: snapshot.kycLinkId || organizer.bridgeKyc?.kycLinkId,
+      kycStatus: snapshot.kycStatus || organizer.bridgeKyc?.kycStatus,
+      tosStatus: snapshot.tosStatus || organizer.bridgeKyc?.tosStatus,
+      kycUrl: snapshot.kycUrl || organizer.bridgeKyc?.kycUrl,
+      tosUrl: snapshot.tosUrl || organizer.bridgeKyc?.tosUrl,
+      customerId: snapshot.customerId || organizer.bridgeKyc?.customerId,
+    };
     this.logger.log(
       `TecnoWallet account ${snapshot.status} for recaudo ${recaudo._id.toString()}`,
     );
@@ -1644,6 +1659,19 @@ export class RecaudosService {
     }
     try {
       await this.provisionTecnoAccount(recaudo, recaudo.organizerId.toString());
+      const kyc = await this.kyc.status(principal.userId);
+      recaudo.tecnoAccount = {
+        ...(recaudo.tecnoAccount ?? {}),
+        kycLinkId: kyc.kycLinkId,
+        kycStatus: kyc.kycStatus,
+        tosStatus: kyc.tosStatus,
+        kycUrl: kyc.kycUrl,
+        tosUrl: kyc.tosUrl,
+        customerId: kyc.customerId || recaudo.tecnoAccount?.customerId,
+        virtualAccounts: recaudo.tecnoAccount?.virtualAccounts ?? [],
+        status: recaudo.tecnoAccount?.status,
+      };
+      await recaudo.save();
     } catch (error) {
       this.logger.warn(
         `TecnoWallet sync failed: ${error instanceof Error ? error.message : 'error'}`,
@@ -1736,7 +1764,12 @@ export class RecaudosService {
             status: recaudo.tecnoAccount.status,
             kycUrl: recaudo.tecnoAccount.kycUrl,
             tosUrl: recaudo.tecnoAccount.tosUrl,
+            kycLinkId: recaudo.tecnoAccount.kycLinkId,
+            kycStatus: recaudo.tecnoAccount.kycStatus,
+            tosStatus: recaudo.tecnoAccount.tosStatus,
+            customerId: recaudo.tecnoAccount.customerId,
             chain: recaudo.tecnoAccount.chain,
+            walletAddress: recaudo.tecnoAccount.walletAddress,
             error: recaudo.tecnoAccount.error,
             virtualAccounts: (recaudo.tecnoAccount.virtualAccounts ?? []).map(
               (item) => ({

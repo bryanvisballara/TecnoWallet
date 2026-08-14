@@ -11,29 +11,24 @@ import {
   View,
 } from 'react-native';
 
+import { RecaudoHeroCard } from '@/components/recaudo-hero-card';
 import {
   AppIcon,
   Card,
   Pill,
   PrimaryButton,
-  ProgressBar,
   ScalePressable,
   Screen,
   useAppTheme,
 } from '@/components/ui';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
-import { useAppCopy, type AppCopy } from '@/i18n/app-copy';
-import { intlLocale } from '@/i18n/locale-format';
+import { useAppCopy } from '@/i18n/app-copy';
 import { safeGoBack } from '@/lib/navigation';
-import { isZeroDecimalCurrency } from '@/lib/currencies';
-import { recaudoIntlCurrency } from '@/lib/recaudo-digital-pricing';
-import { useLanguageStore } from '@/store/language';
 import {
   useRecaudosStore,
   type Recaudo,
   type RecaudoAccessRequest,
   type RecaudoCategory,
-  type RecaudoParticipant,
 } from '@/store/recaudos';
 
 const categoryIcons: Record<RecaudoCategory, { icon: string; color: string }> = {
@@ -42,14 +37,6 @@ const categoryIcons: Record<RecaudoCategory, { icon: string; color: string }> = 
   event: { icon: 'ticket.fill', color: '#7F56D9' },
   purchase: { icon: 'cart.fill', color: '#F79009' },
   other: { icon: 'sparkles', color: '#0E9F6E' },
-};
-
-const categoryTypeKey: Record<RecaudoCategory, keyof AppCopy['collections']['types']> = {
-  travel: 'trip',
-  gift: 'gift',
-  event: 'event',
-  purchase: 'purchase',
-  other: 'other',
 };
 
 async function copyText(value: string) {
@@ -69,44 +56,8 @@ async function copyText(value: string) {
   }
 }
 
-function formatMinor(value: number, currency: string, locale: string) {
-  return new Intl.NumberFormat(intlLocale(locale), {
-    style: 'currency',
-    currency: recaudoIntlCurrency(currency),
-    maximumFractionDigits: isZeroDecimalCurrency(currency) ? 0 : 2,
-  }).format(value / 100);
-}
-
-function frequencyDays(frequency: RecaudoParticipant['frequency']) {
-  if (frequency === 'daily') return 1;
-  if (frequency === 'weekly') return 7;
-  if (frequency === 'biweekly') return 14;
-  return 30;
-}
-
-function nextContributionLabel(recaudo: Recaudo, copy: AppCopy, locale: string) {
-  const enabled = recaudo.participants.filter(
-    (participant) => participant.remindersEnabled && participant.monthlyCommitmentMinor > 0,
-  );
-  if (!enabled.length) return copy.collections.noNext;
-  const participant = enabled.reduce((nearest, item) =>
-    frequencyDays(item.frequency) < frequencyDays(nearest.frequency) ? item : nearest,
-  );
-  const next = new Date();
-  next.setDate(next.getDate() + frequencyDays(participant.frequency));
-  const label = new Intl.DateTimeFormat(intlLocale(locale), {
-    day: 'numeric',
-    month: 'short',
-  }).format(next);
-  return copy.collections.nextContribution(label);
-}
-
 function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
-  const theme = useAppTheme();
-  const copy = useAppCopy();
-  const locale = useLanguageStore((state) => state.locale);
   const categoryMeta = categoryIcons[recaudo.category];
-  const categoryLabel = copy.collections.types[categoryTypeKey[recaudo.category]];
   const ratio = recaudo.targetMinor > 0 ? recaudo.collectedMinor / recaudo.targetMinor : 0;
   const percent = Math.min(100, Math.round(ratio * 100));
 
@@ -117,57 +68,14 @@ function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
       onPress={() =>
         router.push({ pathname: '/(tabs)/recaudo/[id]', params: { id: recaudo.id } })
       }>
-      <Card style={styles.card}>
-        <View style={styles.cardTop}>
-          <View style={[styles.categoryIcon, { backgroundColor: `${categoryMeta.color}1F` }]}>
-            <AppIcon name={categoryMeta.icon} color={categoryMeta.color} size={21} />
-          </View>
-          <View style={styles.cardCopy}>
-            <Text numberOfLines={1} style={[styles.cardTitle, { color: theme.text }]}>
-              {recaudo.title}
-            </Text>
-            <Text style={[styles.cardMeta, { color: theme.muted }]}>{categoryLabel}</Text>
-          </View>
-          <Pill tone={recaudo.status === 'completed' ? 'green' : 'blue'}>
-            {recaudo.status === 'completed' ? copy.collections.completed : `${percent}%`}
-          </Pill>
-        </View>
-
-        <View style={styles.amounts}>
-          <View>
-            <Text style={[styles.amountLabel, { color: theme.muted }]}>
-              {copy.collections.collected}
-            </Text>
-            <Text style={[styles.amount, { color: theme.text }]}>
-              {formatMinor(recaudo.collectedMinor, recaudo.currency, locale)}
-            </Text>
-          </View>
-          <View style={styles.target}>
-            <Text style={[styles.amountLabel, { color: theme.muted }]}>
-              {copy.collections.goal}
-            </Text>
-            <Text style={[styles.targetAmount, { color: theme.muted }]}>
-              {formatMinor(recaudo.targetMinor, recaudo.currency, locale)}
-            </Text>
-          </View>
-        </View>
-        <ProgressBar
-          value={ratio}
-          color={categoryMeta.color}
-          label={`Progreso de ${recaudo.title}: ${percent}%`}
-        />
-        <View style={styles.footer}>
-          <View style={styles.footerItem}>
-            <AppIcon name="person.2.fill" color={theme.muted} size={15} />
-            <Text style={[styles.footerText, { color: theme.muted }]}>
-              {copy.collections.participants(recaudo.participants.length)}
-            </Text>
-          </View>
-          <Text style={[styles.footerText, { color: theme.muted }]}>
-            {nextContributionLabel(recaudo, copy, locale)}
-          </Text>
-        </View>
-      </Card>
+      <RecaudoHeroCard
+        title={recaudo.title}
+        categoryIcon={categoryMeta.icon}
+        collectedMinor={recaudo.collectedMinor}
+        targetMinor={recaudo.targetMinor}
+        percent={percent}
+        ratio={ratio}
+      />
     </ScalePressable>
   );
 }

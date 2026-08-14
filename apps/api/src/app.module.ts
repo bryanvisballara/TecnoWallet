@@ -7,6 +7,7 @@ import { AffiliateModule } from './affiliate/affiliate.module';
 import { AuthModule } from './auth/auth.module';
 import { BankModule } from './bank/bank.module';
 import { BillingModule } from './billing/billing.module';
+import { BridgeModule } from './bridge/bridge.module';
 import { CollaborationModule } from './collaboration/collaboration.module';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
@@ -39,6 +40,7 @@ import { RecaudosModule } from './recaudos/recaudos.module';
     PlatformModule,
     AssistantModule,
     BankModule,
+    BridgeModule,
     RecaudosModule,
     PaymentsModule,
     MailModule,

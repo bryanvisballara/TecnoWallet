@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { BridgeClient } from './bridge-client';
 
 export type TecnoAccountStatus = 'pending_kyc' | 'ready' | 'failed';
@@ -35,9 +34,23 @@ export type TecnoAccountSnapshot = {
   chain?: string;
   kycUrl?: string;
   tosUrl?: string;
+  kycLinkId?: string;
+  kycStatus?: string;
+  tosStatus?: string;
   status: TecnoAccountStatus;
   virtualAccounts: TecnoVirtualAccount[];
   error?: string;
+};
+
+export type TecnoKycSnapshot = {
+  customerId?: string;
+  kycLinkId?: string;
+  kycStatus: string;
+  tosStatus?: string;
+  kycUrl?: string;
+  tosUrl?: string;
+  rejectionReasons: string[];
+  verified: boolean;
 };
 
 type BridgeCustomer = {
@@ -58,10 +71,13 @@ type BridgeWallet = {
 };
 
 type BridgeKycLink = {
+  id?: string;
   customer_id?: string;
   kyc_link?: string;
   tos_link?: string;
   kyc_status?: string;
+  tos_status?: string;
+  rejection_reasons?: Array<{ reason?: string }>;
 };
 
 type BridgeDepositInstructions = {
@@ -89,14 +105,114 @@ type BridgeVirtualAccount = {
   source_deposit_instructions?: BridgeDepositInstructions;
 };
 
-const VA_CURRENCIES = ['usd', 'cop', 'mxn', 'brl'] as const;
+const VA_CURRENCIES = ['usd', 'cop', 'mxn', 'brl', 'eur'] as const;
 const WALLET_CHAIN = 'base';
+const KYC_ENDORSEMENTS = ['base', 'cop', 'sepa', 'spei', 'pix'] as const;
+
+function mapKyc(link: BridgeKycLink): TecnoKycSnapshot {
+  const kycStatus = link.kyc_status || 'not_started';
+  return {
+    customerId: link.customer_id,
+    kycLinkId: link.id,
+    kycStatus,
+    tosStatus: link.tos_status,
+    kycUrl: link.kyc_link,
+    tosUrl: link.tos_link,
+    rejectionReasons: (link.rejection_reasons ?? [])
+      .map((item) => item.reason?.trim())
+      .filter((item): item is string => Boolean(item)),
+    verified: kycStatus === 'approved',
+  };
+}
 
 @Injectable()
 export class RecaudoBridgeService {
   private readonly logger = new Logger(RecaudoBridgeService.name);
 
   constructor(private readonly bridge: BridgeClient) {}
+
+  async createKycLink(input: {
+    email: string;
+    fullName: string;
+    existingLinkId?: string;
+    retry?: boolean;
+  }): Promise<TecnoKycSnapshot> {
+    if (!this.bridge.configured) {
+      throw new Error('not_configured');
+    }
+    if (input.existingLinkId && !input.retry) {
+      const current = await this.getKycLink(input.existingLinkId);
+      if (
+        current &&
+        current.kycStatus !== 'rejected' &&
+        current.kycStatus !== 'offboarded'
+      ) {
+        return current;
+      }
+    }
+
+    const listed = await this.listKycLinks(input.email);
+    const reusable = listed.find(
+      (item) =>
+        item.kycStatus !== 'rejected' &&
+        item.kycStatus !== 'offboarded' &&
+        Boolean(item.kycUrl || item.verified),
+    );
+    if (reusable && !input.retry) return reusable;
+
+    const body = {
+      full_name: input.fullName,
+      email: input.email,
+      type: 'individual' as const,
+      endorsements: [...KYC_ENDORSEMENTS],
+    };
+    const idempotency = input.retry
+      ? `kyc-${input.email.toLowerCase()}-${Date.now()}`
+      : `kyc-${input.email.toLowerCase()}`;
+    try {
+      const link = await this.bridge.post<BridgeKycLink>(
+        '/v0/kyc_links',
+        body,
+        idempotency,
+      );
+      return mapKyc(link);
+    } catch {
+      const link = await this.bridge.post<BridgeKycLink>(
+        '/v0/kyc_links',
+        {
+          full_name: input.fullName,
+          email: input.email,
+          type: 'individual',
+        },
+        `${idempotency}-basic`,
+      );
+      return mapKyc(link);
+    }
+  }
+
+  async getKycLink(kycLinkId: string): Promise<TecnoKycSnapshot | undefined> {
+    if (!this.bridge.configured || !kycLinkId.trim()) return undefined;
+    try {
+      const link = await this.bridge.get<BridgeKycLink>(
+        `/v0/kyc_links/${kycLinkId.trim()}`,
+      );
+      return mapKyc(link);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async listKycLinks(email: string): Promise<TecnoKycSnapshot[]> {
+    if (!this.bridge.configured) return [];
+    try {
+      const listed = await this.bridge.get<BridgeList<BridgeKycLink>>(
+        `/v0/kyc_links?email=${encodeURIComponent(email.toLowerCase())}&limit=20`,
+      );
+      return (listed.data ?? []).map(mapKyc);
+    } catch {
+      return [];
+    }
+  }
 
   async provision(input: {
     recaudoId: string;
@@ -123,6 +239,8 @@ export class RecaudoBridgeService {
           status: 'pending_kyc',
           kycUrl: identity.kycUrl,
           tosUrl: identity.tosUrl,
+          kycLinkId: identity.kycLinkId,
+          kycStatus: identity.kycStatus,
           virtualAccounts: [],
         };
       }
@@ -137,6 +255,8 @@ export class RecaudoBridgeService {
           status: identity.kycUrl ? 'pending_kyc' : 'failed',
           kycUrl: identity.kycUrl,
           tosUrl: identity.tosUrl,
+          kycLinkId: identity.kycLinkId,
+          kycStatus: identity.kycStatus,
           virtualAccounts: [],
           error: 'wallet',
         };
@@ -155,6 +275,8 @@ export class RecaudoBridgeService {
         chain: wallet.chain ?? WALLET_CHAIN,
         kycUrl: identity.kycUrl,
         tosUrl: identity.tosUrl,
+        kycLinkId: identity.kycLinkId,
+        kycStatus: identity.kycStatus,
         status: virtualAccounts.length > 0 ? 'ready' : 'pending_kyc',
         virtualAccounts,
       };
@@ -177,6 +299,8 @@ export class RecaudoBridgeService {
     customerId?: string;
     kycUrl?: string;
     tosUrl?: string;
+    kycLinkId?: string;
+    kycStatus?: string;
   }> {
     if (existingCustomerId) {
       return { customerId: existingCustomerId };
@@ -192,19 +316,13 @@ export class RecaudoBridgeService {
       return { customerId: match.id };
     }
 
-    const link = await this.bridge.post<BridgeKycLink>(
-      '/v0/kyc_links',
-      {
-        full_name: name,
-        email,
-        type: 'individual',
-      },
-      randomUUID(),
-    );
+    const link = await this.createKycLink({ email, fullName: name });
     return {
-      customerId: link.customer_id,
-      kycUrl: link.kyc_link,
-      tosUrl: link.tos_link,
+      customerId: link.customerId,
+      kycUrl: link.kycUrl,
+      tosUrl: link.tosUrl,
+      kycLinkId: link.kycLinkId,
+      kycStatus: link.kycStatus,
     };
   }
 

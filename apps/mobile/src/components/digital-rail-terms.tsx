@@ -12,7 +12,7 @@ function usd(minor: number, digits = 2) {
   return (minor / 100).toFixed(digits).replace('.', ',');
 }
 
-export function DigitalRailTerms() {
+export function DigitalRailTerms({ embedded = false }: { embedded?: boolean }) {
   const theme = useAppTheme();
   const monthly = usd(DIGITAL_MONTHLY_FEE_MINOR);
   const kyc = usd(DIGITAL_KYC_FEE_MINOR);
@@ -41,10 +41,14 @@ export function DigitalRailTerms() {
 
   return (
     <View
-      style={[
-        styles.card,
-        { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
-      ]}>
+      style={
+        embedded
+          ? styles.embedded
+          : [
+              styles.card,
+              { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
+            ]
+      }>
       {sections.map((section) => (
         <View key={section.title} style={styles.block}>
           <Text style={[styles.heading, { color: theme.primary }]}>
@@ -69,6 +73,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
   },
+  embedded: { gap: 12 },
   block: { gap: 4 },
   heading: { fontSize: 12, fontWeight: '800', letterSpacing: 0.2 },
   item: { fontSize: 12, lineHeight: 17, fontWeight: '500' },

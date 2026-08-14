@@ -81,7 +81,12 @@ export type Recaudo = {
     status?: string;
     kycUrl?: string;
     tosUrl?: string;
+    kycLinkId?: string;
+    kycStatus?: string;
+    tosStatus?: string;
+    customerId?: string;
     chain?: string;
+    walletAddress?: string;
     error?: string;
     virtualAccounts?: Array<{
       id: string;
@@ -488,7 +493,13 @@ function normalizeRecaudo(raw: unknown): Recaudo {
         status: typeof row.status === "string" ? row.status : undefined,
         kycUrl: typeof row.kycUrl === "string" ? row.kycUrl : undefined,
         tosUrl: typeof row.tosUrl === "string" ? row.tosUrl : undefined,
+        kycLinkId: typeof row.kycLinkId === "string" ? row.kycLinkId : undefined,
+        kycStatus: typeof row.kycStatus === "string" ? row.kycStatus : undefined,
+        tosStatus: typeof row.tosStatus === "string" ? row.tosStatus : undefined,
+        customerId: typeof row.customerId === "string" ? row.customerId : undefined,
         chain: typeof row.chain === "string" ? row.chain : undefined,
+        walletAddress:
+          typeof row.walletAddress === "string" ? row.walletAddress : undefined,
         error: typeof row.error === "string" ? row.error : undefined,
         virtualAccounts: Array.isArray(row.virtualAccounts)
           ? row.virtualAccounts.flatMap((item) => {

@@ -123,6 +123,17 @@ export class User {
   })
   platformRole!: PlatformRole;
 
+  /** Hosted KYC from the digital rail (customer + kyc_link ids). */
+  @Prop({ type: Object })
+  bridgeKyc?: {
+    customerId?: string;
+    kycLinkId?: string;
+    kycStatus?: string;
+    tosStatus?: string;
+    kycUrl?: string;
+    tosUrl?: string;
+  };
+
   /** Set by Mongoose timestamps: true */
   createdAt?: Date;
   updatedAt?: Date;

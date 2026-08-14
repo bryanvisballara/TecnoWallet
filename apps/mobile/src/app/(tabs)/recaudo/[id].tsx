@@ -4,10 +4,10 @@ import { safeGoBack } from "@/lib/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Linking,
   Modal,
   Pressable,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -19,28 +19,27 @@ import {
   IconButton,
   Pill,
   PrimaryButton,
-  ProgressBar,
   ScalePressable,
   Screen,
   SectionTitle,
   useAppTheme,
 } from "@/components/ui";
-import { DigitalRailTerms } from "@/components/digital-rail-terms";
-import { TecnoAccountPanel } from "@/components/tecno-account-panel";
-import { useAppCopy, type AppCopy } from "@/i18n/app-copy";
-import { intlLocale } from "@/i18n/locale-format";
+import { RecaudoHeroCard } from "@/components/recaudo-hero-card";
 import {
-  amountToMinorUnits,
-  contributionAmountPlaceholder,
-  isZeroDecimalCurrency,
-} from "@/lib/currencies";
+  RecaudoReceiveSheet,
+  RecaudoTermsModal,
+  RecaudoWithdrawSheet,
+} from "@/components/recaudo-money-flows";
+import { useAppCopy } from "@/i18n/app-copy";
+import { intlLocale } from "@/i18n/locale-format";
+import { amountToMinorUnits, isZeroDecimalCurrency } from "@/lib/currencies";
 import { useAuthStore } from "@/store/auth";
 import { useLanguageStore } from "@/store/language";
 import {
-  quoteDigitalPayout,
-  recaudoDisplayCurrency,
-  recaudoIntlCurrency,
-} from "@/lib/recaudo-digital-pricing";
+  fetchRecaudoKyc,
+  kycStatusLabel,
+  startRecaudoKyc,
+} from '@/lib/recaudo-kyc';
 import {
   useRecaudosStore,
   type ContributionFrequency,
@@ -58,17 +57,6 @@ const categoryIcons: Record<
   event: { icon: "ticket.fill", color: "#7F56D9" },
   purchase: { icon: "cart.fill", color: "#F79009" },
   other: { icon: "sparkles", color: "#0E9F6E" },
-};
-
-const categoryTypeKey: Record<
-  RecaudoCategory,
-  keyof AppCopy["collections"]["types"]
-> = {
-  travel: "trip",
-  gift: "gift",
-  event: "event",
-  purchase: "purchase",
-  other: "other",
 };
 
 function frequencyOptions(locale: string): { value: ContributionFrequency; label: string }[] {
@@ -247,12 +235,21 @@ export default function RecaudoDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [showManualContribute, setShowManualContribute] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [frequency, setFrequency] = useState<ContributionFrequency>("monthly");
   const [mode, setMode] = useState<ContributionMode>("manual");
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [reminderTime, setReminderTime] = useState("09:00");
   const [savingPlan, setSavingPlan] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>();
+  const [kycLive, setKycLive] = useState<{
+    status?: string;
+    verified?: boolean;
+    kycUrl?: string;
+  }>();
   const [bankName, setBankName] = useState(profile.name || "Sandbox Account");
   const [routingNumber, setRoutingNumber] = useState("011401533");
   const [accountNumber, setAccountNumber] = useState("1000000001");
@@ -282,6 +279,19 @@ export default function RecaudoDetailScreen() {
     syncedAccountRef.current = recaudo.id;
     void syncTecnoAccount(recaudo.id).catch(() => undefined);
   }, [demo, recaudo, syncTecnoAccount]);
+
+  useEffect(() => {
+    if (!recaudo || demo || !recaudo.isOrganizer) return;
+    void fetchRecaudoKyc()
+      .then((next) =>
+        setKycLive({
+          status: next.kycStatus,
+          verified: next.verified,
+          kycUrl: next.kycUrl,
+        }),
+      )
+      .catch(() => undefined);
+  }, [demo, recaudo?.id, recaudo?.isOrganizer]);
 
   useEffect(() => {
     if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
@@ -351,7 +361,6 @@ export default function RecaudoDetailScreen() {
   }
 
   const category = categoryIcons[recaudo.category];
-  const categoryLabel = copy.collections.types[categoryTypeKey[recaudo.category]];
   const fundingReady =
     BRIDGE_PAYMENTS_LIVE &&
     useUnitFundingStore
@@ -368,7 +377,6 @@ export default function RecaudoDetailScreen() {
   const ratio =
     recaudo.targetMinor > 0 ? recaudo.collectedMinor / recaudo.targetMinor : 0;
   const percent = Math.min(100, Math.round(ratio * 100));
-  const remaining = Math.max(0, recaudo.targetMinor - recaudo.collectedMinor);
   const contributions = [...recaudo.contributions].sort(
     (a, b) =>
       new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
@@ -590,6 +598,56 @@ export default function RecaudoDetailScreen() {
     }
   };
 
+  const contributeFromSheet = async (raw: string) => {
+    const amountMinor = amountToMinorUnits(raw, recaudo.currency);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      Alert.alert("Aporte inválido", "Escribe un monto mayor a cero.");
+      return;
+    }
+    setContributing(true);
+    try {
+      await addContribution(recaudo.id, amountMinor);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setReceiveOpen(false);
+    } catch (error) {
+      Alert.alert(
+        "No se pudo registrar",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    } finally {
+      setContributing(false);
+    }
+  };
+
+  const withdrawFromSheet = async (raw: string) => {
+    setWithdrawAmount(raw);
+    const amountMinor = amountToMinorUnits(raw, recaudo.currency);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      Alert.alert("Retiro inválido", "Escribe un monto mayor a cero.");
+      return;
+    }
+    if (amountMinor > withdrawableMinor) {
+      Alert.alert(
+        "Monto demasiado alto",
+        `Solo hay ${fmt(withdrawableMinor)} disponible para retirar.`,
+      );
+      return;
+    }
+    setWithdrawing(true);
+    try {
+      await withdraw(recaudo.id, amountMinor);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setWithdrawOpen(false);
+    } catch (error) {
+      Alert.alert(
+        "No se pudo retirar",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   const potBalanceMinor = fundingReady
     ? availableMinor + inTransitMinor
     : recaudo.collectedMinor;
@@ -712,11 +770,6 @@ export default function RecaudoDetailScreen() {
     <Screen
       withTabBar
       title={recaudo.title}
-      subtitle={`${categoryLabel}${
-        recaudo.deadline
-          ? ` · ${copy.collectionDetail.goalPrefix} ${fmtDate(recaudo.deadline)}`
-          : ""
-      }`}
       right={
         <View style={styles.headerActions}>
           {recaudo.isOrganizer ? (
@@ -754,287 +807,69 @@ export default function RecaudoDetailScreen() {
         </View>
       }
     >
-      <Card style={[styles.hero, { backgroundColor: category.color }]}>
-        <View style={styles.between}>
-          <View style={styles.heroIcon}>
-            <AppIcon name={category.icon} color="#FFFFFF" size={27} />
-          </View>
-          <Pill tone={recaudo.status === "completed" ? "green" : "neutral"}>
-            {copy.collectionDetail.pctComplete(percent)}
-          </Pill>
-        </View>
-        <Text style={styles.heroLabel}>
-          {fundingReady
-            ? copy.collectionDetail.poolAvailable
-            : copy.collectionDetail.poolCollected}
-        </Text>
-        <Text style={styles.heroValue}>
-          {fmt(fundingReady ? availableMinor : recaudo.collectedMinor)}
-        </Text>
-        <Text style={styles.heroHint}>
-          {copy.collectionDetail.ofTarget(fmt(recaudo.targetMinor), fmt(remaining))}
-          {fundingReady && inTransitMinor > 0
-            ? copy.collectionDetail.inTransit(fmt(inTransitMinor))
-            : ""}
-        </Text>
-        <View style={styles.heroTrack}>
-          <View
-            style={[
-              styles.heroFill,
-              { width: `${Math.min(100, ratio * 100)}%` },
-            ]}
-          />
-        </View>
-      </Card>
+      <RecaudoHeroCard
+        categoryIcon={category.icon}
+        collectedMinor={fundingReady ? availableMinor : recaudo.collectedMinor}
+        targetMinor={recaudo.targetMinor}
+        percent={percent}
+        ratio={ratio}
+      />
 
-      {!demo && BRIDGE_PAYMENTS_LIVE ? (
-        <Card style={styles.balanceCard}>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>
-            {copy.collectionDetail.moneyTitle}
-          </Text>
-          <View style={styles.stats}>
-            <View
-              style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
-            >
-              <Text style={[styles.statLabel, { color: theme.muted }]}>
-                {copy.collectionDetail.available}
-              </Text>
-              <Text style={[styles.statValue, { color: theme.text }]}>
-                {fmt(availableMinor)}
-              </Text>
-            </View>
-            <View
-              style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
-            >
-              <Text style={[styles.statLabel, { color: theme.muted }]}>
-                {copy.collectionDetail.transit}
-              </Text>
-              <Text style={[styles.statValue, { color: theme.text }]}>
-                {fmt(inTransitMinor)}
-              </Text>
-            </View>
-            <View
-              style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
-            >
-              <Text style={[styles.statLabel, { color: theme.muted }]}>
-                {copy.collectionDetail.registered}
-              </Text>
-              <Text style={[styles.statValue, { color: theme.text }]}>
-                {fmt(recaudo.collectedMinor)}
-              </Text>
-            </View>
-          </View>
-          <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            {copy.collectionDetail.moneyHint}
-          </Text>
-        </Card>
-      ) : null}
+      <View style={styles.ctaRow}>
+        <ScalePressable
+          accessibilityRole="button"
+          accessibilityLabel="Recargar recaudo"
+          onPress={() => setReceiveOpen(true)}
+          style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
+          <Text style={styles.ctaPrimaryText}>+ Recargar</Text>
+        </ScalePressable>
+        {recaudo.isOrganizer ? (
+          <ScalePressable
+            accessibilityRole="button"
+            accessibilityLabel="Retirar del recaudo"
+            onPress={() => setWithdrawOpen(true)}
+            style={[styles.ctaSecondary, { backgroundColor: theme.surfaceSecondary }]}>
+            <Text style={[styles.ctaSecondaryText, { color: theme.text }]}>Retirar</Text>
+          </ScalePressable>
+        ) : null}
+      </View>
 
       {!demo && recaudo.payoutMethod === "digital" ? (
-        <>
-          <TecnoAccountPanel
-            recaudo={recaudo}
-            isOrganizer={recaudo.isOrganizer}
-            onSync={() => syncTecnoAccount(recaudo.id).then(() => undefined)}
-            onSavePayout={(details) =>
-              updateRecaudo(recaudo.id, { payoutAccountDetails: details }).then(
-                () => undefined,
-              )
-            }
-          />
-          <DigitalRailTerms />
-        </>
-      ) : !demo && !BRIDGE_PAYMENTS_LIVE ? (
-        <Card style={styles.formCard}>
-          <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            {t(
-              "Este recaudo usa una cuenta personal. El grupo se paga por fuera; TecnoWallet solo anota.",
-              "This collection uses a personal account. The group pays off-platform; TecnoWallet only records it.",
-            )}
+        <Card style={styles.kycBanner}>
+          <Text style={[styles.kycText, { color: theme.text }]}>
+            Verificación: {kycStatusLabel(kycLive?.status || recaudo.tecnoAccount?.kycStatus)}
           </Text>
-        </Card>
-      ) : null}
-
-      {recaudo.isOrganizer &&
-      recaudo.status !== "closed" &&
-      withdrawableMinor > 0 ? (
-        <Card style={styles.actionCard}>
-          <View style={styles.actionRow}>
-            <ScalePressable
-              accessibilityRole="button"
-              accessibilityLabel={t("Retirar dinero del pozo", "Withdraw from the pool")}
-              onPress={() => setShowWithdraw((value) => !value)}
-              style={[
-                styles.actionButton,
-                {
-                  backgroundColor: showWithdraw
-                    ? theme.danger
-                    : theme.surfaceSecondary,
-                },
-              ]}
-            >
-              <AppIcon
-                name="arrow.up.circle.fill"
-                color={showWithdraw ? "#FFFFFF" : theme.danger}
-                size={20}
-              />
-              <Text
-                style={[
-                  styles.actionButtonText,
-                  { color: showWithdraw ? "#FFFFFF" : theme.text },
-                ]}
-              >
-                {t("Retirar dinero", "Withdraw money")}
+          {kycLive?.verified || recaudo.tecnoAccount?.kycStatus === "approved" ? (
+            <Text style={[styles.rowMeta, { color: theme.muted }]}>
+              Identidad confirmada. Ya puedes recibir aportes.
+            </Text>
+          ) : (
+            <Pressable
+              onPress={() => {
+                const url = kycLive?.kycUrl || recaudo.tecnoAccount?.kycUrl;
+                if (url) {
+                  void Linking.openURL(url);
+                  return;
+                }
+                void startRecaudoKyc().then((next) => {
+                  setKycLive({
+                    status: next.kycStatus,
+                    verified: next.verified,
+                    kycUrl: next.kycUrl,
+                  });
+                  if (next.kycUrl) void Linking.openURL(next.kycUrl);
+                });
+              }}>
+              <Text style={[styles.planToggle, { color: theme.primary }]}>
+                Completar verificación
               </Text>
-            </ScalePressable>
-          </View>
-          {showWithdraw ? (
-            <View style={styles.withdrawForm}>
-              <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                {t("Disponible para retirar:", "Available to withdraw:")}{" "}
-                {fmt(withdrawableMinor)}
-                {fundingReady
-                  ? t(" (ACH a tu cuenta)", " (ACH to your account)")
-                  : t(" (registro manual)", " (manual record)")}
-              </Text>
-              {recaudo.payoutMethod === "digital" && recaudo.digitalActivatedAt
-                ? (() => {
-                    const amountMinor = amountToMinorUnits(
-                      withdrawAmount,
-                      recaudo.currency,
-                    );
-                    const gross =
-                      Number.isSafeInteger(amountMinor) && amountMinor > 0
-                        ? amountMinor
-                        : withdrawableMinor;
-                    const quote = quoteDigitalPayout(gross, recaudo.digitalQuote);
-                    return (
-                      <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                        {t("2% comisión", "2% fee")} {fmt(quote.spreadMinor)}
-                        {quote.monthlyDueMinor
-                          ? ` · ${t("cuota", "monthly")} ${fmt(quote.monthlyDueMinor)}`
-                          : ""}
-                        {quote.kycDueMinor
-                          ? ` · KYC ${fmt(quote.kycDueMinor)}`
-                          : ""}
-                        {` · ${t("Neto", "Net")} ${fmt(Math.max(0, quote.netPayoutMinor))}`}
-                      </Text>
-                    );
-                  })()
-                : null}
-              <View
-                style={[
-                  styles.amountInput,
-                  {
-                    borderColor: theme.border,
-                    backgroundColor: theme.surfaceSecondary,
-                  },
-                ]}
-              >
-                <Text style={[styles.currency, { color: theme.muted }]}>
-                  {recaudo.currency}
-                </Text>
-                <TextInput
-                  value={withdrawAmount}
-                  onChangeText={setWithdrawAmount}
-                  keyboardType="decimal-pad"
-                  placeholder={contributionAmountPlaceholder(recaudo.currency)}
-                  placeholderTextColor={theme.muted}
-                  style={[styles.amountField, { color: theme.text }]}
-                />
-              </View>
-              <View style={styles.withdrawQuick}>
-                <Pressable
-                  onPress={() =>
-                    setWithdrawAmount(String(withdrawableMinor / 100))
-                  }
-                  style={[
-                    styles.quickChip,
-                    { backgroundColor: theme.primarySoft },
-                  ]}
-                >
-                  <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                    {t("Retirar todo", "Withdraw all")}
-                  </Text>
-                </Pressable>
-              </View>
-              <TextInput
-                value={withdrawNote}
-                onChangeText={setWithdrawNote}
-                placeholder="Motivo (opcional)"
-                placeholderTextColor={theme.muted}
-                style={[
-                  styles.input,
-                  {
-                    color: theme.text,
-                    borderColor: theme.border,
-                    backgroundColor: theme.surfaceSecondary,
-                  },
-                ]}
-              />
-              <PrimaryButton
-                icon="arrow.up.circle.fill"
-                onPress={withdrawing ? undefined : () => void withdrawFunds()}
-              >
-                {withdrawing ? "Retirando…" : "Confirmar retiro"}
-              </PrimaryButton>
-            </View>
+            </Pressable>
+          )}
+          {recaudo.isOrganizer && recaudo.tecnoAccount?.status !== "ready" ? (
+            <Pressable onPress={() => void syncTecnoAccount(recaudo.id)}>
+              <Text style={[styles.planToggle, { color: theme.primary }]}>Actualizar cuenta</Text>
+            </Pressable>
           ) : null}
-        </Card>
-      ) : null}
-
-      <Card style={styles.summaryCard}>
-        <View style={styles.summaryTop}>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>
-            {copy.collectionDetail.progressTitle}
-          </Text>
-          <Text style={[styles.percent, { color: category.color }]}>
-            {percent}%
-          </Text>
-        </View>
-        <ProgressBar
-          value={ratio}
-          color={category.color}
-          label={`Progreso ${percent}%`}
-        />
-        <View style={styles.stats}>
-          <View
-            style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
-          >
-            <Text style={[styles.statLabel, { color: theme.muted }]}>
-              {copy.collectionDetail.monthlyGoal}
-            </Text>
-            <Text style={[styles.statValue, { color: theme.text }]}>
-              {fmt(recaudo.monthlyTargetMinor)}
-            </Text>
-          </View>
-          <View
-            style={[styles.stat, { backgroundColor: theme.surfaceSecondary }]}
-          >
-            <Text style={[styles.statLabel, { color: theme.muted }]}>
-              {copy.collectionDetail.participants}
-            </Text>
-            <Text style={[styles.statValue, { color: theme.text }]}>
-              {recaudo.participants.length}
-            </Text>
-          </View>
-        </View>
-      </Card>
-
-      {recaudo.payoutAccountDetails ? (
-        <Card style={styles.formCard}>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>
-            {t("Dinero recaudado", "Collected funds")}
-          </Text>
-          <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            {t(
-              "Cuenta personal del organizador",
-              "Organizer’s personal account",
-            )}
-          </Text>
-          <Text style={[styles.payoutDetails, { color: theme.text }]}>
-            {recaudo.payoutAccountDetails}
-          </Text>
         </Card>
       ) : null}
 
@@ -1084,311 +919,41 @@ export default function RecaudoDetailScreen() {
         ))}
       </Card>
 
-      <SectionTitle>{t("Mi aporte", "My contribution")}</SectionTitle>
-      <Card style={styles.formCard}>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>
-          {fundingReady
-            ? t("Aportar desde mi cuenta", "Contribute from my account")
-            : t("Registrar aporte", "Record contribution")}
+      <Pressable onPress={() => setPlanOpen((value) => !value)}>
+        <Text style={[styles.planToggle, { color: theme.primary }]}>
+          {planOpen ? "Ocultar mi aporte mensual" : "Mi aporte mensual"}
         </Text>
-        <Text style={[styles.rowMeta, { color: theme.muted }]}>
-          {fundingReady
-            ? t(
-                "Débito ACH a la cuenta digital del recaudo. No suma a disponible hasta que el banco lo confirme.",
-                "ACH debit to the collection’s digital account. It won’t count as available until the bank confirms.",
-              )
-            : t(
-                "Registra el aporte cuando ya transferiste a los datos de la cuenta TecnoWallet. El recaudo se ahorra en USDc.",
-                "Record the contribution after you transfer to the TecnoWallet account details. The collection is saved in USDc.",
-              )}
-        </Text>
-        <View
-          style={[
-            styles.amountInput,
-            {
-              borderColor: theme.border,
-              backgroundColor: theme.surfaceSecondary,
-            },
-          ]}
-        >
-          <Text style={[styles.currency, { color: theme.muted }]}>
-            {recaudoDisplayCurrency(recaudo.currency)}
+      </Pressable>
+      {planOpen ? (
+        <Card style={styles.formCard}>
+          <Text style={[styles.planQuestion, { color: theme.text }]}>
+            {t(
+              "¿Cómo vas a completar tu parte este mes?",
+              "How will you cover your share this month?",
+            )}
           </Text>
-          <TextInput
-            value={contributionAmount}
-            onChangeText={setContributionAmount}
-            keyboardType="decimal-pad"
-            placeholder={contributionAmountPlaceholder(recaudo.currency)}
-            placeholderTextColor={theme.muted}
-            style={[styles.amountField, { color: theme.text }]}
-          />
-        </View>
-        <TextInput
-          value={contributionNote}
-          onChangeText={setContributionNote}
-          placeholder={t("Nota (opcional)", "Note (optional)")}
-          placeholderTextColor={theme.muted}
-          style={[
-            styles.input,
-            {
-              color: theme.text,
-              borderColor: theme.border,
-              backgroundColor: theme.surfaceSecondary,
-            },
-          ]}
-        />
-        {fundingReady ? (
-          <PrimaryButton
-            icon="building.columns.fill"
-            onPress={
-              fundingContribution ? undefined : () => void contributeFunded()
-            }
-          >
-            {fundingContribution
-              ? t("Enviando ACH…", "Sending ACH…")
-              : t("Aportar con cuenta", "Contribute with account")}
-          </PrimaryButton>
-        ) : (
-          <PrimaryButton
-            icon="plus"
-            onPress={contributing ? undefined : () => void contribute()}
-          >
-            {contributing
-              ? t("Registrando…", "Recording…")
-              : t("Registrar aporte", "Record contribution")}
-          </PrimaryButton>
-        )}
-
-        {fundingReady ? (
-          <>
-            <Pressable
-              onPress={() => setShowManualContribute((value) => !value)}
-              style={styles.manualToggle}
-            >
-              <Text style={{ color: theme.primary, fontWeight: "700" }}>
-                {showManualContribute
-                  ? "Ocultar registro manual"
-                  : "Solo registrar (sin mover dinero)"}
-              </Text>
-            </Pressable>
-            {showManualContribute ? (
-              <PrimaryButton
-                icon="plus"
-                onPress={contributing ? undefined : () => void contribute()}
-              >
-                {contributing ? "Registrando…" : "Registrar aporte manual"}
-              </PrimaryButton>
-            ) : null}
-          </>
-        ) : null}
-      </Card>
-
-      <SectionTitle>{t("Mi configuración", "My settings")}</SectionTitle>
-      <Card style={styles.formCard}>
-        <Text style={[styles.planQuestion, { color: theme.text }]}>
-          {t(
-            "¿Cómo voy a decidir hacer mi aporte para cumplir la meta del mes?",
-            "How will I make my contribution to hit this month’s goal?",
-          )}
-        </Text>
-        <Text style={[styles.rowMeta, { color: theme.muted }]}>
-          {t(
-            `Tu parte es la meta mensual del recaudo dividida entre ${memberCount} integrante${memberCount === 1 ? "" : "s"}. Al cambiar la frecuencia, el monto se ajusta para completar esa parte en el mes.`,
-            `Your share is the collection’s monthly goal split among ${memberCount} member${memberCount === 1 ? "" : "s"}. Changing the frequency adjusts the amount so you still cover that share this month.`,
-          )}
-        </Text>
-
-        <View>
-          <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-            {mode === "bank_auto" ? t("Monto por débito", "Debit amount") : commitmentLabel}
-          </Text>
-          <View
-            style={[
-              styles.amountInput,
-              {
-                borderColor: theme.border,
-                backgroundColor: theme.surfaceSecondary,
-              },
-            ]}
-          >
-            <Text style={[styles.amountField, styles.amountReadout, { color: theme.text }]}>
-              {fmt(planInstallmentMinor)}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-          Frecuencia
-        </Text>
-        <View style={styles.options}>
-          {frequencies.map((item) => {
-            const selected = frequency === item.value;
-            return (
-              <Pressable
-                key={item.value}
-                onPress={() => setFrequency(item.value)}
-                style={[
-                  styles.option,
-                  {
-                    borderColor: selected ? theme.primary : theme.border,
-                    backgroundColor: selected
-                      ? theme.primarySoft
-                      : theme.surfaceSecondary,
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: selected ? theme.primary : theme.text,
-                    fontSize: 12,
-                    fontWeight: "700",
-                  }}
-                >
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-          Forma de aporte
-        </Text>
-        <View style={styles.modeOptions}>
-          {modes
-            .filter((item) => BRIDGE_PAYMENTS_LIVE || item.value !== "bank_auto")
-            .map((item) => {
-            const selected = mode === item.value;
-            const bankLocked =
-              item.value === "bank_auto" && (!fundingReady || demo);
-            return (
-              <Pressable
-                key={item.value}
-                onPress={() => {
-                  if (bankLocked) {
-                    Alert.alert(
-                      "Débito automático",
-                      "Primero vincula tu banco y abre la cuenta digital del recaudo. Luego podrás programar el mismo débito ACH que “Aportar con cuenta”.",
-                    );
-                    return;
-                  }
-                  setMode(item.value);
-                }}
-                style={[
-                  styles.modeOption,
-                  {
-                    borderColor: selected ? theme.primary : theme.border,
-                    backgroundColor: selected
-                      ? theme.primarySoft
-                      : theme.surfaceSecondary,
-                    opacity: bankLocked ? 0.55 : 1,
-                  },
-                ]}
-              >
-                <AppIcon
-                  name={item.icon}
-                  color={selected ? theme.primary : theme.muted}
-                  size={18}
-                />
-                <Text
-                  style={{
-                    color: selected ? theme.primary : theme.text,
-                    fontSize: 12,
-                    fontWeight: "700",
-                  }}
-                >
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {mode === "bank_auto" ? (
-          <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            Al guardar, se programa un disparador ACH con ese monto y
-            frecuencia (mismo flujo que el botón “Aportar con cuenta”). Diario y
-            quincenal los ejecuta TecnoWallet; semanal/mensual puede usar Unit.
-          </Text>
-        ) : null}
-
-        <View style={[styles.reminderRow, { borderColor: theme.border }]}>
-          <View style={styles.copy}>
-            <Text style={[styles.rowTitle, { color: theme.text }]}>
-              Recordatorios
-            </Text>
-            <Text style={[styles.rowMeta, { color: theme.muted }]}>
-              Según la frecuencia seleccionada
-            </Text>
-          </View>
-          <Switch
-            value={remindersEnabled}
-            onValueChange={setRemindersEnabled}
-            trackColor={{ true: theme.primary }}
-          />
-        </View>
-        {remindersEnabled ? (
-          <View style={styles.reminderTimeBlock}>
-            <Text style={[styles.fieldLabel, { color: theme.muted }]}>
-              Hora del recordatorio
-            </Text>
-            <View style={styles.timeOptions}>
-              {reminderTimes.map((item) => {
-                const selected = reminderTime === item;
-                return (
-                  <Pressable
-                    key={item}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    onPress={() => setReminderTime(item)}
-                    style={[
-                      styles.timeOption,
-                      {
-                        borderColor: selected ? theme.primary : theme.border,
-                        backgroundColor: selected
-                          ? theme.primarySoft
-                          : theme.surfaceSecondary,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.timeOptionText,
-                        { color: selected ? theme.primary : theme.text },
-                      ]}
-                    >
-                      {item}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <TextInput
-              value={reminderTime}
-              onChangeText={setReminderTime}
-              placeholder="HH:mm"
-              placeholderTextColor={theme.muted}
-              keyboardType="numbers-and-punctuation"
-              maxLength={5}
+          <View>
+            <Text style={[styles.fieldLabel, { color: theme.muted }]}>{commitmentLabel}</Text>
+            <View
               style={[
-                styles.input,
-                {
-                  color: theme.text,
-                  borderColor: theme.border,
-                  backgroundColor: theme.surfaceSecondary,
-                },
-              ]}
-            />
+                styles.amountInput,
+                { borderColor: theme.border, backgroundColor: theme.surfaceSecondary },
+              ]}>
+              <Text style={[styles.currency, { color: theme.muted }]}>USDc</Text>
+              <TextInput
+                value={String(planInstallmentMinor / 100)}
+                editable={false}
+                style={[styles.amountField, { color: theme.text }]}
+              />
+            </View>
           </View>
-        ) : null}
-        <PrimaryButton
-          icon="checkmark"
-          onPress={savingPlan ? undefined : () => void savePlan()}
-        >
-          {savingPlan
-            ? t("Guardando…", "Saving…")
-            : t("Guardar configuración", "Save settings")}
-        </PrimaryButton>
-      </Card>
+          <PrimaryButton
+            icon="checkmark"
+            onPress={savingPlan ? undefined : () => void savePlan()}>
+            {savingPlan ? t("Guardando…", "Saving…") : t("Guardar", "Save")}
+          </PrimaryButton>
+        </Card>
+      ) : null}
 
       <SectionTitle>{t("Historial", "History")}</SectionTitle>
       <Card style={styles.listCard}>
@@ -1489,6 +1054,30 @@ export default function RecaudoDetailScreen() {
         </Pressable>
       ) : null}
 
+      <Pressable onPress={() => setTermsOpen(true)} style={styles.termsLinkWrap}>
+        <Text style={[styles.termsLink, { color: theme.muted }]}>Condiciones y costos</Text>
+      </Pressable>
+
+      <RecaudoReceiveSheet
+        visible={receiveOpen}
+        recaudo={recaudo}
+        onClose={() => setReceiveOpen(false)}
+        onRegister={contributeFromSheet}
+        registering={contributing}
+      />
+      <RecaudoWithdrawSheet
+        visible={withdrawOpen}
+        recaudo={recaudo}
+        availableLabel={`$${(withdrawableMinor / 100).toLocaleString(intlLocale(locale), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+        onClose={() => setWithdrawOpen(false)}
+        onSaveDestination={(details) =>
+          updateRecaudo(recaudo.id, { payoutAccountDetails: details }).then(() => undefined)
+        }
+        onWithdraw={withdrawFromSheet}
+        withdrawing={withdrawing}
+      />
+      <RecaudoTermsModal visible={termsOpen} onClose={() => setTermsOpen(false)} />
+
       <Modal
         visible={Boolean(successMessage)}
         transparent
@@ -1540,6 +1129,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  ctaRow: { flexDirection: "row", gap: 8, marginTop: 2 },
+  ctaPrimary: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctaPrimaryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  ctaSecondary: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctaSecondaryText: { fontSize: 14, fontWeight: "700" },
+  kycBanner: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  kycText: { fontSize: 13, fontWeight: "700" },
+  planToggle: { fontSize: 14, fontWeight: "700", paddingVertical: 4 },
+  termsLinkWrap: { alignItems: "center", paddingVertical: 10 },
+  termsLink: { fontSize: 13, fontWeight: "600", textDecorationLine: "underline" },
   centerText: {
     fontSize: 13,
     lineHeight: 19,
