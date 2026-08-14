@@ -26,6 +26,79 @@ import { affiliatePayoutEmailHtml } from './payout-email';
 
 export const AFFILIATE_PAYOUT_MIN_MINOR = 10_000;
 export const AFFILIATE_PAYOUT_DAY = 15;
+const PLUS_PRICE_MINOR = 999;
+const BUSINESS_PRICE_MINOR = 1499;
+
+const SIM_GIVEN = [
+  'Mateo',
+  'Sofía',
+  'Andrés',
+  'Valentina',
+  'Nicolás',
+  'Laura',
+  'Pablo',
+  'Camila',
+  'Elena',
+  'Iván',
+  'Nuria',
+  'Óscar',
+  'Rita',
+  'Héctor',
+  'Inés',
+  'Julián',
+  'Karen',
+  'Luis',
+  'Marta',
+  'Nora',
+  'Omar',
+  'Pilar',
+  'Sara',
+  'Tomás',
+  'Diego',
+  'Lucía',
+  'Felipe',
+  'Daniela',
+  'Gabriel',
+  'Isabella',
+  'Sebastián',
+  'Mariana',
+  'Emilio',
+  'Catalina',
+  'Bruno',
+  'Jimena',
+  'Raúl',
+  'Paula',
+];
+const SIM_FAMILY = [
+  'Gil',
+  'Nieto',
+  'Peña',
+  'Oro',
+  'Rueda',
+  'Méndez',
+  'Ríos',
+  'Soto',
+  'Díaz',
+  'Mora',
+  'Paz',
+  'León',
+  'Vila',
+  'Cano',
+  'Salas',
+  'Pardo',
+  'Ruiz',
+  'Vega',
+  'Torres',
+  'López',
+];
+
+function simReferralName(index: number) {
+  const given = SIM_GIVEN[index % SIM_GIVEN.length];
+  const family =
+    SIM_FAMILY[Math.floor(index / SIM_GIVEN.length) % SIM_FAMILY.length];
+  const cycle = Math.floor(index / (SIM_GIVEN.length * SIM_FAMILY.length));
+  return cycle > 0 ? `${given} ${family} ${cycle + 1}` : `${given} ${family}`;
+}
 
 @Injectable()
 export class AdminService {
@@ -586,102 +659,74 @@ export class AdminService {
       name: string;
       network?: 'bep20' | 'trc20' | 'erc20' | 'sol';
       address?: string;
-      referrals: Array<{ name: string; plan: 'plus' | 'business'; netUsd: number }>;
+      plus: number;
+      business: number;
     }> = [
       {
         name: 'Ana Torres',
         network: 'bep20',
         address: '0xANA1111111111111111111111111111111111111',
-        referrals: [
-          { name: 'Laura Méndez', plan: 'business', netUsd: 300 },
-          { name: 'Pablo Ríos', plan: 'business', netUsd: 300 },
-          { name: 'Camila Soto', plan: 'business', netUsd: 300 },
-        ],
+        plus: 0,
+        business: 40,
       },
       {
         name: 'Carlos Méndez',
         network: 'trc20',
         address: 'TCar1osUsdtWallet111111111111111111',
-        referrals: [
-          { name: 'Elena Díaz', plan: 'business', netUsd: 250 },
-          { name: 'Iván Mora', plan: 'business', netUsd: 250 },
-          { name: 'Nuria Paz', plan: 'business', netUsd: 250 },
-          { name: 'Óscar León', plan: 'business', netUsd: 250 },
-          { name: 'Rita Gil', plan: 'business', netUsd: 250 },
-        ],
+        plus: 0,
+        business: 50,
       },
       {
         name: 'Diana Ruiz',
         network: 'sol',
         address: 'SoLDianaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
-        referrals: [
-          { name: 'Héctor Vila', plan: 'plus', netUsd: 250 },
-          { name: 'Inés Cano', plan: 'plus', netUsd: 250 },
-        ],
+        plus: 10,
+        business: 0,
       },
       {
         name: 'Elena Castro',
         network: 'erc20',
         address: '0xELE9999999999999999999999999999999999999',
-        referrals: [
-          { name: 'Julián Oro', plan: 'plus', netUsd: 165 },
-          { name: 'Karen Díaz', plan: 'plus', netUsd: 165 },
-          { name: 'Luis Peña', plan: 'plus', netUsd: 165 },
-        ],
+        plus: 0,
+        business: 15,
       },
       {
         name: 'Fabio López',
-        referrals: [
-          { name: 'Marta Gil', plan: 'business', netUsd: 275 },
-          { name: 'Nora Salas', plan: 'business', netUsd: 275 },
-          { name: 'Omar Vega', plan: 'plus', netUsd: 275 },
-          { name: 'Pilar Rueda', plan: 'plus', netUsd: 275 },
-        ],
+        plus: 0,
+        business: 40,
       },
       {
         name: 'Gabriela Díaz',
         network: 'bep20',
         address: '0xGAB4545454545454545454545454545454545454',
-        referrals: [{ name: 'Quintero Ruiz', plan: 'plus', netUsd: 225 }],
+        plus: 8,
+        business: 0,
       },
       {
         name: 'Hugo Ríos',
-        referrals: [
-          { name: 'Sara Nieto', plan: 'plus', netUsd: 200 },
-          { name: 'Tomás Gil', plan: 'plus', netUsd: 200 },
-        ],
+        plus: 51,
+        business: 0,
       },
       {
         name: 'Irene Salas',
         network: 'trc20',
         address: 'TIreNeUsdtWallet222222222222222222',
-        referrals: [
-          { name: 'Úrsula Pardo', plan: 'business', netUsd: 400 },
-          { name: 'Víctor Cano', plan: 'business', netUsd: 400 },
-          { name: 'Wendy Oro', plan: 'business', netUsd: 400 },
-          { name: 'Ximena Díaz', plan: 'business', netUsd: 400 },
-        ],
+        plus: 0,
+        business: 35,
       },
       {
         name: 'Julián Pardo',
         network: 'bep20',
         address: '0xJUL1501501501501501501501501501501501501',
-        referrals: [
-          { name: 'Yolanda Ruiz', plan: 'business', netUsd: 375 },
-          { name: 'Zaira León', plan: 'plus', netUsd: 375 },
-        ],
+        plus: 30,
+        business: 20,
       },
       {
         name: 'Karina Vega',
         network: 'sol',
         address: 'SoLKarinaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
-        referrals: [
-          { name: 'Mateo Gil', plan: 'business', netUsd: 500 },
-          { name: 'Sofía Nieto', plan: 'business', netUsd: 500 },
-          { name: 'Andrés Peña', plan: 'business', netUsd: 500 },
-          { name: 'Valentina Oro', plan: 'business', netUsd: 500 },
-          { name: 'Nicolás Rueda', plan: 'business', netUsd: 500 },
-        ],
+        plus: 0,
+        business: 111,
       },
     ];
 
@@ -690,12 +735,23 @@ export class AdminService {
       const seed = seeds[i];
       const code = `SIM${String(i + 1).padStart(2, '0')}`;
       const affiliateId = `sim-${code.toLowerCase()}`;
-      const paidCount = seed.referrals.length;
+      const referrals: Array<{ name: string; plan: 'plus' | 'business' }> = [];
+      for (let n = 0; n < seed.plus; n += 1) {
+        referrals.push({ name: simReferralName(referrals.length), plan: 'plus' });
+      }
+      for (let n = 0; n < seed.business; n += 1) {
+        referrals.push({
+          name: simReferralName(referrals.length),
+          plan: 'business',
+        });
+      }
+      const paidCount = referrals.length;
       const rate = paidCount >= 501 ? 40 : paidCount >= 101 ? 30 : 20;
-      const commissionUsd = seed.referrals.reduce(
-        (sum, row) => sum + Math.round((row.netUsd * rate) / 100),
-        0,
-      );
+      const commissionMinor = referrals.reduce((sum, row) => {
+        const net =
+          row.plan === 'business' ? BUSINESS_PRICE_MINOR : PLUS_PRICE_MINOR;
+        return sum + Math.round((net * rate) / 100);
+      }, 0);
       await this.affiliates.create({
         code,
         name: seed.name,
@@ -715,60 +771,79 @@ export class AdminService {
             }
           : {}),
       });
-      for (let r = 0; r < seed.referrals.length; r += 1) {
-        const referral = seed.referrals[r];
-        const referred = await this.users.create({
+      const users = await this.users.insertMany(
+        referrals.map((referral, r) => ({
           email: `sim+${code.toLowerCase()}+${r + 1}@tecnowallet.test`,
           name: referral.name,
           emailVerified: true,
           active: true,
-          platformRole: 'user',
+          platformRole: 'user' as const,
           affiliateId,
           affiliateCode: code,
-        });
-        await this.attributions.create({
+        })),
+      );
+      await this.attributions.insertMany(
+        users.map((referred) => ({
           userId: referred._id,
           affiliateId,
           code,
           source: 'admin_simulate',
           attributedAt: occurredAt,
-        });
-        const entitlementId =
-          referral.plan === 'business' ? 'tecnowallet_business' : 'tecnowallet_plus';
-        await this.subscriptions.create({
-          userId: referred._id,
-          appUserId: referred._id.toString(),
-          status: 'active',
-          entitlementId,
-          productId: entitlementId,
-          purchasedAt: occurredAt,
-          expiresAt: new Date(occurredAt.getTime() + 30 * 24 * 60 * 60 * 1000),
-          willRenew: true,
-          provider: 'simulate',
-        });
-        const netMinor = referral.netUsd * 100;
-        const commissionMinor = Math.round((netMinor * rate) / 100);
-        await this.commissions.create({
-          providerEventId: `sim-${affiliateId}-${r}-${occurredAt.getTime()}`,
-          userId: referred._id,
-          affiliateId,
-          product: entitlementId,
-          eventType: 'admin_simulate',
-          grossAmountMinor: netMinor,
-          netAmountMinor: netMinor,
-          storeFeeAmountMinor: 0,
-          commissionAmountMinor: commissionMinor,
-          currency: 'USD',
-          status: 'pending',
-          occurredAt,
-          monthsSinceAttribution: 1,
-          commissionRate: rate,
-        });
-      }
+        })),
+      );
+      await this.subscriptions.insertMany(
+        users.map((referred, r) => {
+          const plan = referrals[r].plan;
+          const entitlementId =
+            plan === 'business' ? 'tecnowallet_business' : 'tecnowallet_plus';
+          return {
+            userId: referred._id,
+            appUserId: referred._id.toString(),
+            status: 'active' as const,
+            entitlementId,
+            productId:
+              plan === 'business'
+                ? 'tecnowallet_business_monthly'
+                : 'tecnowallet_plus_monthly',
+            purchasedAt: occurredAt,
+            expiresAt: new Date(occurredAt.getTime() + 30 * 24 * 60 * 60 * 1000),
+            willRenew: true,
+            provider: 'simulate',
+          };
+        }),
+      );
+      await this.commissions.insertMany(
+        users.map((referred, r) => {
+          const plan = referrals[r].plan;
+          const netMinor =
+            plan === 'business' ? BUSINESS_PRICE_MINOR : PLUS_PRICE_MINOR;
+          return {
+            providerEventId: `sim-${affiliateId}-${r}-${occurredAt.getTime()}`,
+            userId: referred._id,
+            affiliateId,
+            product:
+              plan === 'business'
+                ? 'tecnowallet_business_monthly'
+                : 'tecnowallet_plus_monthly',
+            eventType: 'admin_simulate',
+            grossAmountMinor: netMinor,
+            netAmountMinor: netMinor,
+            storeFeeAmountMinor: 0,
+            commissionAmountMinor: Math.round((netMinor * rate) / 100),
+            currency: 'USD',
+            status: 'pending' as const,
+            occurredAt,
+            monthsSinceAttribution: 1,
+            commissionRate: rate,
+          };
+        }),
+      );
       created.push({
         name: seed.name,
-        amountUsd: commissionUsd,
-        referrals: seed.referrals.length,
+        amountUsd: commissionMinor / 100,
+        plus: seed.plus,
+        business: seed.business,
+        referrals: paidCount,
         hasWallet: Boolean(seed.address),
         tier: rate === 40 ? 'Ambassador' : rate === 30 ? 'Creator' : 'Partner',
         rate,
@@ -779,7 +854,7 @@ export class AdminService {
       created: created.length,
       email: adminEmail,
       notice:
-        '10 afiliados de prueba. Cada pago desglosa suscriptores, plan y nivel (Partner 20% / Creator 30% / Ambassador 40%) sobre el neto. Karina Vega: 5 Business × US$ 500 × 20% = US$ 500. El correo de pago llega a tu email de admin.',
+        'Precios reales: Plus US$ 9,99 y Business US$ 14,99. Comisión = % del cobro. 5 Business a Partner 20% serían ~US$ 15 (bajo el mínimo). Karina Vega: 111 Business → Creator 30% × US$ 14,99 ≈ US$ 499,50. El correo de pago llega a tu email de admin.',
       rows: created,
     };
   }

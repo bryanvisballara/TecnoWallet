@@ -120,14 +120,27 @@ function payoutOrigin(row: AdminAffiliatePayout) {
     row.commissions[0]?.commissionRate ??
     20;
   const refs = row.referralCount ?? new Set(row.commissions.map((c) => c.userId)).size;
-  const net =
-    row.netMinor ??
-    row.commissions.reduce((sum, item) => sum + (item.netAmountMinor ?? 0), 0);
+  const groups = new Map<
+    string,
+    { count: number; unitMinor: number; commissionMinor: number }
+  >();
+  for (const item of row.commissions) {
+    const key = item.planLabel || item.product || 'Plan';
+    const cur = groups.get(key) ?? {
+      count: 0,
+      unitMinor: item.netAmountMinor ?? 0,
+      commissionMinor: 0,
+    };
+    cur.count += 1;
+    cur.commissionMinor += item.commissionAmountMinor;
+    if (item.netAmountMinor) cur.unitMinor = item.netAmountMinor;
+    groups.set(key, cur);
+  }
   return {
     rate,
     refs,
-    net,
     tierLabel: row.tier?.label ?? 'Partner',
+    groups: [...groups.entries()].map(([label, value]) => ({ label, ...value })),
   };
 }
 
@@ -575,11 +588,19 @@ export default function AdminPortalScreen() {
                     </View>
                     <Text style={[styles.hint, { color: theme.muted }]}>
                       {origin.refs} suscripción{origin.refs === 1 ? '' : 'es'} bajo su
-                      recomendación. Comisión = {origin.rate}% del neto.
+                      recomendación. Plus US$ 9,99 · Business US$ 14,99. Comisión ={' '}
+                      {origin.rate}% de cada cobro.
                     </Text>
-                    <Text style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
-                      {origin.rate}% de {moneyMinor(origin.net, row.currency)} ={' '}
-                      {moneyMinor(pending, row.currency)}
+                    {origin.groups.map((group) => (
+                      <Text
+                        key={group.label}
+                        style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
+                        {group.count} × {group.label} {moneyMinor(group.unitMinor, row.currency)}{' '}
+                        × {origin.rate}% = {moneyMinor(group.commissionMinor, row.currency)}
+                      </Text>
+                    ))}
+                    <Text style={[styles.hint, { color: theme.text, fontWeight: '700' }]}>
+                      Total a pagar: {moneyMinor(pending, row.currency)}
                     </Text>
                   </View>
 
