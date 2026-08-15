@@ -56,6 +56,7 @@ export type TecnoKycSnapshot = {
   tosUrl?: string;
   rejectionReasons: string[];
   verified: boolean;
+  nextStep?: 'tos' | 'kyc' | 'wait' | 'done' | 'retry';
 };
 
 type BridgeCustomer = {
@@ -130,6 +131,60 @@ const ONRAMP_RAIL: Record<(typeof VA_CURRENCIES)[number], string> = {
   eur: 'sepa',
 };
 
+const TOS_RETURN_URL =
+  'https://tecnowallet.onrender.com/api/v1/bridge/tos-return';
+const KYC_RETURN_URL =
+  'https://tecnowallet.onrender.com/api/v1/bridge/kyc-return';
+
+function withHostedRedirect(url: string | undefined, redirectUri: string) {
+  const href = httpsUrl(url);
+  if (!href) return undefined;
+  try {
+    const parsed = new URL(href);
+    if (
+      !parsed.searchParams.has('redirect_uri') &&
+      !parsed.searchParams.has('redirect-uri')
+    ) {
+      parsed.searchParams.set(
+        parsed.hostname.toLowerCase().includes('persona')
+          ? 'redirect-uri'
+          : 'redirect_uri',
+        redirectUri,
+      );
+    }
+    return parsed.toString();
+  } catch {
+    return href;
+  }
+}
+
+function withTosRedirect(url?: string) {
+  return withHostedRedirect(url, TOS_RETURN_URL);
+}
+
+function withKycRedirect(url?: string) {
+  return withHostedRedirect(url, KYC_RETURN_URL);
+}
+
+function kycNextStep(snapshot: TecnoKycSnapshot): TecnoKycSnapshot['nextStep'] {
+  if (snapshot.kycStatus === 'approved' && snapshot.tosStatus === 'approved') {
+    return 'done';
+  }
+  if (snapshot.kycStatus === 'rejected' || snapshot.kycStatus === 'offboarded') {
+    return 'retry';
+  }
+  if (snapshot.tosStatus !== 'approved') return 'tos';
+  if (
+    snapshot.kycStatus === 'under_review' ||
+    snapshot.kycStatus === 'paused' ||
+    snapshot.kycStatus === 'deposits_restricted'
+  ) {
+    return 'wait';
+  }
+  if (snapshot.kycUrl) return 'kyc';
+  return 'wait';
+}
+
 function httpsUrl(value?: string) {
   const raw = value?.trim();
   if (!raw) return undefined;
@@ -142,18 +197,21 @@ function httpsUrl(value?: string) {
 
 function mapKyc(link: BridgeKycLink): TecnoKycSnapshot {
   const kycStatus = link.kyc_status || 'not_started';
-  return {
+  const tosStatus = link.tos_status;
+  const snapshot: TecnoKycSnapshot = {
     customerId: link.customer_id,
     kycLinkId: link.id,
     kycStatus,
-    tosStatus: link.tos_status,
-    kycUrl: httpsUrl(link.kyc_link),
-    tosUrl: httpsUrl(link.tos_link),
+    tosStatus,
+    kycUrl: withKycRedirect(link.kyc_link),
+    tosUrl: withTosRedirect(link.tos_link),
     rejectionReasons: (link.rejection_reasons ?? [])
       .map((item) => item.reason?.trim())
       .filter((item): item is string => Boolean(item)),
-    verified: kycStatus === 'approved',
+    verified: kycStatus === 'approved' && tosStatus === 'approved',
   };
+  snapshot.nextStep = kycNextStep(snapshot);
+  return snapshot;
 }
 
 @Injectable()
@@ -201,7 +259,7 @@ export class RecaudoBridgeService {
         body,
         idempotency,
       );
-      return mapKyc(link);
+      return this.withFreshTosLink(mapKyc(link));
     } catch {
       const link = await this.bridge.post<BridgeKycLink>(
         '/v0/kyc_links',
@@ -212,7 +270,7 @@ export class RecaudoBridgeService {
         },
         `${idempotency}-basic`,
       );
-      return mapKyc(link);
+      return this.withFreshTosLink(mapKyc(link));
     }
   }
 
@@ -222,10 +280,42 @@ export class RecaudoBridgeService {
       const link = await this.bridge.get<BridgeKycLink>(
         `/v0/kyc_links/${kycLinkId.trim()}`,
       );
-      return mapKyc(link);
+      return this.withFreshTosLink(mapKyc(link));
     } catch {
       return undefined;
     }
+  }
+
+  private async withFreshTosLink(snapshot: TecnoKycSnapshot) {
+    if (snapshot.tosStatus === 'approved') {
+      snapshot.nextStep = kycNextStep(snapshot);
+      return snapshot;
+    }
+    const customerId = snapshot.customerId?.trim();
+    if (customerId) {
+      try {
+        const row = await this.bridge.get<{ url?: string }>(
+          `/v0/customers/${customerId}/tos_acceptance_link`,
+        );
+        snapshot.tosUrl = withTosRedirect(row.url) ?? snapshot.tosUrl;
+      } catch {
+        this.logger.warn(`ToS link missing for customer ${customerId}`);
+      }
+    }
+    if (!snapshot.tosUrl) {
+      try {
+        const row = await this.bridge.post<{ url?: string }>(
+          '/v0/customers/tos_links',
+          {},
+          `tos-${snapshot.kycLinkId ?? customerId ?? 'new'}`,
+        );
+        snapshot.tosUrl = withTosRedirect(row.url);
+      } catch {
+        this.logger.warn('Could not create a fresh ToS link');
+      }
+    }
+    snapshot.nextStep = kycNextStep(snapshot);
+    return snapshot;
   }
 
   async listKycLinks(email: string): Promise<TecnoKycSnapshot[]> {

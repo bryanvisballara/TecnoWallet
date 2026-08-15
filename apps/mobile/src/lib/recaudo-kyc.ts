@@ -12,6 +12,7 @@ export type RecaudoKyc = {
   customerId?: string;
   kycLinkId?: string;
   rejectionReasons: string[];
+  nextStep?: 'tos' | 'kyc' | 'wait' | 'done' | 'retry';
 };
 
 export function kycCanRestart(kyc?: RecaudoKyc | null) {
@@ -41,20 +42,26 @@ export function kycStatusColor(
   }
 }
 
-export type RecaudoKycPhase = 'none' | 'pending' | 'approved' | 'rejected';
+export type RecaudoKycPhase = 'none' | 'continue' | 'pending' | 'approved' | 'rejected';
 
 export function kycPhase(kyc?: RecaudoKyc | null, fallbackStatus?: string): RecaudoKycPhase {
   const status = kyc?.kycStatus || fallbackStatus || 'not_started';
-  if (kyc?.verified || status === 'approved') return 'approved';
+  if (kyc?.verified || (status === 'approved' && kyc?.tosStatus === 'approved')) {
+    return 'approved';
+  }
   if (status === 'rejected' || status === 'offboarded') return 'rejected';
+  if (kyc?.nextStep === 'wait' || status === 'under_review' || status === 'paused') {
+    return 'pending';
+  }
   if (
-    status === 'under_review' ||
-    status === 'paused' ||
+    status === 'incomplete' ||
     status === 'awaiting_questionnaire' ||
     status === 'awaiting_ubo' ||
-    status === 'deposits_restricted'
+    kyc?.nextStep === 'tos' ||
+    kyc?.nextStep === 'kyc' ||
+    (kyc?.tosStatus && kyc.tosStatus !== 'approved')
   ) {
-    return 'pending';
+    return 'continue';
   }
   return 'none';
 }
@@ -64,12 +71,13 @@ export function kycStatusLabel(status?: string) {
     case 'approved':
       return 'Aprobada';
     case 'under_review':
-    case 'incomplete':
     case 'paused':
-    case 'awaiting_questionnaire':
-    case 'awaiting_ubo':
     case 'deposits_restricted':
       return 'Pendiente';
+    case 'incomplete':
+    case 'awaiting_questionnaire':
+    case 'awaiting_ubo':
+      return 'Incompleta';
     case 'not_started':
       return 'Sin verificación';
     case 'rejected':
@@ -151,15 +159,26 @@ function normalizeKyc(value: unknown): RecaudoKyc {
     ? row.rejectionReasons.filter((item): item is string => typeof item === 'string')
     : [];
   const kycStatus = typeof row.kycStatus === 'string' ? row.kycStatus : 'not_started';
+  const tosStatus = typeof row.tosStatus === 'string' ? row.tosStatus : undefined;
   return {
-    verified: row.verified === true || kycStatus === 'approved',
+    verified:
+      row.verified === true ||
+      (kycStatus === 'approved' && tosStatus === 'approved'),
     kycStatus,
-    tosStatus: typeof row.tosStatus === 'string' ? row.tosStatus : undefined,
+    tosStatus,
     kycUrl: httpsUrl(typeof row.kycUrl === 'string' ? row.kycUrl : undefined),
     tosUrl: httpsUrl(typeof row.tosUrl === 'string' ? row.tosUrl : undefined),
     customerId: typeof row.customerId === 'string' ? row.customerId : undefined,
     kycLinkId: typeof row.kycLinkId === 'string' ? row.kycLinkId : undefined,
     rejectionReasons: reasons,
+    nextStep:
+      row.nextStep === 'tos' ||
+      row.nextStep === 'kyc' ||
+      row.nextStep === 'wait' ||
+      row.nextStep === 'done' ||
+      row.nextStep === 'retry'
+        ? row.nextStep
+        : undefined,
   };
 }
 
@@ -180,4 +199,50 @@ export async function startRecaudoKyc(retry = false) {
       body: JSON.stringify({ retry }),
     }),
   );
+}
+
+async function refreshKycUntil(
+  done: (snap: RecaudoKyc) => boolean,
+  attempts = 5,
+) {
+  let snap = await fetchRecaudoKyc();
+  for (let i = 0; i < attempts && !done(snap); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    snap = await fetchRecaudoKyc();
+  }
+  return snap;
+}
+
+export async function continueRecaudoVerification() {
+  let snap = await startRecaudoKyc(false);
+  if (snap.verified || snap.nextStep === 'wait' || snap.nextStep === 'retry') {
+    return snap;
+  }
+  if (snap.tosStatus !== 'approved') {
+    if (!snap.tosUrl) {
+      throw new Error(
+        'No se pudo abrir los términos. Pulsa de nuevo Continuar verificación.',
+      );
+    }
+    await openHostedVerificationUrl(snap.tosUrl);
+    snap = await refreshKycUntil(
+      (next) => next.verified || next.tosStatus === 'approved',
+    );
+    if (snap.verified) return snap;
+    if (snap.tosStatus !== 'approved') return snap;
+  }
+  if (
+    snap.kycUrl &&
+    snap.kycStatus !== 'under_review' &&
+    snap.kycStatus !== 'approved'
+  ) {
+    await openHostedVerificationUrl(snap.kycUrl);
+    snap = await refreshKycUntil(
+      (next) =>
+        next.verified ||
+        next.kycStatus === 'under_review' ||
+        next.kycStatus === 'approved',
+    );
+  }
+  return snap;
 }

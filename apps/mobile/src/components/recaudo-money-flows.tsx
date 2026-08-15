@@ -15,7 +15,7 @@ import { DigitalRailTerms } from '@/components/digital-rail-terms';
 import { AppIcon, PrimaryButton, useAppTheme } from '@/components/ui';
 import { copyText } from '@/lib/copy-text';
 import {
-  kycCanRestart,
+  kycPhase,
   kycStatusColor,
   kycStatusLabel,
   openHostedVerificationUrl,
@@ -217,6 +217,7 @@ export function RecaudoReceiveSheet({
   const openedUrl = useRef<string | null>(null);
   const needsActivation = Boolean(isOrganizer) && activationPaid === false;
   const needsKyc = Boolean(kyc) && !kyc?.verified;
+  const verificationPhase = kycPhase(kyc);
 
   const detail = useMemo(() => {
     if (!selected || selected === 'crypto') return undefined;
@@ -369,9 +370,11 @@ export function RecaudoReceiveSheet({
           <>
             <Text style={[styles.sheetSub, { color: theme.muted, marginTop: 4 }]}>
               {isOrganizer
-                ? kycCanRestart(kyc)
-                  ? 'Para recibir aportes verifica tu identidad. Esto se hace una sola vez.'
-                  : 'Ya enviaste tu verificación. Cuando esté lista se abren los datos de depósito.'
+                ? verificationPhase === 'pending'
+                  ? 'Ya enviaste tu verificación. Cuando esté lista se abren los datos de depósito.'
+                  : verificationPhase === 'continue'
+                    ? 'Falta aceptar los términos y completar tu identidad. Hazlo aquí para dejar la cuenta lista.'
+                    : 'Para recibir aportes verifica tu identidad. Esto se hace una sola vez.'
                 : 'El organizador debe verificar su identidad antes de recibir aportes.'}
             </Text>
             <Text style={[styles.rowTitle, { color: theme.text, marginTop: 12 }]}>
@@ -380,13 +383,19 @@ export function RecaudoReceiveSheet({
                 {kycStatusLabel(kyc?.kycStatus)}
               </Text>
             </Text>
-            {isOrganizer && kycCanRestart(kyc) && onVerify ? (
+            {isOrganizer &&
+            onVerify &&
+            (verificationPhase === 'none' ||
+              verificationPhase === 'continue' ||
+              verificationPhase === 'rejected') ? (
               <PrimaryButton onPress={verifying ? undefined : () => void onVerify()}>
                 {verifying
                   ? 'Abriendo…'
-                  : kyc?.kycStatus === 'rejected'
+                  : verificationPhase === 'rejected'
                     ? 'Volver a verificar'
-                    : 'Verifica tu identidad'}
+                    : verificationPhase === 'continue'
+                      ? 'Continuar verificación'
+                      : 'Verifica tu identidad'}
               </PrimaryButton>
             ) : isOrganizer && onVerify ? (
               <PrimaryButton onPress={verifying ? undefined : () => void onVerify()}>

@@ -52,6 +52,7 @@ import {
   fetchRecaudoKyc,
   hostedVerificationUrl,
   kycPhase,
+  continueRecaudoVerification,
   openHostedVerificationUrl,
   resetRecaudoKycDraft,
   startRecaudoKyc,
@@ -323,7 +324,9 @@ export default function RecaudoDetailScreen() {
     });
     const phase = kycPhase(kycLive, recaudo.tecnoAccount?.kycStatus);
     const timer =
-      phase === "pending" ? setInterval(loadKyc, 8000) : undefined;
+      phase === "pending" || phase === "continue"
+        ? setInterval(loadKyc, 8000)
+        : undefined;
     return () => {
       sub.remove();
       if (timer) clearInterval(timer);
@@ -719,19 +722,23 @@ export default function RecaudoDetailScreen() {
     setKycBusy(true);
     try {
       const retry = verificationPhase === "rejected";
-      const next = await startRecaudoKyc(retry);
+      const next = retry
+        ? await startRecaudoKyc(true)
+        : await continueRecaudoVerification();
       setKycLive(next);
       if (next.verified) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         await ensureDigitalWallet(recaudo.id);
         return;
       }
-      const url = hostedVerificationUrl(next);
-      if (url) await openHostedVerificationUrl(url);
-      const after = await fetchRecaudoKyc();
-      setKycLive(after);
-      if (after.verified) {
-        await ensureDigitalWallet(recaudo.id);
+      if (retry) {
+        const url = hostedVerificationUrl(next);
+        if (url) await openHostedVerificationUrl(url);
+        const after = await fetchRecaudoKyc();
+        setKycLive(after);
+        if (after.verified) {
+          await ensureDigitalWallet(recaudo.id);
+        }
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 402) {
@@ -1055,14 +1062,18 @@ export default function RecaudoDetailScreen() {
               ? "Pendiente"
               : verificationPhase === "rejected"
                 ? "Rechazada"
-                : "Sin verificación"}
+                : verificationPhase === "continue"
+                  ? "Incompleta"
+                  : "Sin verificación"}
           </Text>
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
             {verificationPhase === "pending"
               ? "Ya enviaste tus datos. Estamos esperando la aprobación. Cuando quede lista podrás realizar aportes."
               : verificationPhase === "rejected"
                 ? "La verificación no se aprobó. Vuelve a iniciarla para continuar."
-                : "Inicia la verificación de identidad para abrir tu wallet digital y recibir aportes."}
+                : verificationPhase === "continue"
+                  ? "Falta aceptar los términos y completar tu identidad. Hazlo aquí para dejar la cuenta lista."
+                  : "Inicia la verificación de identidad para abrir tu wallet digital y recibir aportes."}
           </Text>
           {verificationPhase === "pending" ? null : (
             <PrimaryButton onPress={kycBusy ? undefined : () => void verifyForReceive()}>
@@ -1070,7 +1081,9 @@ export default function RecaudoDetailScreen() {
                 ? "Abriendo…"
                 : verificationPhase === "rejected"
                   ? "Volver a verificar"
-                  : "Iniciar verificación"}
+                  : verificationPhase === "continue"
+                    ? "Continuar verificación"
+                    : "Iniciar verificación"}
             </PrimaryButton>
           )}
         </Card>
