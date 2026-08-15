@@ -752,6 +752,7 @@ export class RecaudosService {
   async detail(id: string, principal: AuthPrincipal) {
     const participant = await this.assertParticipant(id, principal.userId);
     const recaudo = await this.findRecaudo(id);
+    await this.syncWalletFromBridge(recaudo);
     const [presented, participantDocs, contributionDocs, withdrawalDocs] =
       await Promise.all([
         this.present(recaudo),
@@ -1818,6 +1819,47 @@ export class RecaudosService {
     }
   }
 
+  private async syncWalletFromBridge(recaudo: HydratedDocument<Recaudo>) {
+    if (recaudo.payoutMethod !== 'digital') return;
+    const organizer = await this.users.findById(recaudo.organizerId);
+    const customerId =
+      organizer?.bridgeKyc?.customerId || recaudo.tecnoAccount?.customerId;
+    const storedId = recaudo.tecnoAccount?.walletId;
+    const live = customerId
+      ? await this.tecnoAccounts.peekWallet(customerId, storedId)
+      : 'missing';
+    if (live === 'unknown') return;
+
+    const prior = recaudo.tecnoAccount ?? { virtualAccounts: [] };
+    if (typeof live === 'object' && live.id && live.address) {
+      recaudo.tecnoAccount = {
+        ...prior,
+        customerId,
+        walletId: live.id,
+        walletAddress: live.address,
+        chain: live.chain ?? prior.chain,
+        status: 'ready',
+      };
+    } else {
+      recaudo.tecnoAccount = {
+        customerId,
+        kycUrl: prior.kycUrl,
+        tosUrl: prior.tosUrl,
+        kycLinkId: prior.kycLinkId,
+        kycStatus: prior.kycStatus,
+        tosStatus: prior.tosStatus,
+        virtualAccounts: prior.virtualAccounts ?? [],
+        error: prior.error,
+        status:
+          prior.status === 'pending_kyc' || prior.status === 'failed'
+            ? prior.status
+            : 'not_provisioned',
+      };
+    }
+    recaudo.markModified('tecnoAccount');
+    await recaudo.save();
+  }
+
   private async present(recaudo: HydratedDocument<Recaudo>) {
     return {
       id: recaudo._id.toString(),
@@ -1842,7 +1884,12 @@ export class RecaudosService {
       digitalQuote: await this.quoteForRecaudo(recaudo),
       tecnoAccount: recaudo.tecnoAccount
         ? {
-            status: recaudo.tecnoAccount.status,
+            status:
+              recaudo.tecnoAccount.walletId && recaudo.tecnoAccount.walletAddress
+                ? recaudo.tecnoAccount.status
+                : recaudo.tecnoAccount.status === 'ready'
+                  ? 'not_provisioned'
+                  : recaudo.tecnoAccount.status,
             kycUrl: recaudo.tecnoAccount.kycUrl,
             tosUrl: recaudo.tecnoAccount.tosUrl,
             kycLinkId: recaudo.tecnoAccount.kycLinkId,

@@ -11,7 +11,12 @@ import {
   View,
 } from 'react-native';
 
-import { RecaudoHeroCard } from '@/components/recaudo-hero-card';
+import {
+  RecaudoHeroCard,
+  recaudoDigitalWalletReady,
+  recaudoHeroPhase,
+} from '@/components/recaudo-hero-card';
+import { fetchRecaudoActivation } from '@/lib/recaudo-activation';
 import {
   AppIcon,
   Card,
@@ -56,7 +61,7 @@ async function copyText(value: string) {
   }
 }
 
-function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
+function RecaudoCard({ recaudo, paid }: { recaudo: Recaudo; paid?: boolean }) {
   const categoryMeta = categoryIcons[recaudo.category];
   const ratio = recaudo.targetMinor > 0 ? recaudo.collectedMinor / recaudo.targetMinor : 0;
   const percent = Math.min(100, Math.round(ratio * 100));
@@ -75,6 +80,11 @@ function RecaudoCard({ recaudo }: { recaudo: Recaudo }) {
         targetMinor={recaudo.targetMinor}
         percent={percent}
         ratio={ratio}
+        phase={recaudoHeroPhase({
+          payoutMethod: recaudo.payoutMethod,
+          paid: recaudo.isOrganizer ? paid : false,
+          hasWallet: recaudoDigitalWalletReady(recaudo.tecnoAccount),
+        })}
       />
     </ScalePressable>
   );
@@ -106,6 +116,17 @@ export default function RecaudosScreen() {
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [joinBusy, setJoinBusy] = useState(false);
+  const [activationPaid, setActivationPaid] = useState(false);
+
+  useEffect(() => {
+    if (!hydrated) void hydrate();
+  }, [hydrate, hydrated]);
+
+  useEffect(() => {
+    void fetchRecaudoActivation()
+      .then((next) => setActivationPaid(next.paid))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!hydrated) void hydrate();
@@ -493,7 +514,7 @@ export default function RecaudosScreen() {
       ) : (
         <View style={styles.list}>
           {active.map((recaudo) => (
-            <RecaudoCard key={recaudo.id} recaudo={recaudo} />
+            <RecaudoCard key={recaudo.id} recaudo={recaudo} paid={activationPaid} />
           ))}
         </View>
       )}

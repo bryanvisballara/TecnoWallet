@@ -24,7 +24,11 @@ import {
   SectionTitle,
   useAppTheme,
 } from "@/components/ui";
-import { RecaudoHeroCard } from "@/components/recaudo-hero-card";
+import {
+  RecaudoHeroCard,
+  recaudoDigitalWalletReady,
+  recaudoHeroPhase,
+} from "@/components/recaudo-hero-card";
 import {
   RecaudoReceiveSheet,
   RecaudoTermsModal,
@@ -275,6 +279,11 @@ export default function RecaudoDetailScreen() {
   }, [hydrate, hydrated]);
 
   useEffect(() => {
+    if (demo || !id) return;
+    void refreshRecaudos();
+  }, [demo, id, refreshRecaudos]);
+
+  useEffect(() => {
     if (!recaudo || demo || !recaudo.isOrganizer) return;
     const loadActivation = () => {
       void fetchRecaudoActivation()
@@ -397,11 +406,7 @@ export default function RecaudoDetailScreen() {
     recaudo.tecnoAccount?.kycStatus,
   );
   const kycReady = verificationPhase === "approved";
-  const hasDigitalWallet = Boolean(
-    recaudo.tecnoAccount?.status === "ready" &&
-      recaudo.tecnoAccount.walletId?.trim() &&
-      recaudo.tecnoAccount.walletAddress?.trim(),
-  );
+  const hasDigitalWallet = recaudoDigitalWalletReady(recaudo.tecnoAccount);
   const needsDigitalWallet =
     digitalOrganizer && !needsEnable && kycReady && !hasDigitalWallet;
   const showMoneyActions =
@@ -956,6 +961,11 @@ export default function RecaudoDetailScreen() {
         targetMinor={recaudo.targetMinor}
         percent={percent}
         ratio={ratio}
+        phase={recaudoHeroPhase({
+          payoutMethod: recaudo.payoutMethod,
+          paid: activation?.paid === true,
+          hasWallet: hasDigitalWallet,
+        })}
       />
 
       {(needsEnable || needsDigitalWallet || showMoneyActions) ? (
@@ -1028,15 +1038,13 @@ export default function RecaudoDetailScreen() {
                 ? "Identidad confirmada. Ya puedes realizar aportes y retirar."
                 : "Identidad confirmada. El siguiente paso es abrir la wallet digital de este recaudo."}
             </Text>
-            <PrimaryButton
-              onPress={creatingWallet ? undefined : () => void createDigitalWallet()}
-            >
-              {creatingWallet
-                ? "Creando…"
-                : hasDigitalWallet
-                  ? "Abrir wallet digital"
-                  : "Crear wallet digital"}
-            </PrimaryButton>
+            {needsDigitalWallet ? (
+              <PrimaryButton
+                onPress={creatingWallet ? undefined : () => void createDigitalWallet()}
+              >
+                {creatingWallet ? "Creando…" : "Crear wallet digital"}
+              </PrimaryButton>
+            ) : null}
           </Card>
         ) : (
         <Card style={styles.kycBanner}>

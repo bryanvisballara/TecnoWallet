@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { BridgeClient } from './bridge-client';
 
 export type TecnoAccountStatus = 'pending_kyc' | 'ready' | 'failed';
@@ -223,6 +227,25 @@ export class RecaudoBridgeService {
     }
   }
 
+  async peekWallet(
+    customerId: string,
+    walletId?: string,
+  ): Promise<'missing' | 'unknown' | BridgeWallet> {
+    const id = walletId?.trim();
+    if (!this.bridge.configured || !customerId.trim() || !id) return 'missing';
+    try {
+      const current = await this.bridge.get<BridgeWallet>(
+        `/v0/customers/${customerId}/wallets/${id}`,
+      );
+      if (current.id && current.address) return current;
+      return 'missing';
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) return 'unknown';
+      this.logger.warn(`Wallet ${id} not on Bridge for ${customerId}`);
+      return 'missing';
+    }
+  }
+
   async provision(input: {
     recaudoId: string;
     organizerEmail: string;
@@ -369,14 +392,16 @@ export class RecaudoBridgeService {
         `recaudo-wallet-${recaudoId}`,
       );
     } catch (error) {
-      const listed = await this.bridge
-        .get<BridgeList<BridgeWallet> | BridgeWallet[]>(
-          `/v0/customers/${customerId}/wallets`,
-        )
-        .catch(() => ({ data: [] as BridgeWallet[] }));
-      const rows = Array.isArray(listed) ? listed : (listed.data ?? []);
-      const existing = rows.find((row) => row.id && row.address);
-      if (existing) return existing;
+      if (walletId) {
+        try {
+          const current = await this.bridge.get<BridgeWallet>(
+            `/v0/customers/${customerId}/wallets/${walletId}`,
+          );
+          if (current.id && current.address) return current;
+        } catch {
+          // fall through
+        }
+      }
       throw error;
     }
   }
