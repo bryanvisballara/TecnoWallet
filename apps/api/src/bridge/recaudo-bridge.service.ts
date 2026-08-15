@@ -74,6 +74,7 @@ type BridgeCustomer = {
   id?: string;
   email?: string;
   status?: string;
+  endorsements?: Array<{ name?: string; status?: string }>;
 };
 
 type BridgeList<T> = {
@@ -150,6 +151,7 @@ type BridgeVirtualAccount = {
 const VA_CURRENCIES = ['usd', 'cop', 'mxn', 'brl', 'eur'] as const;
 const WALLET_CHAIN = 'base';
 const KYC_ENDORSEMENTS = ['base', 'cop', 'sepa', 'spei', 'pix'] as const;
+const EXTRA_ENDORSEMENTS = ['cop', 'sepa', 'spei', 'pix'] as const;
 const ONRAMP_RAIL: Record<(typeof VA_CURRENCIES)[number], string> = {
   usd: 'ach_push',
   cop: 'bre_b',
@@ -255,6 +257,7 @@ function mapKyc(link: BridgeKycLink): TecnoKycSnapshot {
 export class RecaudoBridgeService {
   private readonly logger = new Logger(RecaudoBridgeService.name);
   private transferSettler?: (transferId: string) => Promise<unknown>;
+  private readonly endorsementsEnsured = new Set<string>();
 
   constructor(private readonly bridge: BridgeClient) {}
 
@@ -289,7 +292,10 @@ export class RecaudoBridgeService {
 
     const listed = await this.listKycLinks(input.email);
     const reusable = listed.find((item) => item.verified);
-    if (reusable && !input.retry) return reusable;
+    if (reusable && !input.retry) {
+      if (reusable.customerId) await this.ensureEndorsements(reusable.customerId);
+      return reusable;
+    }
 
     const body = {
       full_name: input.fullName,
@@ -306,7 +312,11 @@ export class RecaudoBridgeService {
         body,
         idempotency,
       );
-      return this.withFreshTosLink(mapKyc(link));
+      const snapshot = await this.withFreshTosLink(mapKyc(link));
+      if (snapshot.customerId) {
+        await this.ensureEndorsements(snapshot.customerId);
+      }
+      return snapshot;
     } catch {
       const link = await this.bridge.post<BridgeKycLink>(
         '/v0/kyc_links',
@@ -317,7 +327,11 @@ export class RecaudoBridgeService {
         },
         `${idempotency}-basic`,
       );
-      return this.withFreshTosLink(mapKyc(link));
+      const snapshot = await this.withFreshTosLink(mapKyc(link));
+      if (snapshot.customerId) {
+        await this.ensureEndorsements(snapshot.customerId);
+      }
+      return snapshot;
     }
   }
 
@@ -327,10 +341,77 @@ export class RecaudoBridgeService {
       const link = await this.bridge.get<BridgeKycLink>(
         `/v0/kyc_links/${kycLinkId.trim()}`,
       );
-      return this.withFreshTosLink(mapKyc(link));
+      const snapshot = await this.withFreshTosLink(mapKyc(link));
+      if (snapshot.customerId) {
+        await this.ensureEndorsements(snapshot.customerId);
+      }
+      return snapshot;
     } catch {
       return undefined;
     }
+  }
+
+  async ensureEndorsements(customerId: string) {
+    const id = customerId.trim();
+    if (!this.bridge.configured || !id || this.endorsementsEnsured.has(id)) {
+      return;
+    }
+    let customer: BridgeCustomer | undefined;
+    try {
+      customer = await this.bridge.get<BridgeCustomer>(`/v0/customers/${id}`);
+    } catch (error) {
+      this.logger.warn(
+        `Could not load customer ${id} for endorsements: ${
+          error instanceof Error ? error.message : 'error'
+        }`,
+      );
+      return;
+    }
+    const requested = new Set(
+      (customer.endorsements ?? [])
+        .map((item) => item.name?.trim().toLowerCase())
+        .filter((item): item is string => Boolean(item)),
+    );
+    const missing = EXTRA_ENDORSEMENTS.filter((name) => {
+      if (requested.has(name)) return false;
+      if (name === 'pix') {
+        return !(requested.has('pix_onramp') || requested.has('pix_offramp'));
+      }
+      return true;
+    });
+    if (missing.length === 0) {
+      this.endorsementsEnsured.add(id);
+      return;
+    }
+    const batch = missing
+      .map((name) => `endorsement[]=${encodeURIComponent(name)}`)
+      .join('&');
+    try {
+      await this.bridge.get(`/v0/customers/${id}/kyc_link?${batch}`);
+      this.endorsementsEnsured.add(id);
+      this.logger.log(
+        `Requested endorsements ${missing.join(',')} for customer ${id}`,
+      );
+      return;
+    } catch {
+      this.logger.warn(
+        `Batch endorsement request failed for ${id}; trying one by one`,
+      );
+    }
+    for (const endorsement of missing) {
+      try {
+        await this.bridge.get(
+          `/v0/customers/${id}/kyc_link?endorsement=${encodeURIComponent(endorsement)}`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Endorsement ${endorsement} skipped for ${id}: ${
+            error instanceof Error ? error.message : 'error'
+          }`,
+        );
+      }
+    }
+    this.endorsementsEnsured.add(id);
   }
 
   private async withFreshTosLink(snapshot: TecnoKycSnapshot) {
@@ -420,6 +501,9 @@ export class RecaudoBridgeService {
         input.organizerName,
         input.existingCustomerId,
       );
+      if (identity.customerId) {
+        await this.ensureEndorsements(identity.customerId);
+      }
       if (!identity.customerId) {
         return {
           status: 'pending_kyc',
@@ -685,6 +769,7 @@ export class RecaudoBridgeService {
     amount: string;
     idempotencyKey: string;
   }): Promise<TecnoPaySession> {
+    await this.ensureEndorsements(input.customerId);
     const transfer = await this.bridge.post<BridgeTransfer>(
       '/v0/transfers',
       {
