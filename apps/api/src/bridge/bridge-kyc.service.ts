@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -39,17 +40,26 @@ export class BridgeKycService {
         await this.persist(user, fresh);
         return fresh;
       }
+      await this.users.updateOne(
+        { _id: user._id },
+        { $unset: { bridgeKyc: 1 } },
+      );
+      user.bridgeKyc = undefined;
+      return empty;
     }
-    return {
-      kycStatus: stored?.kycStatus || 'not_started',
-      tosStatus: stored?.tosStatus,
-      customerId: stored?.customerId,
-      kycLinkId: stored?.kycLinkId,
-      kycUrl: stored?.kycUrl,
-      tosUrl: stored?.tosUrl,
-      rejectionReasons: [],
-      verified: stored?.kycStatus === 'approved',
-    };
+    if (stored?.kycStatus && stored.kycStatus !== 'not_started') {
+      return {
+        kycStatus: stored.kycStatus,
+        tosStatus: stored.tosStatus,
+        customerId: stored.customerId,
+        kycLinkId: stored.kycLinkId,
+        kycUrl: stored.kycUrl,
+        tosUrl: stored.tosUrl,
+        rejectionReasons: [],
+        verified: stored.kycStatus === 'approved',
+      };
+    }
+    return empty;
   }
 
   async start(userId: string, retry = false): Promise<TecnoKycSnapshot> {
@@ -77,6 +87,14 @@ export class BridgeKycService {
       if (message === 'not_configured') {
         throw new ServiceUnavailableException(
           'La verificación no está configurada todavía.',
+        );
+      }
+      if (
+        error instanceof ForbiddenException ||
+        /invalid credentials|api key/i.test(message)
+      ) {
+        throw new ServiceUnavailableException(
+          'La clave de verificación no es válida. En Render pega BRIDGE_API_KEY live (sk-live) y vuelve a intentar.',
         );
       }
       throw new BadRequestException(

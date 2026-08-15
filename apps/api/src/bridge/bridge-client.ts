@@ -20,14 +20,23 @@ export class BridgeClient {
   constructor(private readonly config: ConfigService) {}
 
   get configured(): boolean {
-    return Boolean(this.config.get<string>('BRIDGE_API_KEY'));
+    return Boolean(this.apiKey());
   }
 
   get baseUrl(): string {
+    const key = this.apiKey();
+    if (key.startsWith('sk-test')) return 'https://api.sandbox.bridge.xyz';
+    if (key.startsWith('sk-live')) return 'https://api.bridge.xyz';
     return (
       this.config.get<string>('BRIDGE_API_URL') ??
       'https://api.sandbox.bridge.xyz'
     ).replace(/\/+$/, '');
+  }
+
+  private apiKey() {
+    return (this.config.get<string>('BRIDGE_API_KEY') ?? '')
+      .trim()
+      .replace(/^["']|["']$/g, '');
   }
 
   async request<T = unknown>(
@@ -36,10 +45,10 @@ export class BridgeClient {
     body?: unknown,
     idempotencyKey?: string,
   ): Promise<T> {
-    const apiKey = this.config.get<string>('BRIDGE_API_KEY');
+    const apiKey = this.apiKey();
     if (!apiKey) {
       throw new ServiceUnavailableException(
-        'BRIDGE_API_KEY is not configured (sandbox only until set)',
+        'La verificación no está configurada todavía.',
       );
     }
     const headers: Record<string, string> = {
@@ -78,7 +87,9 @@ export class BridgeClient {
         err.message ?? err.error ?? err.code ?? `Bridge API error ${response.status}`;
       this.logger.warn(`Bridge ${method} ${path} → ${response.status}: ${detail}`);
       if (response.status === 401 || response.status === 403) {
-        throw new ForbiddenException(detail);
+        throw new ForbiddenException(
+          'La clave de verificación no es válida para este entorno. En Render, BRIDGE_API_KEY debe ser sk-live si la URL es producción, o sk-test si es sandbox.',
+        );
       }
       if (response.status >= 400 && response.status < 500) {
         throw new BadRequestException(detail);
