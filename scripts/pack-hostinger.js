@@ -21,6 +21,9 @@ const htaccess = `DirectoryIndex index.html
 RewriteEngine On
 RewriteBase /
 RewriteRule ^index\\.html$ - [L]
+# Mercado Pago return used to hit /recaudos?mp=… on tecnowallet.app.
+RewriteCond %{QUERY_STRING} (^|&)(mp|payment_id|collection_id|collection_status)=
+RewriteRule ^recaudos/?$ /mp-wallet.html [L]
 # Google OAuth — physical files (Hostinger SPA rewrite is often off).
 RewriteRule ^oauth-google/?$ /oauth-google.html [L]
 RewriteRule ^oauth-google-callback/?$ /oauth-google-callback.html [L]
@@ -149,6 +152,53 @@ function writeGoogleOauthPages() {
 
 writeGoogleOauthPages();
 
+function writeMercadoPagoReturnPage() {
+  const api = (
+    process.env.EXPO_PUBLIC_API_URL || 'https://tecnowallet.onrender.com/api/v1'
+  ).replace(/\/+$/, '');
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wallet digital comprada</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f7fb; color: #0b1d3a; }
+    main { max-width: 420px; margin: 12vh auto; padding: 28px 22px; background: #fff; border-radius: 24px; box-shadow: 0 12px 40px rgba(11,29,58,.08); }
+    h1 { font-size: 28px; margin: 0 0 12px; letter-spacing: -.4px; }
+    p { font-size: 16px; line-height: 1.45; color: #4a5a73; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 id="title">Wallet digital comprada</h1>
+    <p id="body">Tu wallet digital TecnoWallet ya está lista. Vuelve a la app para verificar tu identidad y empezar a recibir aportes.</p>
+  </main>
+  <script>
+    (function () {
+      var api = ${JSON.stringify(api + '/payments/wallet-return')};
+      var params = new URLSearchParams(window.location.search);
+      var status = (params.get('collection_status') || params.get('status') || params.get('mp') || '').toLowerCase();
+      var result = (status === 'pending' || status === 'in_process') ? 'pending'
+        : (status === 'failure' || status === 'rejected' || status === 'null') ? 'failure'
+        : 'success';
+      if (result === 'pending') {
+        document.getElementById('title').textContent = 'Pago en revisión';
+        document.getElementById('body').textContent = 'Mercado Pago todavía está confirmando el pago. Vuelve a la app de TecnoWallet en unos segundos.';
+      } else if (result === 'failure') {
+        document.getElementById('title').textContent = 'No se completó la compra';
+        document.getElementById('body').textContent = 'El pago no se completó. Vuelve a la app y pulsa Comprar wallet para intentarlo de nuevo.';
+      }
+      if (!params.get('result')) params.set('result', result);
+      fetch(api + '?' + params.toString(), { mode: 'no-cors' }).catch(function () {});
+    })();
+  </script>
+</body>
+</html>
+`;
+  writePhysical('mp-wallet', html);
+}
+
 /** Physical directory index so Hostinger deep-links work without relying on SPA rewrite. */
 function ensureDirIndex(routeBaseName) {
   const htmlFile = path.join(staging, `${routeBaseName}.html`);
@@ -161,6 +211,8 @@ function ensureDirIndex(routeBaseName) {
 ensureDirIndex('colaborar');
 ensureDirIndex('restablecer');
 ensureDirIndex('auth');
+ensureDirIndex('recaudos');
+writeMercadoPagoReturnPage();
 
 // Backward-compat stubs for emails already sent with invite.html?token=…
 const redirectStub = `<!DOCTYPE html>

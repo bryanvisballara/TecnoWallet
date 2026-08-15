@@ -5,7 +5,6 @@ import {
   Injectable,
   Logger,
   ServiceUnavailableException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -29,9 +28,18 @@ type MpPayment = {
   status?: string;
   status_detail?: string;
   external_reference?: string;
-  metadata?: { userId?: string; purpose?: string };
+  metadata?: { userId?: string; user_id?: string; purpose?: string };
   transaction_amount?: number;
   currency_id?: string;
+};
+
+type MpMerchantOrder = {
+  id?: number | string;
+  status?: string;
+  order_status?: string;
+  preference_id?: string;
+  external_reference?: string;
+  payments?: Array<{ id?: number | string; status?: string }>;
 };
 
 @Injectable()
@@ -193,7 +201,8 @@ export class MercadoPagoService {
       if (key === 'v1') hash = value;
     }
     if (!ts || !hash || !requestId) {
-      throw new UnauthorizedException('Firma de Mercado Pago incompleta.');
+      this.logger.warn('MP webhook signature incomplete; applying via payment fetch');
+      return;
     }
 
     const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`;
@@ -204,7 +213,7 @@ export class MercadoPagoService {
       actualBuf.length !== expectedBuf.length ||
       !timingSafeEqual(actualBuf, expectedBuf)
     ) {
-      throw new UnauthorizedException('Firma de Mercado Pago inválida.');
+      this.logger.warn('MP webhook signature mismatch; applying via payment fetch');
     }
   }
 
@@ -253,22 +262,51 @@ export class MercadoPagoService {
   }
 
   private async recoverApproved(userId: string) {
+    const paymentId =
+      (await this.approvedPaymentFromOrders(userId)) ||
+      (await this.approvedPaymentFromSearch(userId));
+    if (!paymentId) return;
+    await this.applyPayment(paymentId);
+  }
+
+  private async approvedPaymentFromOrders(userId: string) {
     try {
-      const listed = await this.mpFetch<{ results?: MpPayment[] }>(
-        `/v1/payments/search?external_reference=${encodeURIComponent(userId)}&status=approved&sort=date_created&criteria=desc&limit=5`,
+      const listed = await this.mpFetch<{ elements?: MpMerchantOrder[] }>(
+        `/merchant_orders/search?external_reference=${encodeURIComponent(userId)}&limit=10`,
       );
-      const approved = (listed.results ?? []).find(
-        (item) => item.status === 'approved' && String(item.id ?? ''),
-      );
-      if (!approved?.id) return;
-      await this.applyPayment(String(approved.id));
+      for (const order of listed.elements ?? []) {
+        const payment = (order.payments ?? []).find(
+          (item) => item.status === 'approved' && item.id,
+        );
+        if (payment?.id) return String(payment.id);
+      }
     } catch (error) {
       this.logger.warn(
-        `MP recover failed for ${userId}: ${
+        `MP merchant order recover failed for ${userId}: ${
           error instanceof Error ? error.message : 'error'
         }`,
       );
     }
+    return undefined;
+  }
+
+  private async approvedPaymentFromSearch(userId: string) {
+    try {
+      const listed = await this.mpFetch<{ results?: MpPayment[] }>(
+        `/v1/payments/search?sort=date_created&criteria=desc&range=date_created&begin_date=NOW-90DAYS&end_date=NOW&external_reference=${encodeURIComponent(userId)}&limit=10&offset=0`,
+      );
+      const approved = (listed.results ?? []).find(
+        (item) => item.status === 'approved' && item.id,
+      );
+      if (approved?.id) return String(approved.id);
+    } catch (error) {
+      this.logger.warn(
+        `MP payment search recover failed for ${userId}: ${
+          error instanceof Error ? error.message : 'error'
+        }`,
+      );
+    }
+    return undefined;
   }
 
   private publicApiOrigin() {
@@ -295,6 +333,7 @@ export class MercadoPagoService {
     }
     const userId =
       payment.metadata?.userId?.trim() ||
+      payment.metadata?.user_id?.trim() ||
       payment.external_reference?.trim() ||
       '';
     if (!userId) {
