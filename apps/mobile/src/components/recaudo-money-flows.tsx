@@ -198,7 +198,7 @@ export function RecaudoReceiveSheet({
   onClose: () => void;
   onRegister: (amount: string) => Promise<void>;
   registering: boolean;
-  onEnsureRail?: (currency: ReceiveRail) => Promise<void>;
+  onEnsureRail?: (currency: ReceiveRail, rail?: string) => Promise<void>;
   ensuring?: boolean;
   kyc?: RecaudoKyc;
   onVerify?: () => Promise<void>;
@@ -254,8 +254,14 @@ export function RecaudoReceiveSheet({
 
   const pickRail = (railId: string) => {
     setSelectedRail(railId);
-    if (selected) void onEnsureRail?.(selected);
+    if (selected) void onEnsureRail?.(selected, railId);
   };
+
+  useEffect(() => {
+    if (!visible || !selected || selectedRail || needsKyc || needsActivation) return;
+    const rails = RAILS_BY_CURRENCY[selected];
+    if (rails.length === 1) pickRail(rails[0].id);
+  }, [visible, selected, selectedRail, needsKyc, needsActivation]);
 
   useEffect(() => {
     if (!visible || !selectedRail || ensuring || needsKyc || needsActivation) return;
@@ -268,7 +274,7 @@ export function RecaudoReceiveSheet({
     <>
       <SheetFrame
         visible={visible && !selected}
-        title={needsActivation ? 'Wallet digital' : 'Recibir'}
+        title={needsActivation ? 'Wallet digital' : 'Realiza un aporte'}
         subtitle={
           needsActivation
             ? `Por ${activationLabel ?? 'US$ 2.99'} compras una wallet digital. Al completar la verificación podrás recibir aportes.`

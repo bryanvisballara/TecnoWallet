@@ -190,6 +190,7 @@ type RecaudosState = {
   provisionRail: (
     recaudoId: string,
     currency: 'cop' | 'usd' | 'eur' | 'mxn' | 'brl' | 'crypto',
+    rail?: string,
   ) => Promise<Recaudo>;
   /** Organizer only. Fails if the pot still has funds. */
   deleteRecaudo: (recaudoId: string) => Promise<void>;
@@ -1181,13 +1182,13 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     return get().recaudos.find((item) => item.id === recaudoId) ?? updated;
   },
 
-  provisionRail: async (recaudoId, currency) => {
+  provisionRail: async (recaudoId, currency, rail) => {
     const current = get().recaudos.find((item) => item.id === recaudoId);
     if (!current) throw new Error("Recaudo no encontrado.");
     const updated = normalizeRecaudo(
       await apiRequest(`/recaudos/${recaudoId}/tecno-account/rail`, {
         method: "POST",
-        body: JSON.stringify({ currency }),
+        body: JSON.stringify({ currency, rail }),
       }),
     );
     set({

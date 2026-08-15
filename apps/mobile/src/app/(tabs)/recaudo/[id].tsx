@@ -653,6 +653,7 @@ export default function RecaudoDetailScreen() {
 
   const ensureRail = async (
     currency: 'cop' | 'usd' | 'eur' | 'mxn' | 'brl' | 'crypto',
+    rail?: string,
   ) => {
     if (demo) return;
     setEnsuringRail(true);
@@ -662,7 +663,7 @@ export default function RecaudoDetailScreen() {
         setKycLive(next);
         if (!next.verified) return;
       }
-      await provisionRail(recaudo.id, currency);
+      await provisionRail(recaudo.id, currency, rail);
     } catch (error) {
       Alert.alert(
         'No se pudo abrir este medio',

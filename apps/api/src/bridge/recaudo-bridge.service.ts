@@ -106,6 +106,12 @@ type BridgeDepositInstructions = {
   redirect_url?: string;
 };
 
+type BridgeTransfer = {
+  id?: string;
+  source_deposit_instructions?: BridgeDepositInstructions;
+  destination?: { address?: string; to_address?: string; payment_rail?: string };
+};
+
 type BridgeVirtualAccount = {
   id?: string;
   status?: string;
@@ -116,6 +122,13 @@ type BridgeVirtualAccount = {
 const VA_CURRENCIES = ['usd', 'cop', 'mxn', 'brl', 'eur'] as const;
 const WALLET_CHAIN = 'base';
 const KYC_ENDORSEMENTS = ['base', 'cop', 'sepa', 'spei', 'pix'] as const;
+const ONRAMP_RAIL: Record<(typeof VA_CURRENCIES)[number], string> = {
+  usd: 'ach_push',
+  cop: 'bre_b',
+  mxn: 'spei',
+  brl: 'pix',
+  eur: 'sepa',
+};
 
 function httpsUrl(value?: string) {
   const raw = value?.trim();
@@ -254,6 +267,7 @@ export class RecaudoBridgeService {
     /** Only these fiat rails. Empty = wallet only (crypto). Never open every VA. */
     currencies?: string[];
     existingWalletId?: string;
+    preferredRail?: string;
   }): Promise<TecnoAccountSnapshot> {
     if (!this.bridge.configured) {
       return {
@@ -308,6 +322,7 @@ export class RecaudoBridgeService {
         recaudoId: input.recaudoId,
         walletAddress: wallet.address,
         currencies: wanted,
+        preferredRail: input.preferredRail,
       });
 
       return {
@@ -411,6 +426,7 @@ export class RecaudoBridgeService {
     recaudoId: string;
     walletAddress: string;
     currencies: string[];
+    preferredRail?: string;
   }): Promise<TecnoVirtualAccount[]> {
     const listed = await this.bridge
       .get<BridgeList<BridgeVirtualAccount> | BridgeVirtualAccount[]>(
@@ -429,7 +445,9 @@ export class RecaudoBridgeService {
     }
 
     for (const currency of input.currencies) {
-      if (byCurrency.has(currency)) continue;
+      if (byCurrency.has(currency) && hasDepositDetails(byCurrency.get(currency))) {
+        continue;
+      }
       try {
         const account = await this.bridge.post<BridgeVirtualAccount>(
           `/v0/customers/${input.customerId}/virtual_accounts`,
@@ -444,7 +462,10 @@ export class RecaudoBridgeService {
           `recaudo-va-${input.recaudoId}-${currency}`,
         );
         const mapped = mapVirtualAccount(account);
-        if (mapped) byCurrency.set(mapped.currency.toLowerCase(), mapped);
+        if (mapped && hasDepositDetails(mapped)) {
+          byCurrency.set(mapped.currency.toLowerCase(), mapped);
+          continue;
+        }
       } catch (error) {
         this.logger.warn(
           `Virtual account ${currency} skipped: ${
@@ -452,9 +473,86 @@ export class RecaudoBridgeService {
           }`,
         );
       }
+      const transfer = await this.createOnrampTransfer({
+        customerId: input.customerId,
+        recaudoId: input.recaudoId,
+        walletAddress: input.walletAddress,
+        currency,
+        rail:
+          input.preferredRail ||
+          ONRAMP_RAIL[currency as (typeof VA_CURRENCIES)[number]] ||
+          'ach_push',
+      });
+      if (transfer) byCurrency.set(currency, transfer);
     }
     return [...byCurrency.values()];
   }
+
+  private async createOnrampTransfer(input: {
+    customerId: string;
+    recaudoId: string;
+    walletAddress: string;
+    currency: string;
+    rail: string;
+  }): Promise<TecnoVirtualAccount | null> {
+    try {
+      const transfer = await this.bridge.post<BridgeTransfer>(
+        '/v0/transfers',
+        {
+          on_behalf_of: input.customerId,
+          source: {
+            payment_rail: input.rail,
+            currency: input.currency,
+          },
+          destination: {
+            payment_rail: WALLET_CHAIN,
+            currency: 'usdc',
+            to_address: input.walletAddress,
+          },
+          features: { flexible_amount: true },
+        },
+        `recaudo-onramp-${input.recaudoId}-${input.currency}-${input.rail}`,
+      );
+      const mapped = mapVirtualAccount({
+        id: transfer.id,
+        destination: {
+          address: input.walletAddress,
+          payment_rail: WALLET_CHAIN,
+          currency: 'usdc',
+        },
+        source_deposit_instructions: transfer.source_deposit_instructions,
+      });
+      if (!mapped) return null;
+      return {
+        ...mapped,
+        currency: input.currency,
+        paymentRails: mapped.paymentRails.length
+          ? mapped.paymentRails
+          : [input.rail],
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Onramp ${input.currency}/${input.rail} failed: ${
+          error instanceof Error ? error.message : 'error'
+        }`,
+      );
+      return null;
+    }
+  }
+}
+
+function hasDepositDetails(account?: TecnoVirtualAccount) {
+  const info = account?.instructions;
+  if (!info) return false;
+  return Boolean(
+    info.accountNumber ||
+      info.iban ||
+      info.clabe ||
+      info.pixCode ||
+      info.breBKey ||
+      info.startUrl ||
+      info.depositMessage,
+  );
 }
 
 function text(value: unknown): string | undefined {

@@ -535,6 +535,10 @@ const provisionRails = ['cop', 'usd', 'eur', 'mxn', 'brl', 'crypto'] as const;
 class ProvisionRailDto {
   @IsIn(provisionRails)
   currency!: (typeof provisionRails)[number];
+
+  @IsOptional()
+  @IsString()
+  rail?: string;
 }
 
 class ConfigurePlanDto {
@@ -1626,6 +1630,7 @@ export class RecaudosService {
     recaudo: HydratedDocument<Recaudo>,
     organizerId: string,
     currencies: string[] = [],
+    preferredRail?: string,
   ) {
     const organizer = await this.users.findById(organizerId);
     if (!organizer?.email) {
@@ -1648,6 +1653,7 @@ export class RecaudosService {
         organizer.bridgeKyc?.customerId || prior?.tecnoAccount?.customerId,
       existingWalletId: recaudo.tecnoAccount?.walletId,
       currencies,
+      preferredRail,
     });
     recaudo.tecnoAccount = {
       ...snapshot,
@@ -1668,6 +1674,7 @@ export class RecaudosService {
     id: string,
     currency: (typeof provisionRails)[number],
     principal: AuthPrincipal,
+    rail?: string,
   ) {
     await this.assertParticipant(id, principal.userId);
     const recaudo = await this.findRecaudo(id);
@@ -1699,7 +1706,12 @@ export class RecaudosService {
     }
     const currencies = currency === 'crypto' ? [] : [currency];
     try {
-      await this.provisionTecnoAccount(recaudo, organizerId, currencies);
+      await this.provisionTecnoAccount(
+        recaudo,
+        organizerId,
+        currencies,
+        rail,
+      );
     } catch (error) {
       this.logger.warn(
         `TecnoWallet rail ${currency} failed: ${
@@ -1710,9 +1722,20 @@ export class RecaudosService {
         ...(recaudo.tecnoAccount ?? {}),
         status: 'failed',
         virtualAccounts: recaudo.tecnoAccount?.virtualAccounts ?? [],
-        error: 'provision_failed',
+        error: error instanceof Error ? error.message : 'provision_failed',
       };
       await recaudo.save();
+    }
+    if (currency !== 'crypto') {
+      const opened = recaudo.tecnoAccount?.virtualAccounts?.some(
+        (item) => item.currency?.toLowerCase() === currency,
+      );
+      if (!opened) {
+        throw new BadRequestException(
+          recaudo.tecnoAccount?.error?.trim() ||
+            'No se pudo abrir este medio de aporte. Inténtalo de nuevo.',
+        );
+      }
     }
     return this.detail(id, principal);
   }
@@ -2067,7 +2090,7 @@ class RecaudosController {
     @Body() dto: ProvisionRailDto,
     @CurrentUser() user: AuthPrincipal,
   ) {
-    return this.service.provisionRail(id, dto.currency, user);
+    return this.service.provisionRail(id, dto.currency, user, dto.rail);
   }
 
   @Post(':id/invites')
