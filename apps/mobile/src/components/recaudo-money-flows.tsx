@@ -364,7 +364,7 @@ export function RecaudoReceiveSheet({
             <Text style={[styles.sheetSub, { color: theme.muted, marginTop: 4 }]}>
               {isOrganizer
                 ? kycCanRestart(kyc)
-                  ? 'Para recibir aportes verifica tu identidad. Esto se hace una sola vez, al recargar, no al crear el recaudo.'
+                  ? 'Para recibir aportes verifica tu identidad. Esto se hace una sola vez.'
                   : 'Ya enviaste tu verificación. Cuando esté lista se abren los datos de depósito.'
                 : 'El organizador debe verificar su identidad antes de recibir aportes.'}
             </Text>
@@ -431,7 +431,7 @@ export function RecaudoReceiveSheet({
               ))
             ) : (
               <Text style={[styles.empty, { color: theme.muted }]}>
-                Elige Recargar de nuevo cuando la cuenta esté lista, o prueba otro medio.
+                Elige realizar un aporte de nuevo cuando la cuenta esté lista, o prueba otro medio.
               </Text>
             )}
             <Text style={[styles.fieldLabel, { color: theme.muted, marginTop: 18 }]}>

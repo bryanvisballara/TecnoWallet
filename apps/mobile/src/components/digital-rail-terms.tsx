@@ -33,7 +33,7 @@ export function DigitalRailTerms({ embedded = false }: { embedded?: boolean }) {
       items: [
         `US$ ${monthly}/mes mientras el recaudo esté activo.`,
         '2% al retirar.',
-        `Verificación US$ ${kyc} por persona, al recargar (no al crear el recaudo). TecnoWallet lo cubre si la meta es ≥ US$ ${absorb}.`,
+        `Verificación US$ ${kyc} por persona, al verificar (no al crear el recaudo). TecnoWallet lo cubre si la meta es ≥ US$ ${absorb}.`,
         'Todos los costos se debitarán del recaudo.',
       ],
     },

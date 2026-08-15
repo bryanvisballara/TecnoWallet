@@ -85,6 +85,7 @@ export type Recaudo = {
     kycStatus?: string;
     tosStatus?: string;
     customerId?: string;
+    walletId?: string;
     chain?: string;
     walletAddress?: string;
     error?: string;
@@ -183,6 +184,8 @@ type RecaudosState = {
   acceptInvite: (token: string) => Promise<Recaudo>;
   /** Organizer: refresh KYC snapshot on the recaudo (does not open wallets/VAs). */
   syncTecnoAccount: (recaudoId: string) => Promise<Recaudo>;
+  /** After KYC is approved: GET existing wallet or POST a new one for this recaudo. */
+  ensureDigitalWallet: (recaudoId: string) => Promise<Recaudo>;
   /** Opens wallet + one deposit rail the first time someone recarga that currency. */
   provisionRail: (
     recaudoId: string,
@@ -503,6 +506,7 @@ function normalizeRecaudo(raw: unknown): Recaudo {
         kycStatus: typeof row.kycStatus === "string" ? row.kycStatus : undefined,
         tosStatus: typeof row.tosStatus === "string" ? row.tosStatus : undefined,
         customerId: typeof row.customerId === "string" ? row.customerId : undefined,
+        walletId: typeof row.walletId === "string" ? row.walletId : undefined,
         chain: typeof row.chain === "string" ? row.chain : undefined,
         walletAddress:
           typeof row.walletAddress === "string" ? row.walletAddress : undefined,
@@ -1114,6 +1118,42 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     const updated = normalizeRecaudo(
       await apiRequest(`/recaudos/${recaudoId}/tecno-account`, {
         method: "POST",
+      }),
+    );
+    set({
+      recaudos: get().recaudos.map((item) =>
+        item.id === recaudoId
+          ? {
+              ...item,
+              ...updated,
+              participants: updated.participants.length
+                ? updated.participants
+                : item.participants,
+              contributions: updated.contributions.length
+                ? updated.contributions
+                : item.contributions,
+            }
+          : item,
+      ),
+    });
+    return get().recaudos.find((item) => item.id === recaudoId) ?? updated;
+  },
+
+  ensureDigitalWallet: async (recaudoId) => {
+    const current = get().recaudos.find((item) => item.id === recaudoId);
+    if (!current) throw new Error("Recaudo no encontrado.");
+    if (!current.isOrganizer) {
+      throw new Error("Solo el organizador puede abrir la wallet digital.");
+    }
+    const updated = normalizeRecaudo(
+      await apiRequest(`/recaudos/${recaudoId}/tecno-account/wallet`, {
+        method: "POST",
+      }).catch(async (error) => {
+        if (!(error instanceof ApiError) || error.status !== 404) throw error;
+        return apiRequest(`/recaudos/${recaudoId}/tecno-account/rail`, {
+          method: "POST",
+          body: JSON.stringify({ currency: "crypto" }),
+        });
       }),
     );
     set({

@@ -1716,6 +1716,17 @@ export class RecaudosService {
     return this.detail(id, principal);
   }
 
+  async ensureDigitalWallet(id: string, principal: AuthPrincipal) {
+    await this.assertOrganizer(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException('Este recaudo no usa una cuenta TecnoWallet.');
+    }
+    await this.kyc.requireVerified(principal.userId);
+    await this.provisionTecnoAccount(recaudo, principal.userId, []);
+    return this.detail(id, principal);
+  }
+
   async syncTecnoAccount(id: string, principal: AuthPrincipal) {
     await this.assertOrganizer(id, principal.userId);
     const recaudo = await this.findRecaudo(id);
@@ -1832,6 +1843,7 @@ export class RecaudosService {
             kycStatus: recaudo.tecnoAccount.kycStatus,
             tosStatus: recaudo.tecnoAccount.tosStatus,
             customerId: recaudo.tecnoAccount.customerId,
+            walletId: recaudo.tecnoAccount.walletId,
             chain: recaudo.tecnoAccount.chain,
             walletAddress: recaudo.tecnoAccount.walletAddress,
             error: recaudo.tecnoAccount.error,
@@ -1986,6 +1998,14 @@ class RecaudosController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     return this.service.syncTecnoAccount(id, user);
+  }
+
+  @Post(':id/tecno-account/wallet')
+  ensureDigitalWallet(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.ensureDigitalWallet(id, user);
   }
 
   @Post(':id/tecno-account/rail')

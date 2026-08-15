@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { safeGoBack } from "@/lib/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState,
@@ -46,8 +46,7 @@ import { useLanguageStore } from "@/store/language";
 import {
   fetchRecaudoKyc,
   hostedVerificationUrl,
-  kycCanRestart,
-  kycStatusLabel,
+  kycPhase,
   openHostedVerificationUrl,
   startRecaudoKyc,
   type RecaudoKyc,
@@ -195,6 +194,7 @@ export default function RecaudoDetailScreen() {
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
   const updateRecaudo = useRecaudosStore((state) => state.updateRecaudo);
   const provisionRail = useRecaudosStore((state) => state.provisionRail);
+  const ensureDigitalWallet = useRecaudosStore((state) => state.ensureDigitalWallet);
   const profile = useAuthStore((state) => state.profile);
   const demo = useAuthStore((state) => state.demo);
   const recaudo = recaudos.find((item) => item.id === id);
@@ -262,6 +262,7 @@ export default function RecaudoDetailScreen() {
   const [kycBusy, setKycBusy] = useState(false);
   const [activating, setActivating] = useState(false);
   const [activation, setActivation] = useState<RecaudoActivation>();
+  const walletEnsureKey = useRef<string>();
   const [bankName, setBankName] = useState(profile.name || "Sandbox Account");
   const [routingNumber, setRoutingNumber] = useState("011401533");
   const [accountNumber, setAccountNumber] = useState("1000000001");
@@ -290,10 +291,46 @@ export default function RecaudoDetailScreen() {
       setKycLive(undefined);
       return;
     }
-    void fetchRecaudoKyc()
-      .then((next) => setKycLive(next))
-      .catch(() => undefined);
-  }, [demo, recaudo?.id, recaudo?.isOrganizer, activation?.paid]);
+    const loadKyc = () => {
+      void fetchRecaudoKyc()
+        .then((next) => setKycLive(next))
+        .catch(() => undefined);
+    };
+    loadKyc();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") loadKyc();
+    });
+    const phase = kycPhase(kycLive, recaudo.tecnoAccount?.kycStatus);
+    const timer =
+      phase === "pending" ? setInterval(loadKyc, 8000) : undefined;
+    return () => {
+      sub.remove();
+      if (timer) clearInterval(timer);
+    };
+  }, [demo, recaudo?.id, recaudo?.isOrganizer, activation?.paid, kycLive?.kycStatus, recaudo?.tecnoAccount?.kycStatus]);
+
+  useEffect(() => {
+    if (!recaudo || demo || !recaudo.isOrganizer) return;
+    if (activation?.paid !== true) return;
+    if (kycPhase(kycLive, recaudo.tecnoAccount?.kycStatus) !== "approved") return;
+    if (recaudo.tecnoAccount?.walletAddress || recaudo.tecnoAccount?.walletId) return;
+    if (walletEnsureKey.current === recaudo.id) return;
+    walletEnsureKey.current = recaudo.id;
+    void ensureDigitalWallet(recaudo.id).catch(() => {
+      walletEnsureKey.current = undefined;
+    });
+  }, [
+    activation?.paid,
+    demo,
+    ensureDigitalWallet,
+    kycLive?.kycStatus,
+    kycLive?.verified,
+    recaudo?.id,
+    recaudo?.isOrganizer,
+    recaudo?.tecnoAccount?.kycStatus,
+    recaudo?.tecnoAccount?.walletAddress,
+    recaudo?.tecnoAccount?.walletId,
+  ]);
 
   useEffect(() => {
     if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
@@ -363,11 +400,15 @@ export default function RecaudoDetailScreen() {
   }
 
   const category = categoryIcons[recaudo.category];
-  const needsEnable =
-    !demo &&
-    recaudo.isOrganizer &&
-    recaudo.payoutMethod === "digital" &&
-    activation?.paid !== true;
+  const digitalOrganizer =
+    !demo && recaudo.isOrganizer && recaudo.payoutMethod === "digital";
+  const needsEnable = digitalOrganizer && activation?.paid !== true;
+  const verificationPhase = kycPhase(
+    kycLive,
+    recaudo.tecnoAccount?.kycStatus,
+  );
+  const kycReady = verificationPhase === "approved";
+  const showMoneyActions = !digitalOrganizer || (!needsEnable && kycReady);
   const activationAmountLabel = activation
     ? formatActivationAmount(activation.amount, activation.currency)
     : formatActivationAmount(2.99, "USD");
@@ -659,20 +700,21 @@ export default function RecaudoDetailScreen() {
   const verifyForReceive = async () => {
     setKycBusy(true);
     try {
-      const retry = Boolean(
-        kycLive && !kycLive.verified && (kycLive.kycLinkId || kycLive.customerId),
-      );
-      const next =
-        kycLive && !kycCanRestart(kycLive)
-          ? await fetchRecaudoKyc()
-          : await startRecaudoKyc(retry);
+      const retry = verificationPhase === "rejected";
+      const next = await startRecaudoKyc(retry);
       setKycLive(next);
       if (next.verified) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await ensureDigitalWallet(recaudo.id);
         return;
       }
       const url = hostedVerificationUrl(next);
       if (url) await openHostedVerificationUrl(url);
+      const after = await fetchRecaudoKyc();
+      setKycLive(after);
+      if (after.verified) {
+        await ensureDigitalWallet(recaudo.id);
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 402) {
         await payActivation();
@@ -904,32 +946,40 @@ export default function RecaudoDetailScreen() {
         ratio={ratio}
       />
 
+      {(needsEnable || showMoneyActions) ? (
       <View style={styles.ctaRow}>
-        <ScalePressable
-          accessibilityRole="button"
-          accessibilityLabel={needsEnable ? "Comprar wallet digital" : "Recargar recaudo"}
-          onPress={() => {
-            if (needsEnable) {
-              void payActivation();
-              return;
-            }
-            setReceiveOpen(true);
-          }}
-          style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
-          <Text style={styles.ctaPrimaryText}>
-            {needsEnable ? (activating ? "Abriendo…" : "Comprar wallet") : "+ Recargar"}
-          </Text>
-        </ScalePressable>
-        {recaudo.isOrganizer && !needsEnable ? (
+        {needsEnable ? (
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel="Retirar del recaudo"
-            onPress={() => setWithdrawOpen(true)}
-            style={[styles.ctaSecondary, { backgroundColor: theme.surfaceSecondary }]}>
-            <Text style={[styles.ctaSecondaryText, { color: theme.text }]}>Retirar</Text>
+            accessibilityLabel="Comprar wallet digital"
+            onPress={() => void payActivation()}
+            style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
+            <Text style={styles.ctaPrimaryText}>
+              {activating ? "Abriendo…" : "Comprar wallet"}
+            </Text>
           </ScalePressable>
+        ) : showMoneyActions ? (
+          <>
+            <ScalePressable
+              accessibilityRole="button"
+              accessibilityLabel="Realizar un aporte"
+              onPress={() => setReceiveOpen(true)}
+              style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
+              <Text style={styles.ctaPrimaryText}>Realizar un aporte</Text>
+            </ScalePressable>
+            {recaudo.isOrganizer ? (
+              <ScalePressable
+                accessibilityRole="button"
+                accessibilityLabel="Retirar del recaudo"
+                onPress={() => setWithdrawOpen(true)}
+                style={[styles.ctaSecondary, { backgroundColor: theme.surfaceSecondary }]}>
+                <Text style={[styles.ctaSecondaryText, { color: theme.text }]}>Retirar</Text>
+              </ScalePressable>
+            ) : null}
+          </>
         ) : null}
       </View>
+      ) : null}
 
       {needsEnable ? (
         <Card style={styles.kycBanner}>
@@ -944,19 +994,37 @@ export default function RecaudoDetailScreen() {
             {activating ? "Abriendo Mercado Pago…" : `Comprar wallet · ${activationAmountLabel}`}
           </PrimaryButton>
         </Card>
-      ) : !demo && recaudo.payoutMethod === "digital" ? (
+      ) : digitalOrganizer ? (
         <Card style={styles.kycBanner}>
           <Text style={[styles.kycText, { color: theme.text }]}>
-            Verificación: {kycStatusLabel(kycLive?.kycStatus || recaudo.tecnoAccount?.kycStatus)}
+            Verificación:{" "}
+            {verificationPhase === "none"
+              ? "Sin verificación"
+              : verificationPhase === "pending"
+                ? "Pendiente"
+                : verificationPhase === "rejected"
+                  ? "Rechazada"
+                  : "Verificada"}
           </Text>
-          {kycLive?.verified || recaudo.tecnoAccount?.kycStatus === "approved" ? (
-            <Text style={[styles.rowMeta, { color: theme.muted }]}>
-              Identidad confirmada. Recarga para abrir el medio de depósito que uses.
-            </Text>
-          ) : (
-            <Text style={[styles.rowMeta, { color: theme.muted }]}>
-              El siguiente paso es Recargar: ahí verificas tu identidad y eliges cómo recibir.
-            </Text>
+          <Text style={[styles.rowMeta, { color: theme.muted }]}>
+            {verificationPhase === "approved"
+              ? "Identidad confirmada. Ya puedes realizar aportes y retirar."
+              : verificationPhase === "pending"
+                ? "Enviaste tus datos. Cuando la verificación quede aprobada podrás realizar aportes."
+                : verificationPhase === "rejected"
+                  ? "La verificación no se aprobó. Vuelve a iniciarla para continuar."
+                  : "Inicia la verificación de identidad para abrir tu wallet digital y recibir aportes."}
+          </Text>
+          {verificationPhase === "approved" ? null : (
+            <PrimaryButton onPress={kycBusy ? undefined : () => void verifyForReceive()}>
+              {kycBusy
+                ? "Abriendo…"
+                : verificationPhase === "rejected"
+                  ? "Volver a verificar"
+                  : verificationPhase === "pending"
+                    ? "Continuar verificación"
+                    : "Iniciar verificación"}
+            </PrimaryButton>
           )}
         </Card>
       ) : null}
@@ -1239,7 +1307,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  ctaPrimaryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  ctaPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+    paddingHorizontal: 8,
+  },
   ctaSecondary: {
     flex: 1,
     minHeight: 42,

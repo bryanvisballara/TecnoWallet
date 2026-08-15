@@ -41,29 +41,39 @@ export function kycStatusColor(
   }
 }
 
+export type RecaudoKycPhase = 'none' | 'pending' | 'approved' | 'rejected';
+
+export function kycPhase(kyc?: RecaudoKyc | null, fallbackStatus?: string): RecaudoKycPhase {
+  const status = kyc?.kycStatus || fallbackStatus || 'not_started';
+  if (kyc?.verified || status === 'approved') return 'approved';
+  if (status === 'rejected' || status === 'offboarded') return 'rejected';
+  const started = Boolean(
+    kyc?.kycLinkId ||
+      kyc?.customerId ||
+      (status && status !== 'not_started'),
+  );
+  return started ? 'pending' : 'none';
+}
+
 export function kycStatusLabel(status?: string) {
   switch (status) {
     case 'approved':
       return 'Verificada';
     case 'under_review':
-      return 'En revisión';
     case 'incomplete':
-    case 'not_started':
-      return 'Pendiente';
+    case 'paused':
     case 'awaiting_questionnaire':
-      return 'Falta el cuestionario';
     case 'awaiting_ubo':
-      return 'Faltan datos de la empresa';
+    case 'deposits_restricted':
+      return 'Pendiente';
+    case 'not_started':
+      return 'Sin verificación';
     case 'rejected':
       return 'Rechazada';
-    case 'paused':
-      return 'Pausada';
     case 'offboarded':
       return 'Dada de baja';
-    case 'deposits_restricted':
-      return 'Depósitos restringidos';
     default:
-      return status ? 'En proceso' : 'Sin verificar';
+      return status ? 'Pendiente' : 'Sin verificación';
   }
 }
 
