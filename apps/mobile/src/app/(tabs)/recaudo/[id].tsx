@@ -264,8 +264,7 @@ export default function RecaudoDetailScreen() {
   const [kycBusy, setKycBusy] = useState(false);
   const [activating, setActivating] = useState(false);
   const [activation, setActivation] = useState<RecaudoActivation>();
-  const [kycApprovedBanner, setKycApprovedBanner] = useState(false);
-  const walletEnsureKey = useRef<string>();
+  const [creatingWallet, setCreatingWallet] = useState(false);
   const kycDraftCleared = useRef(false);
   const [bankName, setBankName] = useState(profile.name || "Sandbox Account");
   const [routingNumber, setRoutingNumber] = useState("011401533");
@@ -321,40 +320,6 @@ export default function RecaudoDetailScreen() {
       if (timer) clearInterval(timer);
     };
   }, [demo, recaudo?.id, recaudo?.isOrganizer, activation?.paid, kycLive?.kycStatus, recaudo?.tecnoAccount?.kycStatus]);
-
-  useEffect(() => {
-    if (!recaudo || demo || !recaudo.isOrganizer) return;
-    if (activation?.paid !== true) return;
-    if (kycPhase(kycLive, recaudo.tecnoAccount?.kycStatus) !== "approved") return;
-    if (recaudo.tecnoAccount?.walletAddress || recaudo.tecnoAccount?.walletId) return;
-    if (walletEnsureKey.current === recaudo.id) return;
-    walletEnsureKey.current = recaudo.id;
-    void ensureDigitalWallet(recaudo.id).catch(() => {
-      walletEnsureKey.current = undefined;
-    });
-  }, [
-    activation?.paid,
-    demo,
-    ensureDigitalWallet,
-    kycLive?.kycStatus,
-    kycLive?.verified,
-    recaudo?.id,
-    recaudo?.isOrganizer,
-    recaudo?.tecnoAccount?.kycStatus,
-    recaudo?.tecnoAccount?.walletAddress,
-    recaudo?.tecnoAccount?.walletId,
-  ]);
-
-  useEffect(() => {
-    const email = profile.email?.trim().toLowerCase();
-    if (!email) return;
-    void localStorage
-      .get(`kyc-approved-banner-${email}`, false)
-      .then((dismissed) => {
-        if (dismissed) setKycApprovedBanner(false);
-        else setKycApprovedBanner(true);
-      });
-  }, [profile.email]);
 
   useEffect(() => {
     if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
@@ -432,7 +397,15 @@ export default function RecaudoDetailScreen() {
     recaudo.tecnoAccount?.kycStatus,
   );
   const kycReady = verificationPhase === "approved";
-  const showMoneyActions = !digitalOrganizer || (!needsEnable && kycReady);
+  const hasDigitalWallet = Boolean(
+    recaudo.tecnoAccount?.status === "ready" &&
+      recaudo.tecnoAccount.walletId?.trim() &&
+      recaudo.tecnoAccount.walletAddress?.trim(),
+  );
+  const needsDigitalWallet =
+    digitalOrganizer && !needsEnable && kycReady && !hasDigitalWallet;
+  const showMoneyActions =
+    !digitalOrganizer || (!needsEnable && kycReady && hasDigitalWallet);
   const activationAmountLabel = activation
     ? formatActivationAmount(activation.amount, activation.currency)
     : formatActivationAmount(2.99, "USD");
@@ -721,6 +694,21 @@ export default function RecaudoDetailScreen() {
     }
   };
 
+  const createDigitalWallet = async () => {
+    setCreatingWallet(true);
+    try {
+      await ensureDigitalWallet(recaudo.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert(
+        "No se pudo crear la wallet",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    } finally {
+      setCreatingWallet(false);
+    }
+  };
+
   const verifyForReceive = async () => {
     setKycBusy(true);
     try {
@@ -970,7 +958,7 @@ export default function RecaudoDetailScreen() {
         ratio={ratio}
       />
 
-      {(needsEnable || showMoneyActions) ? (
+      {(needsEnable || needsDigitalWallet || showMoneyActions) ? (
       <View style={styles.ctaRow}>
         {needsEnable ? (
           <ScalePressable
@@ -980,6 +968,16 @@ export default function RecaudoDetailScreen() {
             style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
             <Text style={styles.ctaPrimaryText}>
               {activating ? "Abriendo…" : "Comprar wallet"}
+            </Text>
+          </ScalePressable>
+        ) : needsDigitalWallet ? (
+          <ScalePressable
+            accessibilityRole="button"
+            accessibilityLabel="Crear wallet digital"
+            onPress={creatingWallet ? undefined : () => void createDigitalWallet()}
+            style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
+            <Text style={styles.ctaPrimaryText}>
+              {creatingWallet ? "Creando…" : "Crear wallet digital"}
             </Text>
           </ScalePressable>
         ) : showMoneyActions ? (
@@ -1020,38 +1018,26 @@ export default function RecaudoDetailScreen() {
         </Card>
       ) : digitalOrganizer ? (
         verificationPhase === "approved" ? (
-          kycApprovedBanner ? (
-            <Card
-              style={[
-                styles.kycBanner,
-                { backgroundColor: theme.successSoft, borderColor: theme.success, borderWidth: 1 },
-              ]}
+          <Card style={styles.kycBanner}>
+            <View style={styles.nameLine}>
+              <Text style={[styles.kycText, { color: theme.text }]}>Verificación:</Text>
+              <Pill tone="green">Aprobada</Pill>
+            </View>
+            <Text style={[styles.rowMeta, { color: theme.muted }]}>
+              {hasDigitalWallet
+                ? "Identidad confirmada. Ya puedes realizar aportes y retirar."
+                : "Identidad confirmada. El siguiente paso es abrir la wallet digital de este recaudo."}
+            </Text>
+            <PrimaryButton
+              onPress={creatingWallet ? undefined : () => void createDigitalWallet()}
             >
-              <View style={styles.kycApprovedRow}>
-                <View style={styles.copy}>
-                  <Text style={[styles.kycText, { color: theme.success }]}>
-                    Cuenta verificada
-                  </Text>
-                  <Text style={[styles.rowMeta, { color: theme.text }]}>
-                    Tu cuenta fue verificada y aprobada correctamente. Ya puedes realizar aportes y retirar.
-                  </Text>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Cerrar aviso de verificación"
-                  hitSlop={8}
-                  onPress={() => {
-                    setKycApprovedBanner(false);
-                    const email = profile.email?.trim().toLowerCase();
-                    if (email) void localStorage.set(`kyc-approved-banner-${email}`, true);
-                  }}
-                  style={styles.kycClose}
-                >
-                  <AppIcon name="xmark" color={theme.success} size={16} />
-                </Pressable>
-              </View>
-            </Card>
-          ) : null
+              {creatingWallet
+                ? "Creando…"
+                : hasDigitalWallet
+                  ? "Abrir wallet digital"
+                  : "Crear wallet digital"}
+            </PrimaryButton>
+          </Card>
         ) : (
         <Card style={styles.kycBanner}>
           <Text style={[styles.kycText, { color: theme.text }]}>
@@ -1376,14 +1362,6 @@ const styles = StyleSheet.create({
   },
   ctaSecondaryText: { fontSize: 14, fontWeight: "700" },
   kycBanner: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 8 },
-  kycApprovedRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  kycClose: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   kycText: { fontSize: 13, fontWeight: "700" },
   planToggle: { fontSize: 14, fontWeight: "700", paddingVertical: 4 },
   termsLinkWrap: { alignItems: "center", paddingVertical: 10 },

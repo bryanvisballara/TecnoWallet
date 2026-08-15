@@ -1724,6 +1724,12 @@ export class RecaudosService {
     }
     await this.kyc.requireVerified(principal.userId);
     await this.provisionTecnoAccount(recaudo, principal.userId, []);
+    if (!recaudo.tecnoAccount?.walletId) {
+      throw new BadRequestException(
+        recaudo.tecnoAccount?.error?.trim() ||
+          'No se pudo crear la wallet digital. Inténtalo de nuevo.',
+      );
+    }
     return this.detail(id, principal);
   }
 

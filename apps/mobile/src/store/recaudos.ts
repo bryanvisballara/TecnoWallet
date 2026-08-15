@@ -1156,6 +1156,12 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         });
       }),
     );
+    if (!updated.tecnoAccount?.walletId && !updated.tecnoAccount?.walletAddress) {
+      throw new Error(
+        updated.tecnoAccount?.error?.trim() ||
+          "No se pudo crear la wallet digital. Inténtalo de nuevo.",
+      );
+    }
     set({
       recaudos: get().recaudos.map((item) =>
         item.id === recaudoId

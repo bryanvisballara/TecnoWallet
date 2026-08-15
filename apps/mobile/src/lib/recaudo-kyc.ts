@@ -62,7 +62,7 @@ export function kycPhase(kyc?: RecaudoKyc | null, fallbackStatus?: string): Reca
 export function kycStatusLabel(status?: string) {
   switch (status) {
     case 'approved':
-      return 'Verificada';
+      return 'Aprobada';
     case 'under_review':
     case 'incomplete':
     case 'paused':

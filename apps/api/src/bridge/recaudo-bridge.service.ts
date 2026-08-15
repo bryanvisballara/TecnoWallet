@@ -362,11 +362,23 @@ export class RecaudoBridgeService {
       }
     }
 
-    return this.bridge.post<BridgeWallet>(
-      `/v0/customers/${customerId}/wallets`,
-      { chain: WALLET_CHAIN },
-      `recaudo-wallet-${recaudoId}`,
-    );
+    try {
+      return await this.bridge.post<BridgeWallet>(
+        `/v0/customers/${customerId}/wallets`,
+        { chain: WALLET_CHAIN },
+        `recaudo-wallet-${recaudoId}`,
+      );
+    } catch (error) {
+      const listed = await this.bridge
+        .get<BridgeList<BridgeWallet> | BridgeWallet[]>(
+          `/v0/customers/${customerId}/wallets`,
+        )
+        .catch(() => ({ data: [] as BridgeWallet[] }));
+      const rows = Array.isArray(listed) ? listed : (listed.data ?? []);
+      const existing = rows.find((row) => row.id && row.address);
+      if (existing) return existing;
+      throw error;
+    }
   }
 
   private async ensureVirtualAccounts(input: {

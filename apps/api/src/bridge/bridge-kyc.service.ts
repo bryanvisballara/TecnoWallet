@@ -148,6 +148,41 @@ export class BridgeKycService {
     return snapshot;
   }
 
+  async handleWebhook(body: Record<string, unknown>) {
+    const category = String(body.event_category ?? '');
+    const type = String(body.event_type ?? '');
+    const object =
+      body.event_object && typeof body.event_object === 'object'
+        ? (body.event_object as Record<string, unknown>)
+        : {};
+    const objectId = String(
+      body.event_object_id ?? object.id ?? '',
+    ).trim();
+    if (!objectId) return { ok: true, ignored: true };
+
+    if (category === 'kyc_link' || type.startsWith('kyc_link.')) {
+      const user = await this.users.findOne({
+        'bridgeKyc.kycLinkId': objectId,
+      });
+      if (!user) return { ok: true, matched: false };
+      const snapshot = await this.rail.getKycLink(objectId);
+      if (snapshot) await this.persist(user, snapshot);
+      return { ok: true, matched: true, kycStatus: snapshot?.kycStatus };
+    }
+
+    if (category === 'customer' || type.startsWith('customer.')) {
+      const user = await this.users.findOne({
+        'bridgeKyc.customerId': objectId,
+      });
+      if (!user?.bridgeKyc?.kycLinkId) return { ok: true, matched: Boolean(user) };
+      const snapshot = await this.rail.getKycLink(user.bridgeKyc.kycLinkId);
+      if (snapshot) await this.persist(user, snapshot);
+      return { ok: true, matched: true, kycStatus: snapshot?.kycStatus };
+    }
+
+    return { ok: true, ignored: true };
+  }
+
   private async persist(
     user: HydratedDocument<User>,
     snapshot: TecnoKycSnapshot,

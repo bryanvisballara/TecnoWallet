@@ -34,9 +34,11 @@ export class BridgeClient {
   }
 
   private apiKey() {
-    return (this.config.get<string>('BRIDGE_API_KEY') ?? '')
+    let raw = (this.config.get<string>('BRIDGE_API_KEY') ?? '')
       .trim()
       .replace(/^["']|["']$/g, '');
+    raw = raw.replace(/^BRIDGE_API_KEY\s*=\s*/i, '').trim();
+    return raw;
   }
 
   async request<T = unknown>(
