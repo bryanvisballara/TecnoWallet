@@ -121,7 +121,6 @@ export class MercadoPagoService {
             failure: `${webOrigin}/recaudos?mp=failure`,
             pending: `${webOrigin}/recaudos?mp=pending`,
           },
-          auto_return: 'approved',
           notification_url: notificationUrl,
           external_reference: userId,
           metadata: { purpose: 'wallet_purchase', userId },
@@ -297,10 +296,15 @@ export class MercadoPagoService {
   }
 
   private useSandbox() {
+    const token = this.accessToken();
+    // APP_USR is production (incl. test users). sandbox_init_point + APP_USR
+    // sends Safari into a redirect loop on sandbox.mercadopago.com.co.
+    if (token.startsWith('APP_USR-')) return false;
+    if (token.startsWith('TEST-')) return true;
     const flag = this.config.get<boolean | string>('MERCADOPAGO_SANDBOX');
     if (flag === true || flag === 'true' || flag === '1') return true;
     if (flag === false || flag === 'false' || flag === '0') return false;
-    return this.accessToken().startsWith('TEST-');
+    return false;
   }
 
   private async mpFetch<T>(
