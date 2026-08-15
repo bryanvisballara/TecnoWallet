@@ -335,7 +335,7 @@ export default function AddRecaudoScreen() {
           <Text style={[styles.hint, { color: theme.muted }]}>
             {isEditing
               ? 'Cambia el nombre, la meta, la fecha o la cuenta donde se guarda el dinero.'
-              : 'Crea un recaudo compartido y define cuánto quieren reunir.'}
+              : 'Crea un recaudo compartido y define cuánto quieren reunir. Los aportes podrán hacerse en USD, EUR, COP, MXN y R$.'}
           </Text>
 
           <FieldLabel error={errors.title} color={theme.muted} danger={theme.danger}>

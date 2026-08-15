@@ -14,7 +14,8 @@ import { Model } from 'mongoose';
 
 import { User } from '../auth/auth.module';
 
-export const RECAUDO_ACTIVATION_COP = 12_000;
+export const WALLET_PRICE_USD = 2.99;
+export const WALLET_PRICE_MINOR = 299;
 const MP_API = 'https://api.mercadopago.com';
 
 type MpPreference = {
@@ -50,9 +51,9 @@ export class MercadoPagoService {
     const paid = await this.isPaid(userId);
     return {
       paid,
-      amount: RECAUDO_ACTIVATION_COP,
-      currency: 'COP',
-      title: 'Activación de recaudos',
+      amount: WALLET_PRICE_USD,
+      currency: 'USD',
+      title: 'Wallet digital TecnoWallet',
       configured: this.configured(),
     };
   }
@@ -69,7 +70,7 @@ export class MercadoPagoService {
       {
         statusCode: HttpStatus.PAYMENT_REQUIRED,
         message:
-          'Paga la activación para crear recaudos y verificar tu identidad.',
+          'Compra la wallet digital para verificar tu identidad y recibir aportes.',
         code: 'RECAUDO_ACTIVATION_REQUIRED',
       },
       HttpStatus.PAYMENT_REQUIRED,
@@ -103,12 +104,12 @@ export class MercadoPagoService {
         body: JSON.stringify({
           items: [
             {
-              title: 'Activación de recaudos TecnoWallet',
+              title: 'Wallet digital TecnoWallet',
               description:
-                'Pago único para habilitar recaudos y la verificación de identidad.',
+                'Wallet digital. Al completar la verificación podrás recibir aportes en USD, EUR, COP, MXN y R$.',
               quantity: 1,
-              currency_id: 'COP',
-              unit_price: RECAUDO_ACTIVATION_COP,
+              currency_id: 'USD',
+              unit_price: WALLET_PRICE_USD,
             },
           ],
           payer: {
@@ -123,7 +124,7 @@ export class MercadoPagoService {
           auto_return: 'approved',
           notification_url: notificationUrl,
           external_reference: userId,
-          metadata: { purpose: 'recaudo_activation', userId },
+          metadata: { purpose: 'wallet_purchase', userId },
         }),
       },
     );
@@ -143,8 +144,8 @@ export class MercadoPagoService {
       {
         $set: {
           'recaudoActivation.mpPreferenceId': preference.id,
-          'recaudoActivation.amountMinor': RECAUDO_ACTIVATION_COP,
-          'recaudoActivation.currency': 'COP',
+          'recaudoActivation.amountMinor': WALLET_PRICE_MINOR,
+          'recaudoActivation.currency': 'USD',
         },
       },
     );
@@ -243,8 +244,8 @@ export class MercadoPagoService {
             paidAt: new Date(),
             mpPaymentId: String(payment.id ?? paymentId),
             mpPreferenceId: user.recaudoActivation?.mpPreferenceId,
-            amountMinor: RECAUDO_ACTIVATION_COP,
-            currency: payment.currency_id || 'COP',
+            amountMinor: WALLET_PRICE_MINOR,
+            currency: payment.currency_id || 'USD',
           },
         },
       },

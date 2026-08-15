@@ -605,7 +605,7 @@ const es: AppCopy = {
     sharedHint: 'Sigue el progreso de cada pozo',
     createFirst: 'Crea tu primer recaudo',
     createFirstHint:
-      'Crea un fondo con tus amigos para ir de viaje, o con tus hermanos para ayudar a tus padres, etc.\n\nDefine el presupuesto o meta a retirar al final del recaudo.\nDefine el aporte mensual que tendrá cada integrante.\n\nTecnoWallet creará una cuenta digital a nombre del organizador, donde mensualmente —con aportes manuales o débitos automáticos— los integrantes irán aportando al fondo hasta completar la meta y retirar los fondos.',
+      'Crea un fondo con tus amigos para ir de viaje, o con tus hermanos para ayudar a tus padres, etc.\n\nDefine el presupuesto o meta a retirar al final del recaudo.\nDefine el aporte mensual que tendrá cada integrante.\n\nLos aportes podrán hacerse en USD, EUR, COP, MXN y R$.\n\nTecnoWallet creará una cuenta digital a nombre del organizador, donde mensualmente —con aportes manuales o débitos automáticos— los integrantes irán aportando al fondo hasta completar la meta y retirar los fondos.',
     completed: 'Completado',
     noNext: 'Sin próximo aporte',
     nextContribution: (label) => `Próximo aporte · ${label}`,
@@ -965,7 +965,7 @@ const es: AppCopy = {
       },
       datos: {
         title: 'Exportar',
-        subtitle: 'Descarga tus movimientos en CSV',
+        subtitle: 'Descarga tus movimientos en Excel o PDF',
       },
       sonido: {
         title: 'Sonido y haptics',
@@ -1171,7 +1171,7 @@ const en: AppCopy = {
     sharedHint: 'Track progress for each pool',
     createFirst: 'Create your first collection',
     createFirstHint:
-      'Start a fund with friends for a trip, or with siblings to help your parents, etc.\n\nSet the final budget or goal for the collection.\nSet the monthly contribution for each member.\n\nTecnoWallet creates a digital account in the organizer’s name, where members contribute monthly —manually or via automatic debits— until you reach the goal and withdraw the funds.',
+      'Start a fund with friends for a trip, or with siblings to help your parents, etc.\n\nSet the final budget or goal for the collection.\nSet the monthly contribution for each member.\n\nContributions can be made in USD, EUR, COP, MXN, and R$.\n\nTecnoWallet creates a digital account in the organizer’s name, where members contribute monthly —manually or via automatic debits— until you reach the goal and withdraw the funds.',
     completed: 'Completed',
     noNext: 'No next contribution',
     nextContribution: (label) => `Next contribution · ${label}`,
@@ -1529,7 +1529,7 @@ const en: AppCopy = {
       },
       datos: {
         title: 'Export',
-        subtitle: 'Download your activity as CSV',
+        subtitle: 'Download your activity as Excel or PDF',
       },
       sonido: {
         title: 'Sound & haptics',

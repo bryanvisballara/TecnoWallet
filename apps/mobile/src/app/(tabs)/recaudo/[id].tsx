@@ -370,7 +370,7 @@ export default function RecaudoDetailScreen() {
     activation?.paid !== true;
   const activationAmountLabel = activation
     ? formatActivationAmount(activation.amount, activation.currency)
-    : formatActivationAmount(12_000, "COP");
+    : formatActivationAmount(2.99, "USD");
   const fundingReady =
     BRIDGE_PAYMENTS_LIVE &&
     useUnitFundingStore
@@ -643,7 +643,7 @@ export default function RecaudoDetailScreen() {
       if (!next.paid) {
         Alert.alert(
           "Pago en Mercado Pago",
-          "Cuando el pago quede aprobado, vuelve a esta página para habilitar el recaudo.",
+          "Cuando el pago quede aprobado, vuelve a esta página para continuar con tu wallet digital.",
         );
       }
     } catch (error) {
@@ -907,7 +907,7 @@ export default function RecaudoDetailScreen() {
       <View style={styles.ctaRow}>
         <ScalePressable
           accessibilityRole="button"
-          accessibilityLabel={needsEnable ? "Habilitar recaudo" : "Recargar recaudo"}
+          accessibilityLabel={needsEnable ? "Comprar wallet digital" : "Recargar recaudo"}
           onPress={() => {
             if (needsEnable) {
               void payActivation();
@@ -917,7 +917,7 @@ export default function RecaudoDetailScreen() {
           }}
           style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
           <Text style={styles.ctaPrimaryText}>
-            {needsEnable ? (activating ? "Abriendo…" : "Habilitar") : "+ Recargar"}
+            {needsEnable ? (activating ? "Abriendo…" : "Comprar wallet") : "+ Recargar"}
           </Text>
         </ScalePressable>
         {recaudo.isOrganizer ? (
@@ -934,14 +934,14 @@ export default function RecaudoDetailScreen() {
       {needsEnable ? (
         <Card style={styles.kycBanner}>
           <Text style={[styles.kycText, { color: theme.text }]}>
-            Habilita este recaudo
+            Wallet digital TecnoWallet
           </Text>
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            Un pago único de {activationAmountLabel} activa los aportes y la verificación
-            de identidad. Hasta entonces el recaudo queda creado, pero no puede recibir dinero.
+            Por {activationAmountLabel} compras una wallet digital. Cuando completes la
+            verificación, podrás recibir aportes en USD, EUR, COP, MXN y R$.
           </Text>
           <PrimaryButton onPress={activating ? undefined : () => void payActivation()}>
-            {activating ? "Abriendo Mercado Pago…" : `Pagar ${activationAmountLabel}`}
+            {activating ? "Abriendo Mercado Pago…" : `Comprar wallet · ${activationAmountLabel}`}
           </PrimaryButton>
         </Card>
       ) : !demo && recaudo.payoutMethod === "digital" ? (

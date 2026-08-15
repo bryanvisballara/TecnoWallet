@@ -268,17 +268,17 @@ export function RecaudoReceiveSheet({
     <>
       <SheetFrame
         visible={visible && !selected}
-        title={needsActivation ? 'Habilita este recaudo' : 'Recibir'}
+        title={needsActivation ? 'Wallet digital' : 'Recibir'}
         subtitle={
           needsActivation
-            ? `Un pago único${activationLabel ? ` de ${activationLabel}` : ''} activa los aportes y la verificación.`
+            ? `Por ${activationLabel ?? 'US$ 2.99'} compras una wallet digital. Al completar la verificación podrás recibir aportes.`
             : '¿En qué divisa quieres aportar?'
         }
         onClose={closeAll}>
         {needsActivation ? (
           onActivate ? (
             <PrimaryButton onPress={activating ? undefined : () => void onActivate()}>
-              {activating ? 'Abriendo Mercado Pago…' : 'Pagar con Mercado Pago'}
+              {activating ? 'Abriendo Mercado Pago…' : 'Comprar wallet'}
             </PrimaryButton>
           ) : null
         ) : (
@@ -350,12 +350,12 @@ export function RecaudoReceiveSheet({
         {needsActivation ? (
           <>
             <Text style={[styles.sheetSub, { color: theme.muted, marginTop: 4 }]}>
-              Un pago único{activationLabel ? ` de ${activationLabel}` : ''} habilita tu primer
-              recaudo y la verificación de identidad.
+              Por {activationLabel ?? 'US$ 2.99'} compras una wallet digital. Cuando completes
+              la verificación, podrás recibir aportes en USD, EUR, COP, MXN y R$.
             </Text>
             {onActivate ? (
               <PrimaryButton onPress={activating ? undefined : () => void onActivate()}>
-                {activating ? 'Abriendo Mercado Pago…' : 'Pagar con Mercado Pago'}
+                {activating ? 'Abriendo Mercado Pago…' : 'Comprar wallet'}
               </PrimaryButton>
             ) : null}
           </>
