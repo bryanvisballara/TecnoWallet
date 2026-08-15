@@ -643,7 +643,7 @@ export default function RecaudoDetailScreen() {
       if (!next.paid) {
         Alert.alert(
           "Pago en Mercado Pago",
-          "Cuando el pago quede aprobado, vuelve a esta página para continuar con tu wallet digital.",
+          "Si ya pagaste, espera unos segundos y vuelve a abrir esta pantalla. La wallet se activa cuando Mercado Pago confirma el cobro.",
         );
       }
     } catch (error) {
@@ -920,7 +920,7 @@ export default function RecaudoDetailScreen() {
             {needsEnable ? (activating ? "Abriendo…" : "Comprar wallet") : "+ Recargar"}
           </Text>
         </ScalePressable>
-        {recaudo.isOrganizer ? (
+        {recaudo.isOrganizer && !needsEnable ? (
           <ScalePressable
             accessibilityRole="button"
             accessibilityLabel="Retirar del recaudo"

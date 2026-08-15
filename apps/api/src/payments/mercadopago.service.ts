@@ -61,7 +61,10 @@ export class MercadoPagoService {
   async isPaid(userId: string) {
     const user = await this.users.findById(userId);
     if (!user) throw new BadRequestException('Usuario no encontrado.');
-    return Boolean(user.recaudoActivation?.paidAt);
+    if (user.recaudoActivation?.paidAt) return true;
+    await this.recoverApproved(userId);
+    const fresh = await this.users.findById(userId);
+    return Boolean(fresh?.recaudoActivation?.paidAt);
   }
 
   async assertPaid(userId: string) {
@@ -90,12 +93,10 @@ export class MercadoPagoService {
     const user = await this.users.findById(userId);
     if (!user) throw new BadRequestException('Usuario no encontrado.');
 
-    const webOrigin = (
-      this.config.get<string>('PUBLIC_WEB_ORIGIN') ?? 'https://tecnowallet.app'
-    ).replace(/\/$/, '');
+    const apiOrigin = this.publicApiOrigin();
     const notificationUrl =
       this.config.get<string>('MERCADOPAGO_NOTIFICATION_URL')?.trim() ||
-      'https://tecnowallet.onrender.com/api/v1/webhooks/mercadopago';
+      `${apiOrigin}/webhooks/mercadopago`;
 
     const preference = await this.mpFetch<MpPreference>(
       '/checkout/preferences',
@@ -117,10 +118,11 @@ export class MercadoPagoService {
             name: user.name,
           },
           back_urls: {
-            success: `${webOrigin}/recaudos?mp=success`,
-            failure: `${webOrigin}/recaudos?mp=failure`,
-            pending: `${webOrigin}/recaudos?mp=pending`,
+            success: `${apiOrigin}/payments/wallet-return/success`,
+            failure: `${apiOrigin}/payments/wallet-return/failure`,
+            pending: `${apiOrigin}/payments/wallet-return/pending`,
           },
+          auto_return: 'approved',
           notification_url: notificationUrl,
           external_reference: userId,
           metadata: { purpose: 'wallet_purchase', userId },
@@ -166,6 +168,7 @@ export class MercadoPagoService {
     if (!secret) return;
 
     const signature = this.header(headers, 'x-signature');
+    if (!signature) return;
     const requestId = this.header(headers, 'x-request-id');
     const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
     const data =
@@ -203,6 +206,77 @@ export class MercadoPagoService {
     ) {
       throw new UnauthorizedException('Firma de Mercado Pago inválida.');
     }
+  }
+
+  async handleReturn(query: Record<string, unknown>) {
+    this.logger.log(
+      `Wallet return ${JSON.stringify({
+        result: query.result,
+        status: query.status,
+        collection_status: query.collection_status,
+        payment_id: query.payment_id,
+        collection_id: query.collection_id,
+      })}`,
+    );
+    const paymentId =
+      this.asId(query.payment_id) ||
+      this.asId(query.collection_id) ||
+      this.asId(query.id);
+    let markedPaid = false;
+    if (paymentId) {
+      try {
+        const applied = await this.applyPayment(paymentId);
+        markedPaid = Boolean(
+          applied &&
+            (applied.paid === true || applied.alreadyPaid === true),
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Wallet return could not apply payment ${paymentId}: ${
+            error instanceof Error ? error.message : 'error'
+          }`,
+        );
+      }
+    }
+    const result =
+      this.asText(query.result) ||
+      this.asText(query.status) ||
+      this.asText(query.collection_status);
+    const paid =
+      markedPaid || result === 'success' || result === 'approved';
+    const pending = !paid && (result === 'pending' || result === 'in_process');
+    return walletReturnHtml({
+      paid,
+      pending,
+      failed: !paid && !pending,
+    });
+  }
+
+  private async recoverApproved(userId: string) {
+    try {
+      const listed = await this.mpFetch<{ results?: MpPayment[] }>(
+        `/v1/payments/search?external_reference=${encodeURIComponent(userId)}&status=approved&sort=date_created&criteria=desc&limit=5`,
+      );
+      const approved = (listed.results ?? []).find(
+        (item) => item.status === 'approved' && String(item.id ?? ''),
+      );
+      if (!approved?.id) return;
+      await this.applyPayment(String(approved.id));
+    } catch (error) {
+      this.logger.warn(
+        `MP recover failed for ${userId}: ${
+          error instanceof Error ? error.message : 'error'
+        }`,
+      );
+    }
+  }
+
+  private publicApiOrigin() {
+    const fromEnv = this.config.get<string>('PUBLIC_API_ORIGIN')?.trim();
+    if (fromEnv) return fromEnv.replace(/\/$/, '');
+    const render = this.config.get<string>('RENDER_EXTERNAL_URL')?.trim();
+    if (render) return `${render.replace(/\/$/, '')}/api/v1`;
+    return 'https://tecnowallet.onrender.com/api/v1';
   }
 
   async handleNotification(query: Record<string, unknown>, body: unknown) {
@@ -255,6 +329,8 @@ export class MercadoPagoService {
 
   private paymentIdFrom(query: Record<string, unknown>, body: unknown): string | undefined {
     const fromQuery =
+      this.asId(query.payment_id) ||
+      this.asId(query.collection_id) ||
       this.asId(query.id) ||
       this.asId(query['data.id']) ||
       (this.asText(query.topic) === 'payment' || this.asText(query.type) === 'payment'
@@ -345,4 +421,41 @@ export class MercadoPagoService {
     }
     return parsed as T;
   }
+}
+
+function walletReturnHtml(input: {
+  paid: boolean;
+  pending: boolean;
+  failed: boolean;
+}) {
+  const title = input.paid
+    ? 'Wallet digital comprada'
+    : input.pending
+      ? 'Pago en revisión'
+      : 'No se completó la compra';
+  const body = input.paid
+    ? 'Tu wallet digital TecnoWallet ya está lista. Vuelve a la app para verificar tu identidad y empezar a recibir aportes en USD, EUR, COP, MXN y R$.'
+    : input.pending
+      ? 'Mercado Pago todavía está confirmando el pago. En unos segundos vuelve a la app de TecnoWallet.'
+      : 'El pago no se completó. Vuelve a la app y pulsa Comprar wallet para intentarlo de nuevo.';
+  return `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f4f7fb; color: #0b1d3a; }
+      main { max-width: 420px; margin: 12vh auto; padding: 28px 22px; background: #fff; border-radius: 24px; box-shadow: 0 12px 40px rgba(11,29,58,.08); }
+      h1 { font-size: 28px; margin: 0 0 12px; letter-spacing: -.4px; }
+      p { font-size: 16px; line-height: 1.45; color: #4a5a73; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>${title}</h1>
+      <p>${body}</p>
+    </main>
+  </body>
+</html>`;
 }

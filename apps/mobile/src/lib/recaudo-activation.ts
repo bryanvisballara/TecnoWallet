@@ -40,5 +40,10 @@ export async function startRecaudoActivationCheckout() {
     throw new Error('Mercado Pago no devolvió el enlace de pago.');
   }
   await openHostedVerificationUrl(row.initPoint);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const next = await fetchRecaudoActivation();
+    if (next.paid) return { paid: true as const, initPoint: row.initPoint };
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
   return { paid: false as const, initPoint: row.initPoint };
 }
