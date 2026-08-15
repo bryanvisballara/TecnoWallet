@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { HydratedDocument, Model } from 'mongoose';
 
 import { User } from '../auth/auth.module';
+import { MercadoPagoService } from '../payments/mercadopago.service';
 import {
   RecaudoBridgeService,
   type TecnoKycSnapshot,
@@ -16,6 +17,7 @@ import {
 export class BridgeKycService {
   constructor(
     private readonly rail: RecaudoBridgeService,
+    private readonly mercadoPago: MercadoPagoService,
     @InjectModel(User.name) private readonly users: Model<User>,
   ) {}
 
@@ -53,6 +55,7 @@ export class BridgeKycService {
   async start(userId: string, retry = false): Promise<TecnoKycSnapshot> {
     const user = await this.users.findById(userId);
     if (!user) throw new BadRequestException('Usuario no encontrado.');
+    await this.mercadoPago.assertPaid(userId);
     try {
       const snapshot = await this.rail.createKycLink({
         email: user.email,
@@ -81,7 +84,7 @@ export class BridgeKycService {
     const snapshot = await this.status(userId);
     if (!snapshot.verified) {
       throw new BadRequestException(
-        'Verifica tu identidad antes de crear el recaudo.',
+        'Verifica tu identidad para recibir aportes.',
       );
     }
     return snapshot;

@@ -1,0 +1,31 @@
+---
+description: Costos Bridge negociados (wholesale) vs fees TecnoWallet al usuario
+alwaysApply: true
+---
+
+# Bridge — costos negociados (correo)
+
+Esto es lo que **Bridge cobra a TecnoWallet** (developer). No es lo que se muestra al usuario. En UI no marques “Bridge”. En producción, **las transacciones de prueba también cobran**. Sin mínimo mensual; el volumen puede bajar fees.
+
+| Concepto | Costo a TecnoWallet |
+|---|---|
+| Onramp (virtual accounts) | 0.50% |
+| Offramp | 0.25% |
+| Virtual account activa | US$ 2 / mes |
+| Wallet activa | US$ 0.25 / mes |
+| KYC | US$ 2 |
+| KYB | US$ 10 |
+| USDT | +0.10% |
+| FX USD↔EUR | 0.50% all-in |
+| FX USD↔MXN | 0.50% all-in |
+| FX USD↔BRL | 0.55% all-in |
+| USDB issuance | 0.25% AUM |
+| ACH, wire, gas, etc. | third party, pass-through |
+
+Crear la wallet (POST) no dispara onramp/offramp. Si queda **activa** en el mes, Bridge cobra **US$ 0.25** de wallet (y US$ 2 por cada VA activa). KYC US$ 2 se factura a TecnoWallet cuando corre el KYC.
+
+Para no perder: no crear wallet/VA al verificar ni al crear el recaudo. KYC + **1 wallet por recaudo** + 1 VA solo en el **primer Recargar** de ese rail. Tres recaudos = tres wallets (US$ 0.25 cada una si están activas). KYC es por persona (US$ 2), no por recaudo.
+
+Fee de activación (producto, pendiente de pasarela): cobro mínimo **antes** de KYC/wallet para comprometer al organizador. Si no recaudan, se desactiva esa wallet/VA y el fee cubre el KYC de Bridge.
+
+Fees de producto al usuario (recaudo) son aparte y viven en `recaudo-digital-pricing` (hoy ~US$ 2.99 KYC, mensual, 2% retiro). No los sustituyas por esta tabla sin que el usuario lo pida.

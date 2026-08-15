@@ -62,6 +62,18 @@ const schema = Joi.object({
   BRANCH_SECRET: Joi.string().optional().allow(''),
   BRANCH_DEFAULT_DOMAIN: Joi.string().default('tecnowallet.app.link'),
   PUBLIC_WEB_ORIGIN: Joi.string().uri().default('https://tecnowallet.app'),
+  MERCADOPAGO_ACCESS_TOKEN: Joi.string().optional().allow(''),
+  MERCADOPAGO_PUBLIC_KEY: Joi.string().optional().allow(''),
+  MERCADOPAGO_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  MERCADOPAGO_SANDBOX: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  MERCADOPAGO_NOTIFICATION_URL: Joi.string()
+    .uri()
+    .optional()
+    .allow('')
+    .default('https://tecnowallet.onrender.com/api/v1/webhooks/mercadopago'),
   ADMIN_BOOTSTRAP_EMAIL: Joi.string().email().optional().allow(''),
   ADMIN_BOOTSTRAP_PASSWORD: Joi.string().optional().allow(''),
 });

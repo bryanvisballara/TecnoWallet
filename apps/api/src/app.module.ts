@@ -12,6 +12,7 @@ import { CollaborationModule } from './collaboration/collaboration.module';
 import { validateEnvironment } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { MailModule } from './mail/mail.module';
+import { MercadoPagoModule } from './payments/mercadopago.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PlatformModule } from './platform/platform.module';
 import { PushModule } from './push/push.module';
@@ -42,6 +43,7 @@ import { RecaudosModule } from './recaudos/recaudos.module';
     BankModule,
     BridgeModule,
     RecaudosModule,
+    MercadoPagoModule,
     PaymentsModule,
     MailModule,
     PushModule,

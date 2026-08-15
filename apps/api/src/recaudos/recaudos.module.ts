@@ -32,6 +32,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -56,6 +57,8 @@ import type { AuthPrincipal } from '../auth/auth.module';
 import { BridgeModule } from '../bridge/bridge.module';
 import { RecaudoBridgeService } from '../bridge/recaudo-bridge.service';
 import { BridgeKycService } from '../bridge/bridge-kyc.service';
+import { MercadoPagoModule } from '../payments/mercadopago.module';
+import { MercadoPagoService } from '../payments/mercadopago.service';
 import { PushModule } from '../push/push.module';
 import { PushService } from '../push/push.service';
 import {
@@ -527,6 +530,13 @@ class WithdrawalDto {
   note?: string;
 }
 
+const provisionRails = ['cop', 'usd', 'eur', 'mxn', 'brl', 'crypto'] as const;
+
+class ProvisionRailDto {
+  @IsIn(provisionRails)
+  currency!: (typeof provisionRails)[number];
+}
+
 class ConfigurePlanDto {
   @IsInt()
   @Min(1)
@@ -664,7 +674,16 @@ export class RecaudosService {
     private readonly push: PushService,
     private readonly tecnoAccounts: RecaudoBridgeService,
     private readonly kyc: BridgeKycService,
+    private readonly mercadoPago: MercadoPagoService,
   ) {}
+
+  activationStatus(userId: string) {
+    return this.mercadoPago.status(userId);
+  }
+
+  activationCheckout(userId: string) {
+    return this.mercadoPago.createCheckout(userId);
+  }
 
   async create(dto: CreateRecaudoDto, principal: AuthPrincipal) {
     assertObjectId(dto.workspaceId);
@@ -711,18 +730,8 @@ export class RecaudosService {
       role: 'organizer',
     });
     if (payoutMethod === 'digital') {
-      await this.kyc.requireVerified(principal.userId);
-      try {
-        await this.provisionTecnoAccount(recaudo, principal.userId);
-      } catch (error) {
-        this.logger.warn(
-          `TecnoWallet provision skipped: ${
-            error instanceof Error ? error.message : 'error'
-          }`,
-        );
-        recaudo.tecnoAccount = { status: 'failed', virtualAccounts: [] };
-        await recaudo.save();
-      }
+      recaudo.tecnoAccount = { status: 'not_provisioned', virtualAccounts: [] };
+      await recaudo.save();
     }
     return this.detail(recaudo._id.toString(), principal);
   }
@@ -1615,6 +1624,7 @@ export class RecaudosService {
   private async provisionTecnoAccount(
     recaudo: HydratedDocument<Recaudo>,
     organizerId: string,
+    currencies: string[] = [],
   ) {
     const organizer = await this.users.findById(organizerId);
     if (!organizer?.email) {
@@ -1635,6 +1645,8 @@ export class RecaudosService {
       organizerName: organizer.name,
       existingCustomerId:
         organizer.bridgeKyc?.customerId || prior?.tecnoAccount?.customerId,
+      existingWalletId: recaudo.tecnoAccount?.walletId,
+      currencies,
     });
     recaudo.tecnoAccount = {
       ...snapshot,
@@ -1651,6 +1663,59 @@ export class RecaudosService {
     await recaudo.save();
   }
 
+  async provisionRail(
+    id: string,
+    currency: (typeof provisionRails)[number],
+    principal: AuthPrincipal,
+  ) {
+    await this.assertParticipant(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException('Este recaudo no usa una cuenta TecnoWallet.');
+    }
+    const organizerId = recaudo.organizerId.toString();
+    const kyc = await this.kyc.status(organizerId);
+    const isOrganizer = principal.userId === organizerId;
+    if (!kyc.verified) {
+      if (!isOrganizer) {
+        throw new BadRequestException(
+          'El organizador debe verificar su identidad antes de recibir aportes.',
+        );
+      }
+      recaudo.tecnoAccount = {
+        ...(recaudo.tecnoAccount ?? {}),
+        status: 'pending_kyc',
+        kycLinkId: kyc.kycLinkId,
+        kycStatus: kyc.kycStatus,
+        tosStatus: kyc.tosStatus,
+        kycUrl: kyc.kycUrl,
+        tosUrl: kyc.tosUrl,
+        customerId: kyc.customerId,
+        virtualAccounts: recaudo.tecnoAccount?.virtualAccounts ?? [],
+      };
+      await recaudo.save();
+      return this.detail(id, principal);
+    }
+    const currencies = currency === 'crypto' ? [] : [currency];
+    try {
+      await this.provisionTecnoAccount(recaudo, organizerId, currencies);
+    } catch (error) {
+      this.logger.warn(
+        `TecnoWallet rail ${currency} failed: ${
+          error instanceof Error ? error.message : 'error'
+        }`,
+      );
+      recaudo.tecnoAccount = {
+        ...(recaudo.tecnoAccount ?? {}),
+        status: 'failed',
+        virtualAccounts: recaudo.tecnoAccount?.virtualAccounts ?? [],
+        error: 'provision_failed',
+      };
+      await recaudo.save();
+    }
+    return this.detail(id, principal);
+  }
+
   async syncTecnoAccount(id: string, principal: AuthPrincipal) {
     await this.assertOrganizer(id, principal.userId);
     const recaudo = await this.findRecaudo(id);
@@ -1658,7 +1723,6 @@ export class RecaudosService {
       throw new BadRequestException('Este recaudo no usa una cuenta TecnoWallet.');
     }
     try {
-      await this.provisionTecnoAccount(recaudo, recaudo.organizerId.toString());
       const kyc = await this.kyc.status(principal.userId);
       recaudo.tecnoAccount = {
         ...(recaudo.tecnoAccount ?? {}),
@@ -1804,6 +1868,16 @@ class RecaudosController {
     return this.service.digitalPricing();
   }
 
+  @Get('activation')
+  activation(@CurrentUser() user: AuthPrincipal) {
+    return this.service.activationStatus(user.userId);
+  }
+
+  @Post('activation/checkout')
+  activationCheckout(@CurrentUser() user: AuthPrincipal) {
+    return this.service.activationCheckout(user.userId);
+  }
+
   @Post()
   create(@Body() dto: CreateRecaudoDto, @CurrentUser() user: AuthPrincipal) {
     return this.service.create(dto, user);
@@ -1914,6 +1988,15 @@ class RecaudosController {
     return this.service.syncTecnoAccount(id, user);
   }
 
+  @Post(':id/tecno-account/rail')
+  provisionRail(
+    @Param('id') id: string,
+    @Body() dto: ProvisionRailDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.provisionRail(id, dto.currency, user);
+  }
+
   @Post(':id/invites')
   invite(
     @Param('id') id: string,
@@ -1974,6 +2057,7 @@ function escapeHtml(value: string): string {
     AuthModule,
     PushModule,
     BridgeModule,
+    MercadoPagoModule,
     MongooseModule.forFeature([
       { name: Recaudo.name, schema: RecaudoSchema },
       { name: Participant.name, schema: ParticipantSchema },

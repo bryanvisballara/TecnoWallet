@@ -134,6 +134,16 @@ export class User {
     tosUrl?: string;
   };
 
+  /** One-time Mercado Pago fee that unlocks recaudos + KYC for this person. */
+  @Prop({ type: Object })
+  recaudoActivation?: {
+    paidAt?: Date;
+    mpPaymentId?: string;
+    mpPreferenceId?: string;
+    amountMinor?: number;
+    currency?: string;
+  };
+
   /** Set by Mongoose timestamps: true */
   createdAt?: Date;
   updatedAt?: Date;

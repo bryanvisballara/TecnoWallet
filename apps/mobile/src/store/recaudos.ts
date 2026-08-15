@@ -107,6 +107,7 @@ export type Recaudo = {
         pixCode?: string;
         breBKey?: string;
         depositMessage?: string;
+        startUrl?: string;
       };
     }>;
   };
@@ -180,8 +181,13 @@ type RecaudosState = {
     plan: MyPlan,
   ) => Promise<{ reminderScheduled: boolean }>;
   acceptInvite: (token: string) => Promise<Recaudo>;
-  /** Organizer: reopen / refresh the TecnoWallet digital account. */
+  /** Organizer: refresh KYC snapshot on the recaudo (does not open wallets/VAs). */
   syncTecnoAccount: (recaudoId: string) => Promise<Recaudo>;
+  /** Opens wallet + one deposit rail the first time someone recarga that currency. */
+  provisionRail: (
+    recaudoId: string,
+    currency: 'cop' | 'usd' | 'eur' | 'mxn' | 'brl' | 'crypto',
+  ) => Promise<Recaudo>;
   /** Organizer only. Fails if the pot still has funds. */
   deleteRecaudo: (recaudoId: string) => Promise<void>;
 };
@@ -543,6 +549,7 @@ function normalizeRecaudo(raw: unknown): Recaudo {
                         pixCode: str("pixCode"),
                         breBKey: str("breBKey"),
                         depositMessage: str("depositMessage"),
+                        startUrl: str("startUrl"),
                       }
                     : undefined,
                 },
@@ -1107,6 +1114,34 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     const updated = normalizeRecaudo(
       await apiRequest(`/recaudos/${recaudoId}/tecno-account`, {
         method: "POST",
+      }),
+    );
+    set({
+      recaudos: get().recaudos.map((item) =>
+        item.id === recaudoId
+          ? {
+              ...item,
+              ...updated,
+              participants: updated.participants.length
+                ? updated.participants
+                : item.participants,
+              contributions: updated.contributions.length
+                ? updated.contributions
+                : item.contributions,
+            }
+          : item,
+      ),
+    });
+    return get().recaudos.find((item) => item.id === recaudoId) ?? updated;
+  },
+
+  provisionRail: async (recaudoId, currency) => {
+    const current = get().recaudos.find((item) => item.id === recaudoId);
+    if (!current) throw new Error("Recaudo no encontrado.");
+    const updated = normalizeRecaudo(
+      await apiRequest(`/recaudos/${recaudoId}/tecno-account/rail`, {
+        method: "POST",
+        body: JSON.stringify({ currency }),
       }),
     );
     set({

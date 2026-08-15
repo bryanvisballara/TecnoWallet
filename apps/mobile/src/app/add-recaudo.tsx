@@ -4,8 +4,6 @@ import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  AppState,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,7 +16,7 @@ import { AppDateField } from '@/components/app-date-field';
 import { RecaudoTermsModal } from '@/components/recaudo-money-flows';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
-import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
+import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import {
   amountPlaceholder,
   amountToMinorUnits,
@@ -33,13 +31,6 @@ import {
   isDigitalCurrency,
   recaudoDisplayCurrency,
 } from '@/lib/recaudo-digital-pricing';
-import {
-  fetchRecaudoKyc,
-  kycStatusLabel,
-  startRecaudoKyc,
-  type RecaudoKyc,
-} from '@/lib/recaudo-kyc';
-import { useAuthStore } from '@/store/auth';
 import {
   useRecaudosStore,
   type RecaudoCategory,
@@ -147,7 +138,6 @@ export default function AddRecaudoScreen() {
   const createRecaudo = useRecaudosStore((state) => state.createRecaudo);
   const updateRecaudo = useRecaudosStore((state) => state.updateRecaudo);
   const recaudos = useRecaudosStore((state) => state.recaudos);
-  const demo = useAuthStore((state) => state.demo);
   const existing = recaudos.find((item) => item.id === params.id);
   const isEditing = Boolean(existing);
   const [title, setTitle] = useState(existing?.title ?? '');
@@ -171,11 +161,6 @@ export default function AddRecaudoScreen() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
-  const [kyc, setKyc] = useState<RecaudoKyc>();
-  const [kycBusy, setKycBusy] = useState(false);
-
-  const waitingKyc = !demo && !isEditing && kyc === undefined;
-  const needsKyc = !demo && !isEditing && Boolean(kyc) && !kyc.verified;
 
   useEffect(() => {
     if (!existing) return;
@@ -192,41 +177,6 @@ export default function AddRecaudoScreen() {
     );
     setPayoutDetails(existing.payoutAccountDetails ?? '');
   }, [existing?.id]);
-
-  useEffect(() => {
-    if (demo || isEditing) {
-      setKyc({
-        verified: true,
-        kycStatus: 'approved',
-        rejectionReasons: [],
-      });
-      return;
-    }
-    let cancelled = false;
-    const load = () => {
-      void fetchRecaudoKyc()
-        .then((next) => {
-          if (!cancelled) setKyc(next);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setKyc({
-              verified: false,
-              kycStatus: 'not_started',
-              rejectionReasons: [],
-            });
-          }
-        });
-    };
-    load();
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') load();
-    });
-    return () => {
-      cancelled = true;
-      sub.remove();
-    };
-  }, [demo, isEditing]);
 
   useEffect(() => {
     if (!existing) return;
@@ -252,52 +202,6 @@ export default function AddRecaudoScreen() {
     borderColor: errors[key] ? theme.danger : theme.border,
     borderWidth: errors[key] ? 1.5 : StyleSheet.hairlineWidth,
   });
-
-  const verifyIdentity = async (retry = false) => {
-    setKycBusy(true);
-    try {
-      const next = await startRecaudoKyc(retry);
-      setKyc(next);
-      const url = next.tosStatus === 'pending' && next.tosUrl ? next.tosUrl : next.kycUrl;
-      if (url) {
-        await Linking.openURL(url);
-        return;
-      }
-      if (next.verified) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } else {
-        Alert.alert(
-          'Verificación',
-          'No recibimos el enlace. Pulsa de nuevo Verifica tu identidad.',
-        );
-      }
-    } catch (error) {
-      Alert.alert(
-        'No se pudo verificar',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
-      );
-    } finally {
-      setKycBusy(false);
-    }
-  };
-
-  const refreshKyc = async () => {
-    setKycBusy(true);
-    try {
-      const next = await fetchRecaudoKyc();
-      setKyc(next);
-      if (next.verified) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } catch (error) {
-      Alert.alert(
-        'No se pudo actualizar',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
-      );
-    } finally {
-      setKycBusy(false);
-    }
-  };
 
   const save = async () => {
     const targetMinor = amountToMinorUnits(target, currency);
@@ -412,7 +316,6 @@ export default function AddRecaudoScreen() {
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
-          {waitingKyc || needsKyc ? null : (
           <ScalePressable
             accessibilityRole="button"
             accessibilityLabel={isEditing ? 'Guardar recaudo' : 'Crear recaudo'}
@@ -423,43 +326,9 @@ export default function AddRecaudoScreen() {
               {saving ? (isEditing ? 'Guardando…' : 'Creando…') : isEditing ? 'Guardar' : 'Crear'}
             </Text>
           </ScalePressable>
-          )}
         </View>
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-          {waitingKyc ? (
-            <Text style={[styles.hint, { color: theme.muted }]}>
-              Revisando tu verificación…
-            </Text>
-          ) : needsKyc ? (
-            <>
-              <Text style={[styles.title, { color: theme.text }]}>Verifica tu identidad</Text>
-              <Text style={[styles.hint, { color: theme.muted }]}>
-                Antes de crear el recaudo tienes que verificar tu identidad. Así queda tu
-                customer ID y puedes recibir aportes en USDc.
-              </Text>
-              <Text style={[styles.kycStatus, { color: theme.text }]}>
-                Estado: {kycStatusLabel(kyc?.kycStatus)}
-              </Text>
-              {kyc?.rejectionReasons?.length ? (
-                <Text style={[styles.hint, { color: theme.danger }]}>
-                  {kyc.rejectionReasons[0]}
-                </Text>
-              ) : null}
-              <PrimaryButton
-                onPress={kycBusy ? undefined : () => void verifyIdentity(kyc?.kycStatus === 'rejected')}>
-                {kycBusy ? 'Abriendo…' : 'Verifica tu identidad'}
-              </PrimaryButton>
-              {kyc?.kycLinkId ? (
-                <Pressable onPress={() => void refreshKyc()} style={styles.termsLinkWrap}>
-                  <Text style={[styles.termsLink, { color: theme.primary }]}>
-                    Ya completé la verificación
-                  </Text>
-                </Pressable>
-              ) : null}
-            </>
-          ) : (
-            <>
           <Text style={[styles.title, { color: theme.text }]}>
             {isEditing ? 'Editar recaudo' : 'Nuevo recaudo'}
           </Text>
@@ -691,8 +560,6 @@ export default function AddRecaudoScreen() {
               <Text style={[styles.termsLink, { color: theme.muted }]}>Condiciones y costos</Text>
             </Pressable>
           )}
-            </>
-          )}
         </FormScrollView>
       </View>
       <RecaudoTermsModal visible={termsOpen} onClose={() => setTermsOpen(false)} />
@@ -721,7 +588,6 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 18, paddingBottom: 44, gap: 9 },
   title: { fontSize: 25, fontWeight: '800', letterSpacing: -0.5, marginTop: 4 },
   hint: { fontSize: 13, lineHeight: 18, marginBottom: 2 },
-  kycStatus: { fontSize: 15, fontWeight: '700', marginVertical: 8 },
   label: { fontSize: 12, fontWeight: '700', marginTop: 8 },
   input: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
   error: { fontSize: 11, fontWeight: '600', marginTop: -3 },

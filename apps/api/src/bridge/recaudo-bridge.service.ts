@@ -18,6 +18,7 @@ export type TecnoDepositInstructions = {
   pixCode?: string;
   breBKey?: string;
   depositMessage?: string;
+  startUrl?: string;
 };
 
 export type TecnoVirtualAccount = {
@@ -97,17 +98,30 @@ type BridgeDepositInstructions = {
   bre_b_key?: string;
   deposit_message?: string;
   account_holder_name?: string;
+  start_url?: string;
+  redirect_url?: string;
 };
 
 type BridgeVirtualAccount = {
   id?: string;
   status?: string;
+  destination?: { address?: string; payment_rail?: string; currency?: string };
   source_deposit_instructions?: BridgeDepositInstructions;
 };
 
 const VA_CURRENCIES = ['usd', 'cop', 'mxn', 'brl', 'eur'] as const;
 const WALLET_CHAIN = 'base';
 const KYC_ENDORSEMENTS = ['base', 'cop', 'sepa', 'spei', 'pix'] as const;
+
+function httpsUrl(value?: string) {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  if (/^https:\/\//i.test(raw)) return raw;
+  if (/^http:\/\//i.test(raw)) return `https://${raw.slice('http://'.length)}`;
+  if (raw.startsWith('//')) return `https:${raw}`;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(raw)) return `https://${raw}`;
+  return undefined;
+}
 
 function mapKyc(link: BridgeKycLink): TecnoKycSnapshot {
   const kycStatus = link.kyc_status || 'not_started';
@@ -116,8 +130,8 @@ function mapKyc(link: BridgeKycLink): TecnoKycSnapshot {
     kycLinkId: link.id,
     kycStatus,
     tosStatus: link.tos_status,
-    kycUrl: link.kyc_link,
-    tosUrl: link.tos_link,
+    kycUrl: httpsUrl(link.kyc_link),
+    tosUrl: httpsUrl(link.tos_link),
     rejectionReasons: (link.rejection_reasons ?? [])
       .map((item) => item.reason?.trim())
       .filter((item): item is string => Boolean(item)),
@@ -219,6 +233,9 @@ export class RecaudoBridgeService {
     organizerEmail: string;
     organizerName: string;
     existingCustomerId?: string;
+    /** Only these fiat rails. Empty = wallet only (crypto). Never open every VA. */
+    currencies?: string[];
+    existingWalletId?: string;
   }): Promise<TecnoAccountSnapshot> {
     if (!this.bridge.configured) {
       return {
@@ -248,6 +265,7 @@ export class RecaudoBridgeService {
       const wallet = await this.ensureWallet(
         identity.customerId,
         input.recaudoId,
+        input.existingWalletId,
       );
       if (!wallet.address || !wallet.id) {
         return {
@@ -262,10 +280,16 @@ export class RecaudoBridgeService {
         };
       }
 
+      const wanted = (input.currencies ?? [])
+        .map((item) => item.trim().toLowerCase())
+        .filter((item): item is (typeof VA_CURRENCIES)[number] =>
+          (VA_CURRENCIES as readonly string[]).includes(item),
+        );
       const virtualAccounts = await this.ensureVirtualAccounts({
         customerId: identity.customerId,
         recaudoId: input.recaudoId,
         walletAddress: wallet.address,
+        currencies: wanted,
       });
 
       return {
@@ -277,7 +301,7 @@ export class RecaudoBridgeService {
         tosUrl: identity.tosUrl,
         kycLinkId: identity.kycLinkId,
         kycStatus: identity.kycStatus,
-        status: virtualAccounts.length > 0 ? 'ready' : 'pending_kyc',
+        status: 'ready',
         virtualAccounts,
       };
     } catch (error) {
@@ -326,17 +350,22 @@ export class RecaudoBridgeService {
     };
   }
 
-  private async ensureWallet(customerId: string, recaudoId: string) {
-    const existing = await this.bridge
-      .get<BridgeList<BridgeWallet> | BridgeWallet[]>(
-        `/v0/customers/${customerId}/wallets`,
-      )
-      .catch(() => ({ data: [] as BridgeWallet[] }));
-    const rows = Array.isArray(existing)
-      ? existing
-      : (existing.data ?? []);
-    const found = rows.find((row) => row.id && row.address);
-    if (found) return found;
+  private async ensureWallet(
+    customerId: string,
+    recaudoId: string,
+    existingWalletId?: string,
+  ) {
+    const walletId = existingWalletId?.trim();
+    if (walletId) {
+      try {
+        const current = await this.bridge.get<BridgeWallet>(
+          `/v0/customers/${customerId}/wallets/${walletId}`,
+        );
+        if (current.id && current.address) return current;
+      } catch {
+        this.logger.warn(`Stored wallet ${walletId} missing; creating another`);
+      }
+    }
 
     return this.bridge.post<BridgeWallet>(
       `/v0/customers/${customerId}/wallets`,
@@ -349,6 +378,7 @@ export class RecaudoBridgeService {
     customerId: string;
     recaudoId: string;
     walletAddress: string;
+    currencies: string[];
   }): Promise<TecnoVirtualAccount[]> {
     const listed = await this.bridge
       .get<BridgeList<BridgeVirtualAccount> | BridgeVirtualAccount[]>(
@@ -356,13 +386,17 @@ export class RecaudoBridgeService {
       )
       .catch(() => ({ data: [] as BridgeVirtualAccount[] }));
     const existingRows = Array.isArray(listed) ? listed : (listed.data ?? []);
+    const wantedAddress = input.walletAddress.trim().toLowerCase();
     const byCurrency = new Map<string, TecnoVirtualAccount>();
     for (const row of existingRows) {
+      const dest = row.destination?.address?.trim().toLowerCase();
+      if (dest && dest !== wantedAddress) continue;
+      if (!dest) continue;
       const mapped = mapVirtualAccount(row);
       if (mapped) byCurrency.set(mapped.currency.toLowerCase(), mapped);
     }
 
-    for (const currency of VA_CURRENCIES) {
+    for (const currency of input.currencies) {
       if (byCurrency.has(currency)) continue;
       try {
         const account = await this.bridge.post<BridgeVirtualAccount>(
@@ -418,6 +452,7 @@ function mapVirtualAccount(
     pixCode: text(raw?.br_code),
     breBKey: text(raw?.bre_b_key),
     depositMessage: text(raw?.deposit_message),
+    startUrl: httpsUrl(text(raw?.start_url) ?? text(raw?.redirect_url)),
   };
   return {
     id: account.id,

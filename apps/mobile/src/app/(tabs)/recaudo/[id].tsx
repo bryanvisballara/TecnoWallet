@@ -1,10 +1,10 @@
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { safeGoBack } from "@/lib/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Linking,
+  AppState,
   Modal,
   Pressable,
   StyleSheet,
@@ -33,12 +33,24 @@ import {
 import { useAppCopy } from "@/i18n/app-copy";
 import { intlLocale } from "@/i18n/locale-format";
 import { amountToMinorUnits, isZeroDecimalCurrency } from "@/lib/currencies";
+import { recaudoIntlCurrency } from "@/lib/recaudo-digital-pricing";
+import {
+  fetchRecaudoActivation,
+  formatActivationAmount,
+  startRecaudoActivationCheckout,
+  type RecaudoActivation,
+} from "@/lib/recaudo-activation";
+import { ApiError } from "@/services/api";
 import { useAuthStore } from "@/store/auth";
 import { useLanguageStore } from "@/store/language";
 import {
   fetchRecaudoKyc,
+  hostedVerificationUrl,
+  kycCanRestart,
   kycStatusLabel,
+  openHostedVerificationUrl,
   startRecaudoKyc,
+  type RecaudoKyc,
 } from '@/lib/recaudo-kyc';
 import {
   useRecaudosStore,
@@ -182,7 +194,7 @@ export default function RecaudoDetailScreen() {
   const deleteRecaudo = useRecaudosStore((state) => state.deleteRecaudo);
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
   const updateRecaudo = useRecaudosStore((state) => state.updateRecaudo);
-  const syncTecnoAccount = useRecaudosStore((state) => state.syncTecnoAccount);
+  const provisionRail = useRecaudosStore((state) => state.provisionRail);
   const profile = useAuthStore((state) => state.profile);
   const demo = useAuthStore((state) => state.demo);
   const recaudo = recaudos.find((item) => item.id === id);
@@ -245,11 +257,11 @@ export default function RecaudoDetailScreen() {
   const [reminderTime, setReminderTime] = useState("09:00");
   const [savingPlan, setSavingPlan] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>();
-  const [kycLive, setKycLive] = useState<{
-    status?: string;
-    verified?: boolean;
-    kycUrl?: string;
-  }>();
+  const [kycLive, setKycLive] = useState<RecaudoKyc>();
+  const [ensuringRail, setEnsuringRail] = useState(false);
+  const [kycBusy, setKycBusy] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [activation, setActivation] = useState<RecaudoActivation>();
   const [bankName, setBankName] = useState(profile.name || "Sandbox Account");
   const [routingNumber, setRoutingNumber] = useState("011401533");
   const [accountNumber, setAccountNumber] = useState("1000000001");
@@ -258,39 +270,21 @@ export default function RecaudoDetailScreen() {
     if (!hydrated) void hydrate();
   }, [hydrate, hydrated]);
 
-  const syncedAccountRef = useRef<string>();
-  useEffect(() => {
-    if (!recaudo || demo || !recaudo.isOrganizer || recaudo.payoutMethod !== "digital") {
-      return;
-    }
-    if (syncedAccountRef.current === recaudo.id) return;
-    const status = recaudo.tecnoAccount?.status;
-    const details = recaudo.tecnoAccount?.virtualAccounts ?? [];
-    const hasDeposit = details.some(
-      (item) =>
-        item.instructions?.accountNumber ||
-        item.instructions?.clabe ||
-        item.instructions?.breBKey ||
-        item.instructions?.pixCode ||
-        item.instructions?.iban,
-    );
-    if (status === "ready" && hasDeposit) return;
-    if (status === "pending_kyc" && recaudo.tecnoAccount?.kycUrl) return;
-    syncedAccountRef.current = recaudo.id;
-    void syncTecnoAccount(recaudo.id).catch(() => undefined);
-  }, [demo, recaudo, syncTecnoAccount]);
-
   useEffect(() => {
     if (!recaudo || demo || !recaudo.isOrganizer) return;
     void fetchRecaudoKyc()
-      .then((next) =>
-        setKycLive({
-          status: next.kycStatus,
-          verified: next.verified,
-          kycUrl: next.kycUrl,
-        }),
-      )
+      .then((next) => setKycLive(next))
       .catch(() => undefined);
+    const loadActivation = () => {
+      void fetchRecaudoActivation()
+        .then((next) => setActivation(next))
+        .catch(() => undefined);
+    };
+    loadActivation();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") loadActivation();
+    });
+    return () => sub.remove();
   }, [demo, recaudo?.id, recaudo?.isOrganizer]);
 
   useEffect(() => {
@@ -361,6 +355,14 @@ export default function RecaudoDetailScreen() {
   }
 
   const category = categoryIcons[recaudo.category];
+  const needsEnable =
+    !demo &&
+    recaudo.isOrganizer &&
+    recaudo.payoutMethod === "digital" &&
+    activation?.paid === false;
+  const activationAmountLabel = activation
+    ? formatActivationAmount(activation.amount, activation.currency)
+    : formatActivationAmount(12_000, "COP");
   const fundingReady =
     BRIDGE_PAYMENTS_LIVE &&
     useUnitFundingStore
@@ -598,6 +600,82 @@ export default function RecaudoDetailScreen() {
     }
   };
 
+  const ensureRail = async (
+    currency: 'cop' | 'usd' | 'eur' | 'mxn' | 'brl' | 'crypto',
+  ) => {
+    if (demo) return;
+    setEnsuringRail(true);
+    try {
+      if (recaudo.isOrganizer) {
+        const next = await fetchRecaudoKyc();
+        setKycLive(next);
+        if (!next.verified) return;
+      }
+      await provisionRail(recaudo.id, currency);
+    } catch (error) {
+      Alert.alert(
+        'No se pudo abrir este medio',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setEnsuringRail(false);
+    }
+  };
+
+  const payActivation = async () => {
+    setActivating(true);
+    try {
+      const result = await startRecaudoActivationCheckout();
+      if (result.paid) {
+        setActivation(await fetchRecaudoActivation());
+        return;
+      }
+      const next = await fetchRecaudoActivation();
+      setActivation(next);
+      if (!next.paid) {
+        Alert.alert(
+          "Pago en Mercado Pago",
+          "Cuando el pago quede aprobado, vuelve a esta página para habilitar el recaudo.",
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        "No se pudo abrir Mercado Pago",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const verifyForReceive = async () => {
+    setKycBusy(true);
+    try {
+      const next =
+        kycLive && !kycCanRestart(kycLive)
+          ? await fetchRecaudoKyc()
+          : await startRecaudoKyc(kycLive?.kycStatus === "rejected");
+      setKycLive(next);
+      if (next.verified) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
+      const url = hostedVerificationUrl(next);
+      if (url) await openHostedVerificationUrl(url);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 402) {
+        await payActivation();
+        return;
+      }
+      Alert.alert(
+        "No se pudo verificar",
+        error instanceof Error ? error.message : "Inténtalo de nuevo.",
+      );
+    } finally {
+      setKycBusy(false);
+    }
+  };
+
   const contributeFromSheet = async (raw: string) => {
     const amountMinor = amountToMinorUnits(raw, recaudo.currency);
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
@@ -818,10 +896,18 @@ export default function RecaudoDetailScreen() {
       <View style={styles.ctaRow}>
         <ScalePressable
           accessibilityRole="button"
-          accessibilityLabel="Recargar recaudo"
-          onPress={() => setReceiveOpen(true)}
+          accessibilityLabel={needsEnable ? "Habilitar recaudo" : "Recargar recaudo"}
+          onPress={() => {
+            if (needsEnable) {
+              void payActivation();
+              return;
+            }
+            setReceiveOpen(true);
+          }}
           style={[styles.ctaPrimary, { backgroundColor: theme.primary }]}>
-          <Text style={styles.ctaPrimaryText}>+ Recargar</Text>
+          <Text style={styles.ctaPrimaryText}>
+            {needsEnable ? (activating ? "Abriendo…" : "Habilitar") : "+ Recargar"}
+          </Text>
         </ScalePressable>
         {recaudo.isOrganizer ? (
           <ScalePressable
@@ -834,42 +920,33 @@ export default function RecaudoDetailScreen() {
         ) : null}
       </View>
 
-      {!demo && recaudo.payoutMethod === "digital" ? (
+      {needsEnable ? (
         <Card style={styles.kycBanner}>
           <Text style={[styles.kycText, { color: theme.text }]}>
-            Verificación: {kycStatusLabel(kycLive?.status || recaudo.tecnoAccount?.kycStatus)}
+            Habilita este recaudo
+          </Text>
+          <Text style={[styles.rowMeta, { color: theme.muted }]}>
+            Un pago único de {activationAmountLabel} activa los aportes y la verificación
+            de identidad. Hasta entonces el recaudo queda creado, pero no puede recibir dinero.
+          </Text>
+          <PrimaryButton onPress={activating ? undefined : () => void payActivation()}>
+            {activating ? "Abriendo Mercado Pago…" : `Pagar ${activationAmountLabel}`}
+          </PrimaryButton>
+        </Card>
+      ) : !demo && recaudo.payoutMethod === "digital" ? (
+        <Card style={styles.kycBanner}>
+          <Text style={[styles.kycText, { color: theme.text }]}>
+            Verificación: {kycStatusLabel(kycLive?.kycStatus || recaudo.tecnoAccount?.kycStatus)}
           </Text>
           {kycLive?.verified || recaudo.tecnoAccount?.kycStatus === "approved" ? (
             <Text style={[styles.rowMeta, { color: theme.muted }]}>
-              Identidad confirmada. Ya puedes recibir aportes.
+              Identidad confirmada. Recarga para abrir el medio de depósito que uses.
             </Text>
           ) : (
-            <Pressable
-              onPress={() => {
-                const url = kycLive?.kycUrl || recaudo.tecnoAccount?.kycUrl;
-                if (url) {
-                  void Linking.openURL(url);
-                  return;
-                }
-                void startRecaudoKyc().then((next) => {
-                  setKycLive({
-                    status: next.kycStatus,
-                    verified: next.verified,
-                    kycUrl: next.kycUrl,
-                  });
-                  if (next.kycUrl) void Linking.openURL(next.kycUrl);
-                });
-              }}>
-              <Text style={[styles.planToggle, { color: theme.primary }]}>
-                Completar verificación
-              </Text>
-            </Pressable>
+            <Text style={[styles.rowMeta, { color: theme.muted }]}>
+              El siguiente paso es Recargar: ahí verificas tu identidad y eliges cómo recibir.
+            </Text>
           )}
-          {recaudo.isOrganizer && recaudo.tecnoAccount?.status !== "ready" ? (
-            <Pressable onPress={() => void syncTecnoAccount(recaudo.id)}>
-              <Text style={[styles.planToggle, { color: theme.primary }]}>Actualizar cuenta</Text>
-            </Pressable>
-          ) : null}
         </Card>
       ) : null}
 
@@ -1064,6 +1141,20 @@ export default function RecaudoDetailScreen() {
         onClose={() => setReceiveOpen(false)}
         onRegister={contributeFromSheet}
         registering={contributing}
+        onEnsureRail={ensureRail}
+        ensuring={ensuringRail}
+        kyc={kycLive}
+        onVerify={recaudo.isOrganizer ? verifyForReceive : undefined}
+        verifying={kycBusy}
+        isOrganizer={recaudo.isOrganizer}
+        activationPaid={demo || !recaudo.isOrganizer ? true : activation?.paid}
+        activationLabel={
+          activation
+            ? formatActivationAmount(activation.amount, activation.currency)
+            : undefined
+        }
+        onActivate={payActivation}
+        activating={activating}
       />
       <RecaudoWithdrawSheet
         visible={withdrawOpen}
@@ -1146,7 +1237,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   ctaSecondaryText: { fontSize: 14, fontWeight: "700" },
-  kycBanner: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  kycBanner: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 8 },
   kycText: { fontSize: 13, fontWeight: "700" },
   planToggle: { fontSize: 14, fontWeight: "700", paddingVertical: 4 },
   termsLinkWrap: { alignItems: "center", paddingVertical: 10 },

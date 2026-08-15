@@ -56,11 +56,21 @@ services:
       - key: UNIT_DEPOSIT_PRODUCT
         value: checking
       - key: BRIDGE_API_URL
-        value: https://api.sandbox.bridge.xyz
+        value: https://api.bridge.xyz
       - key: BRIDGE_API_KEY
         sync: false
       - key: BRIDGE_WEBHOOK_SECRET
         sync: false
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_PUBLIC_KEY
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+      - key: MERCADOPAGO_SANDBOX
+        value: "true"
+      - key: MERCADOPAGO_NOTIFICATION_URL
+        value: https://tecnowallet.onrender.com/api/v1/webhooks/mercadopago
       - key: GOOGLE_CLIENT_ID_WEB
         sync: false
       - key: GOOGLE_CLIENT_ID_IOS
