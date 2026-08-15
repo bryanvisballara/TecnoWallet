@@ -159,8 +159,6 @@ export class MercadoPagoService {
     };
   }
 
-  }
-
   assertWebhookSignature(
     headers: Record<string, string | string[] | undefined>,
     query: Record<string, unknown>,
@@ -307,7 +305,10 @@ export class MercadoPagoService {
     return this.accessToken().startsWith('TEST-');
   }
 
-  private async mpFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  private async mpFetch<T>(
+    path: string,
+    init?: { method?: string; body?: string; headers?: Record<string, string> },
+  ): Promise<T> {
     const token = this.accessToken();
     if (!token) {
       throw new ServiceUnavailableException(
