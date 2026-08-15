@@ -26,4 +26,9 @@ export class BridgeKycController {
   start(@CurrentUser() user: AuthPrincipal, @Body() dto: StartKycDto) {
     return this.kyc.start(user.userId, Boolean(dto?.retry));
   }
+
+  @Post('kyc/reset-draft')
+  resetDraft(@CurrentUser() user: AuthPrincipal) {
+    return this.kyc.resetDraft(user.userId);
+  }
 }

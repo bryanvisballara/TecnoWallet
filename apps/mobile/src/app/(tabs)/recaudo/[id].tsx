@@ -41,6 +41,7 @@ import {
   type RecaudoActivation,
 } from "@/lib/recaudo-activation";
 import { ApiError } from "@/services/api";
+import { localStorage } from "@/services/persistence";
 import { useAuthStore } from "@/store/auth";
 import { useLanguageStore } from "@/store/language";
 import {
@@ -48,6 +49,7 @@ import {
   hostedVerificationUrl,
   kycPhase,
   openHostedVerificationUrl,
+  resetRecaudoKycDraft,
   startRecaudoKyc,
   type RecaudoKyc,
 } from '@/lib/recaudo-kyc';
@@ -262,7 +264,9 @@ export default function RecaudoDetailScreen() {
   const [kycBusy, setKycBusy] = useState(false);
   const [activating, setActivating] = useState(false);
   const [activation, setActivation] = useState<RecaudoActivation>();
+  const [kycApprovedBanner, setKycApprovedBanner] = useState(false);
   const walletEnsureKey = useRef<string>();
+  const kycDraftCleared = useRef(false);
   const [bankName, setBankName] = useState(profile.name || "Sandbox Account");
   const [routingNumber, setRoutingNumber] = useState("011401533");
   const [accountNumber, setAccountNumber] = useState("1000000001");
@@ -292,9 +296,18 @@ export default function RecaudoDetailScreen() {
       return;
     }
     const loadKyc = () => {
-      void fetchRecaudoKyc()
-        .then((next) => setKycLive(next))
-        .catch(() => undefined);
+      void (async () => {
+        if (!kycDraftCleared.current) {
+          kycDraftCleared.current = true;
+          const already = await localStorage.get("kyc-sandbox-draft-cleared-v1", false);
+          if (!already) {
+            await resetRecaudoKycDraft().catch(() => undefined);
+            await localStorage.set("kyc-sandbox-draft-cleared-v1", true);
+          }
+        }
+        const next = await fetchRecaudoKyc();
+        setKycLive(next);
+      })().catch(() => undefined);
     };
     loadKyc();
     const sub = AppState.addEventListener("change", (state) => {
@@ -331,6 +344,17 @@ export default function RecaudoDetailScreen() {
     recaudo?.tecnoAccount?.walletAddress,
     recaudo?.tecnoAccount?.walletId,
   ]);
+
+  useEffect(() => {
+    const email = profile.email?.trim().toLowerCase();
+    if (!email) return;
+    void localStorage
+      .get(`kyc-approved-banner-${email}`, false)
+      .then((dismissed) => {
+        if (dismissed) setKycApprovedBanner(false);
+        else setKycApprovedBanner(true);
+      });
+  }, [profile.email]);
 
   useEffect(() => {
     if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
@@ -995,38 +1019,67 @@ export default function RecaudoDetailScreen() {
           </PrimaryButton>
         </Card>
       ) : digitalOrganizer ? (
+        verificationPhase === "approved" ? (
+          kycApprovedBanner ? (
+            <Card
+              style={[
+                styles.kycBanner,
+                { backgroundColor: theme.successSoft, borderColor: theme.success, borderWidth: 1 },
+              ]}
+            >
+              <View style={styles.kycApprovedRow}>
+                <View style={styles.copy}>
+                  <Text style={[styles.kycText, { color: theme.success }]}>
+                    Cuenta verificada
+                  </Text>
+                  <Text style={[styles.rowMeta, { color: theme.text }]}>
+                    Tu cuenta fue verificada y aprobada correctamente. Ya puedes realizar aportes y retirar.
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Cerrar aviso de verificación"
+                  hitSlop={8}
+                  onPress={() => {
+                    setKycApprovedBanner(false);
+                    const email = profile.email?.trim().toLowerCase();
+                    if (email) void localStorage.set(`kyc-approved-banner-${email}`, true);
+                  }}
+                  style={styles.kycClose}
+                >
+                  <AppIcon name="xmark" color={theme.success} size={16} />
+                </Pressable>
+              </View>
+            </Card>
+          ) : null
+        ) : (
         <Card style={styles.kycBanner}>
           <Text style={[styles.kycText, { color: theme.text }]}>
             Verificación:{" "}
-            {verificationPhase === "none"
-              ? "Sin verificación"
-              : verificationPhase === "pending"
-                ? "Pendiente"
-                : verificationPhase === "rejected"
-                  ? "Rechazada"
-                  : "Verificada"}
+            {verificationPhase === "pending"
+              ? "Pendiente"
+              : verificationPhase === "rejected"
+                ? "Rechazada"
+                : "Sin verificación"}
           </Text>
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
-            {verificationPhase === "approved"
-              ? "Identidad confirmada. Ya puedes realizar aportes y retirar."
-              : verificationPhase === "pending"
-                ? "Enviaste tus datos. Cuando la verificación quede aprobada podrás realizar aportes."
-                : verificationPhase === "rejected"
-                  ? "La verificación no se aprobó. Vuelve a iniciarla para continuar."
-                  : "Inicia la verificación de identidad para abrir tu wallet digital y recibir aportes."}
+            {verificationPhase === "pending"
+              ? "Ya enviaste tus datos. Estamos esperando la aprobación. Cuando quede lista podrás realizar aportes."
+              : verificationPhase === "rejected"
+                ? "La verificación no se aprobó. Vuelve a iniciarla para continuar."
+                : "Inicia la verificación de identidad para abrir tu wallet digital y recibir aportes."}
           </Text>
-          {verificationPhase === "approved" ? null : (
+          {verificationPhase === "pending" ? null : (
             <PrimaryButton onPress={kycBusy ? undefined : () => void verifyForReceive()}>
               {kycBusy
                 ? "Abriendo…"
                 : verificationPhase === "rejected"
                   ? "Volver a verificar"
-                  : verificationPhase === "pending"
-                    ? "Continuar verificación"
-                    : "Iniciar verificación"}
+                  : "Iniciar verificación"}
             </PrimaryButton>
           )}
         </Card>
+        )
       ) : null}
 
       <SectionTitle>{copy.collectionDetail.participants}</SectionTitle>
@@ -1323,6 +1376,14 @@ const styles = StyleSheet.create({
   },
   ctaSecondaryText: { fontSize: 14, fontWeight: "700" },
   kycBanner: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 8 },
+  kycApprovedRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  kycClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   kycText: { fontSize: 13, fontWeight: "700" },
   planToggle: { fontSize: 14, fontWeight: "700", paddingVertical: 4 },
   termsLinkWrap: { alignItems: "center", paddingVertical: 10 },

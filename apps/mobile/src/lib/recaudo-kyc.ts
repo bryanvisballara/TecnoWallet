@@ -47,12 +47,16 @@ export function kycPhase(kyc?: RecaudoKyc | null, fallbackStatus?: string): Reca
   const status = kyc?.kycStatus || fallbackStatus || 'not_started';
   if (kyc?.verified || status === 'approved') return 'approved';
   if (status === 'rejected' || status === 'offboarded') return 'rejected';
-  const started = Boolean(
-    kyc?.kycLinkId ||
-      kyc?.customerId ||
-      (status && status !== 'not_started'),
-  );
-  return started ? 'pending' : 'none';
+  if (
+    status === 'under_review' ||
+    status === 'paused' ||
+    status === 'awaiting_questionnaire' ||
+    status === 'awaiting_ubo' ||
+    status === 'deposits_restricted'
+  ) {
+    return 'pending';
+  }
+  return 'none';
 }
 
 export function kycStatusLabel(status?: string) {
@@ -161,6 +165,12 @@ function normalizeKyc(value: unknown): RecaudoKyc {
 
 export async function fetchRecaudoKyc() {
   return normalizeKyc(await apiRequest('/bridge/kyc'));
+}
+
+export async function resetRecaudoKycDraft() {
+  return normalizeKyc(
+    await apiRequest('/bridge/kyc/reset-draft', { method: 'POST' }),
+  );
 }
 
 export async function startRecaudoKyc(retry = false) {

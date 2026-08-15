@@ -34,9 +34,25 @@ export class BridgeKycService {
       return empty;
     }
     const stored = user.bridgeKyc;
+    if (this.isSandboxDraft(stored)) {
+      await this.users.updateOne(
+        { _id: user._id },
+        { $unset: { bridgeKyc: 1 } },
+      );
+      user.bridgeKyc = undefined;
+      return empty;
+    }
     if (stored?.kycLinkId) {
       const fresh = await this.rail.getKycLink(stored.kycLinkId);
       if (fresh) {
+        if (this.isSandboxDraft(fresh)) {
+          await this.users.updateOne(
+            { _id: user._id },
+            { $unset: { bridgeKyc: 1 } },
+          );
+          user.bridgeKyc = undefined;
+          return empty;
+        }
         await this.persist(user, fresh);
         return fresh;
       }
@@ -47,19 +63,36 @@ export class BridgeKycService {
       user.bridgeKyc = undefined;
       return empty;
     }
-    if (stored?.kycStatus && stored.kycStatus !== 'not_started') {
-      return {
-        kycStatus: stored.kycStatus,
-        tosStatus: stored.tosStatus,
-        customerId: stored.customerId,
-        kycLinkId: stored.kycLinkId,
-        kycUrl: stored.kycUrl,
-        tosUrl: stored.tosUrl,
-        rejectionReasons: [],
-        verified: stored.kycStatus === 'approved',
-      };
-    }
     return empty;
+  }
+
+  async resetDraft(userId: string): Promise<TecnoKycSnapshot> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new BadRequestException('Usuario no encontrado.');
+    const status = user.bridgeKyc?.kycStatus;
+    if (status === 'approved' || status === 'under_review') {
+      return this.status(userId);
+    }
+    await this.users.updateOne(
+      { _id: user._id },
+      { $unset: { bridgeKyc: 1 } },
+    );
+    user.bridgeKyc = undefined;
+    return {
+      kycStatus: 'not_started',
+      rejectionReasons: [],
+      verified: false,
+    };
+  }
+
+  private isSandboxDraft(stored?: {
+    kycUrl?: string;
+    tosUrl?: string;
+    kycStatus?: string;
+  }) {
+    const blob = `${stored?.kycUrl ?? ''} ${stored?.tosUrl ?? ''}`;
+    if (/sandbox/i.test(blob)) return true;
+    return false;
   }
 
   async start(userId: string, retry = false): Promise<TecnoKycSnapshot> {
