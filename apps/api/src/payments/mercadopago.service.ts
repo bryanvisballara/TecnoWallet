@@ -60,10 +60,7 @@ export class MercadoPagoService {
   async isPaid(userId: string) {
     const user = await this.users.findById(userId);
     if (!user) throw new BadRequestException('Usuario no encontrado.');
-    if (user.recaudoActivation?.paidAt) return true;
-    // Already billed by the digital rail: do not charge again.
-    if (user.bridgeKyc?.customerId) return true;
-    return false;
+    return Boolean(user.recaudoActivation?.paidAt);
   }
 
   async assertPaid(userId: string) {

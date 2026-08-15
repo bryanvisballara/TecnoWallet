@@ -166,12 +166,7 @@ export class RecaudoBridgeService {
     }
 
     const listed = await this.listKycLinks(input.email);
-    const reusable = listed.find(
-      (item) =>
-        item.kycStatus !== 'rejected' &&
-        item.kycStatus !== 'offboarded' &&
-        Boolean(item.kycUrl || item.verified),
-    );
+    const reusable = listed.find((item) => item.verified);
     if (reusable && !input.retry) return reusable;
 
     const body = {

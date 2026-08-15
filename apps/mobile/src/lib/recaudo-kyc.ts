@@ -15,11 +15,7 @@ export type RecaudoKyc = {
 };
 
 export function kycCanRestart(kyc?: RecaudoKyc | null) {
-  if (!kyc) return true;
-  if (kyc.verified) return false;
-  if (kyc.kycStatus === 'rejected' || kyc.kycStatus === 'offboarded') return true;
-  if (kyc.kycLinkId || kyc.customerId || kyc.kycUrl) return false;
-  return !kyc.kycStatus || kyc.kycStatus === 'not_started';
+  return !kyc?.verified;
 }
 
 export function kycStatusColor(

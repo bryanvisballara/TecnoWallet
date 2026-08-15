@@ -24,6 +24,14 @@ export class BridgeKycService {
   async status(userId: string): Promise<TecnoKycSnapshot> {
     const user = await this.users.findById(userId);
     if (!user) throw new BadRequestException('Usuario no encontrado.');
+    const empty: TecnoKycSnapshot = {
+      kycStatus: 'not_started',
+      rejectionReasons: [],
+      verified: false,
+    };
+    if (!(await this.mercadoPago.isPaid(userId))) {
+      return empty;
+    }
     const stored = user.bridgeKyc;
     if (stored?.kycLinkId) {
       const fresh = await this.rail.getKycLink(stored.kycLinkId);
@@ -31,14 +39,6 @@ export class BridgeKycService {
         await this.persist(user, fresh);
         return fresh;
       }
-    }
-    const listed = await this.rail.listKycLinks(user.email);
-    const latest =
-      listed.find((item) => item.verified) ??
-      listed.find((item) => item.kycLinkId);
-    if (latest) {
-      await this.persist(user, latest);
-      return latest;
     }
     return {
       kycStatus: stored?.kycStatus || 'not_started',
@@ -56,6 +56,13 @@ export class BridgeKycService {
     const user = await this.users.findById(userId);
     if (!user) throw new BadRequestException('Usuario no encontrado.');
     await this.mercadoPago.assertPaid(userId);
+    if (retry) {
+      await this.users.updateOne(
+        { _id: user._id },
+        { $unset: { bridgeKyc: 1 } },
+      );
+      user.bridgeKyc = undefined;
+    }
     try {
       const snapshot = await this.rail.createKycLink({
         email: user.email,

@@ -272,9 +272,6 @@ export default function RecaudoDetailScreen() {
 
   useEffect(() => {
     if (!recaudo || demo || !recaudo.isOrganizer) return;
-    void fetchRecaudoKyc()
-      .then((next) => setKycLive(next))
-      .catch(() => undefined);
     const loadActivation = () => {
       void fetchRecaudoActivation()
         .then((next) => setActivation(next))
@@ -286,6 +283,17 @@ export default function RecaudoDetailScreen() {
     });
     return () => sub.remove();
   }, [demo, recaudo?.id, recaudo?.isOrganizer]);
+
+  useEffect(() => {
+    if (!recaudo || demo || !recaudo.isOrganizer) return;
+    if (activation?.paid !== true) {
+      setKycLive(undefined);
+      return;
+    }
+    void fetchRecaudoKyc()
+      .then((next) => setKycLive(next))
+      .catch(() => undefined);
+  }, [demo, recaudo?.id, recaudo?.isOrganizer, activation?.paid]);
 
   useEffect(() => {
     if (!BRIDGE_PAYMENTS_LIVE || !recaudo || demo) return;
@@ -359,7 +367,7 @@ export default function RecaudoDetailScreen() {
     !demo &&
     recaudo.isOrganizer &&
     recaudo.payoutMethod === "digital" &&
-    activation?.paid === false;
+    activation?.paid !== true;
   const activationAmountLabel = activation
     ? formatActivationAmount(activation.amount, activation.currency)
     : formatActivationAmount(12_000, "COP");
@@ -651,10 +659,13 @@ export default function RecaudoDetailScreen() {
   const verifyForReceive = async () => {
     setKycBusy(true);
     try {
+      const retry = Boolean(
+        kycLive && !kycLive.verified && (kycLive.kycLinkId || kycLive.customerId),
+      );
       const next =
         kycLive && !kycCanRestart(kycLive)
           ? await fetchRecaudoKyc()
-          : await startRecaudoKyc(kycLive?.kycStatus === "rejected");
+          : await startRecaudoKyc(retry);
       setKycLive(next);
       if (next.verified) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1147,7 +1158,7 @@ export default function RecaudoDetailScreen() {
         onVerify={recaudo.isOrganizer ? verifyForReceive : undefined}
         verifying={kycBusy}
         isOrganizer={recaudo.isOrganizer}
-        activationPaid={demo || !recaudo.isOrganizer ? true : activation?.paid}
+        activationPaid={demo || !recaudo.isOrganizer ? true : Boolean(activation?.paid)}
         activationLabel={
           activation
             ? formatActivationAmount(activation.amount, activation.currency)
