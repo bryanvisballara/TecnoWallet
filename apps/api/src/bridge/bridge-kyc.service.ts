@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -16,6 +17,8 @@ import {
 
 @Injectable()
 export class BridgeKycService {
+  private readonly logger = new Logger(BridgeKycService.name);
+
   constructor(
     private readonly rail: RecaudoBridgeService,
     private readonly mercadoPago: MercadoPagoService,
@@ -178,6 +181,11 @@ export class BridgeKycService {
       const snapshot = await this.rail.getKycLink(user.bridgeKyc.kycLinkId);
       if (snapshot) await this.persist(user, snapshot);
       return { ok: true, matched: true, kycStatus: snapshot?.kycStatus };
+    }
+
+    if (category === 'transfer' || type.startsWith('transfer.')) {
+      await this.rail.settleTransferWebhook(objectId);
+      return { ok: true, transfer: objectId };
     }
 
     return { ok: true, ignored: true };

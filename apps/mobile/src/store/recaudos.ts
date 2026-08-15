@@ -118,6 +118,18 @@ export type Recaudo = {
   updatedAt: string;
 };
 
+export type RecaudoPaySession = {
+  transferId: string;
+  state: string;
+  paid: boolean;
+  amount: string;
+  currency: string;
+  startUrl?: string;
+  instructions?: NonNullable<
+    NonNullable<Recaudo['tecnoAccount']>['virtualAccounts']
+  >[number]['instructions'];
+};
+
 export type RecaudoAccessRequest = {
   id: string;
   name: string;
@@ -192,6 +204,14 @@ type RecaudosState = {
     currency: 'cop' | 'usd' | 'eur' | 'mxn' | 'brl' | 'crypto',
     rail?: string,
   ) => Promise<Recaudo>;
+  startDigitalPayment: (
+    recaudoId: string,
+    input: { currency: 'cop' | 'usd' | 'eur' | 'mxn' | 'brl'; rail: string; amount: string },
+  ) => Promise<RecaudoPaySession>;
+  fetchDigitalPayment: (
+    recaudoId: string,
+    transferId: string,
+  ) => Promise<RecaudoPaySession>;
   /** Organizer only. Fails if the pot still has funds. */
   deleteRecaudo: (recaudoId: string) => Promise<void>;
 };
@@ -336,6 +356,45 @@ function dateString(value: unknown, fallback = now()) {
   if (typeof value === "string") return value;
   if (value instanceof Date) return value.toISOString();
   return fallback;
+}
+
+function normalizePaySession(raw: unknown): RecaudoPaySession {
+  const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const info =
+    row.instructions && typeof row.instructions === "object"
+      ? (row.instructions as Record<string, unknown>)
+      : undefined;
+  const str = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return {
+    transferId: str(row.transferId) || "",
+    state: str(row.state) || "awaiting_funds",
+    paid: row.paid === true,
+    amount: str(row.amount) || "",
+    currency: str(row.currency) || "",
+    startUrl: str(row.startUrl) || str(info?.startUrl),
+    instructions: info
+      ? {
+          currency: str(info.currency),
+          paymentRails: Array.isArray(info.paymentRails)
+            ? info.paymentRails.filter((item): item is string => typeof item === "string")
+            : undefined,
+          bankName: str(info.bankName),
+          bankAddress: str(info.bankAddress),
+          beneficiaryName: str(info.beneficiaryName),
+          accountHolderName: str(info.accountHolderName),
+          accountNumber: str(info.accountNumber),
+          routingNumber: str(info.routingNumber),
+          clabe: str(info.clabe),
+          iban: str(info.iban),
+          bic: str(info.bic),
+          pixCode: str(info.pixCode),
+          breBKey: str(info.breBKey),
+          depositMessage: str(info.depositMessage),
+          startUrl: str(info.startUrl),
+        }
+      : undefined,
+  };
 }
 
 function normalizeRecaudo(raw: unknown): Recaudo {
@@ -1208,6 +1267,21 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
       ),
     });
     return get().recaudos.find((item) => item.id === recaudoId) ?? updated;
+  },
+
+  startDigitalPayment: async (recaudoId, input) => {
+    return normalizePaySession(
+      await apiRequest(`/recaudos/${recaudoId}/payments`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    );
+  },
+
+  fetchDigitalPayment: async (recaudoId, transferId) => {
+    return normalizePaySession(
+      await apiRequest(`/recaudos/${recaudoId}/payments/${transferId}`),
+    );
   },
 
   deleteRecaudo: async (recaudoId) => {

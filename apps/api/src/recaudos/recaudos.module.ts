@@ -11,6 +11,7 @@ import {
   Logger,
   Module,
   NotFoundException,
+  OnModuleInit,
   Param,
   Patch,
   Post,
@@ -41,7 +42,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import {
   inviteEmailHtml,
   inviteEmailSubject,
@@ -194,6 +195,14 @@ export class Recaudo {
       currency: string;
       paymentRails: string[];
       instructions?: Record<string, unknown>;
+    }>;
+    pendingPayments?: Array<{
+      transferId: string;
+      userId: string;
+      currency: string;
+      rail: string;
+      amount: string;
+      state: string;
     }>;
     error?: string;
   };
@@ -541,6 +550,19 @@ class ProvisionRailDto {
   rail?: string;
 }
 
+class StartPaymentDto {
+  @IsIn(provisionRails)
+  currency!: (typeof provisionRails)[number];
+
+  @IsString()
+  @Length(2, 40)
+  rail!: string;
+
+  @IsString()
+  @Matches(/^\d+([.,]\d{1,2})?$/)
+  amount!: string;
+}
+
 class ConfigurePlanDto {
   @IsInt()
   @Min(1)
@@ -656,7 +678,7 @@ class ConfiguredRecaudoMailer implements RecaudoMailer {
 }
 
 @Injectable()
-export class RecaudosService {
+export class RecaudosService implements OnModuleInit {
   private readonly logger = new Logger(RecaudosService.name);
 
   constructor(
@@ -680,6 +702,12 @@ export class RecaudosService {
     private readonly kyc: BridgeKycService,
     private readonly mercadoPago: MercadoPagoService,
   ) {}
+
+  onModuleInit() {
+    this.tecnoAccounts.onTransferSettled((transferId) =>
+      this.settleBridgeTransfer(transferId),
+    );
+  }
 
   activationStatus(userId: string) {
     return this.mercadoPago.status(userId);
@@ -1740,6 +1768,131 @@ export class RecaudosService {
     return this.detail(id, principal);
   }
 
+  async startPayment(
+    id: string,
+    dto: StartPaymentDto,
+    principal: AuthPrincipal,
+  ) {
+    await this.assertParticipant(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException('Este recaudo no usa una cuenta TecnoWallet.');
+    }
+    if (dto.currency === 'crypto') {
+      throw new BadRequestException(
+        'Para crypto envía USDc a la dirección de la wallet del recaudo.',
+      );
+    }
+    const organizerId = recaudo.organizerId.toString();
+    await this.kyc.requireVerified(organizerId);
+    await this.provisionTecnoAccount(recaudo, organizerId, []);
+    const customerId = recaudo.tecnoAccount?.customerId?.trim();
+    const walletAddress = recaudo.tecnoAccount?.walletAddress?.trim();
+    if (!customerId || !walletAddress) {
+      throw new BadRequestException(
+        'Abre la wallet digital de este recaudo antes de aportar.',
+      );
+    }
+    const amount = dto.amount.replace(',', '.');
+    if (!(Number(amount) > 0)) {
+      throw new BadRequestException('Escribe un monto mayor a cero.');
+    }
+    const rail = dto.rail.trim() || 'ach_push';
+    const idempotencyKey = `pay-${id}-${principal.userId}-${randomUUID()}`;
+    let session;
+    try {
+      session = await this.tecnoAccounts.createContributionTransfer({
+        customerId,
+        walletAddress,
+        currency: dto.currency,
+        rail,
+        amount,
+        idempotencyKey,
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo crear el pago. Inténtalo de nuevo.',
+      );
+    }
+    if (!session.transferId) {
+      throw new BadRequestException('No se pudo crear el pago. Inténtalo de nuevo.');
+    }
+    const pending = recaudo.tecnoAccount?.pendingPayments ?? [];
+    recaudo.tecnoAccount = {
+      ...(recaudo.tecnoAccount ?? { virtualAccounts: [] }),
+      pendingPayments: [
+        ...pending.filter((item) => item.transferId !== session.transferId),
+        {
+          transferId: session.transferId,
+          userId: principal.userId,
+          currency: dto.currency,
+          rail,
+          amount,
+          state: session.state,
+        },
+      ],
+    };
+    recaudo.markModified('tecnoAccount');
+    await recaudo.save();
+    return session;
+  }
+
+  async getPayment(
+    id: string,
+    transferId: string,
+    principal: AuthPrincipal,
+  ) {
+    await this.assertParticipant(id, principal.userId);
+    const session = await this.settleBridgeTransfer(transferId);
+    if (!session) {
+      throw new NotFoundException('No encontramos este pago.');
+    }
+    return session;
+  }
+
+  async settleBridgeTransfer(transferId: string) {
+    const id = transferId.trim();
+    if (!id) return undefined;
+    const session = await this.tecnoAccounts.getTransfer(id);
+    if (!session) return undefined;
+    const recaudo = await this.recaudos.findOne({
+      'tecnoAccount.pendingPayments.transferId': id,
+      deletedAt: { $exists: false },
+    });
+    if (!recaudo) return session;
+    const pending = recaudo.tecnoAccount?.pendingPayments ?? [];
+    const row = pending.find((item) => item.transferId === id);
+    if (row) {
+      row.state = session.state;
+      recaudo.markModified('tecnoAccount');
+      await recaudo.save();
+    }
+    if (!session.paid || !row) return session;
+    const creditMinor = session.creditMinor ?? 0;
+    if (creditMinor < 1) return session;
+    try {
+      await this.contribute(
+        recaudo._id.toString(),
+        { amountMinor: creditMinor },
+        `bridge:${id}`,
+        {
+          userId: row.userId,
+          email: '',
+          platformRole: 'user',
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Could not settle transfer ${id}: ${
+          error instanceof Error ? error.message : 'error'
+        }`,
+      );
+    }
+    return session;
+  }
+
   async ensureDigitalWallet(id: string, principal: AuthPrincipal) {
     await this.assertOrganizer(id, principal.userId);
     const recaudo = await this.findRecaudo(id);
@@ -2091,6 +2244,24 @@ class RecaudosController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     return this.service.provisionRail(id, dto.currency, user, dto.rail);
+  }
+
+  @Post(':id/payments')
+  startPayment(
+    @Param('id') id: string,
+    @Body() dto: StartPaymentDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.startPayment(id, dto, user);
+  }
+
+  @Get(':id/payments/:transferId')
+  getPayment(
+    @Param('id') id: string,
+    @Param('transferId') transferId: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.getPayment(id, transferId, user);
   }
 
   @Post(':id/invites')

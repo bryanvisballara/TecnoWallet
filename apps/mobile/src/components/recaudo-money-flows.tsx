@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -21,7 +21,7 @@ import {
   openHostedVerificationUrl,
   type RecaudoKyc,
 } from '@/lib/recaudo-kyc';
-import type { Recaudo } from '@/store/recaudos';
+import type { Recaudo, RecaudoPaySession } from '@/store/recaudos';
 
 type Va = NonNullable<NonNullable<Recaudo['tecnoAccount']>['virtualAccounts']>[number];
 
@@ -40,21 +40,17 @@ function railLabel(rail: string) {
   return RAIL_LABELS[rail] ?? rail.replaceAll('_', ' ');
 }
 
-function vaFor(recaudo: Recaudo, code: string) {
-  return recaudo.tecnoAccount?.virtualAccounts?.find(
-    (item) => item.currency.toLowerCase() === code.toLowerCase(),
-  );
-}
-
-function instructionRows(account?: Va, rail?: string) {
-  const info = account?.instructions;
+function instructionRows(
+  info?: Va['instructions'],
+  rail?: string,
+) {
   const rows: { label: string; value: string }[] = [];
   const push = (label: string, value?: string) => {
     if (value?.trim()) rows.push({ label, value: value.trim() });
   };
-  push('Banco', info?.bankName);
-  push('Titular', info?.beneficiaryName ?? info?.accountHolderName);
-  push('Número de cuenta', info?.accountNumber);
+  push('Banco receptor', info?.bankName);
+  push('A nombre de', info?.beneficiaryName ?? info?.accountHolderName);
+  push('Cuenta de destino', info?.accountNumber);
   push('Routing', info?.routingNumber);
   push('CLABE', info?.clabe);
   push('IBAN', info?.iban);
@@ -64,12 +60,12 @@ function instructionRows(account?: Va, rail?: string) {
   push('Referencia', info?.depositMessage);
   if (!rail) return rows;
   const byRail: Record<string, string[]> = {
-    bre_b: ['Llave Bre-B', 'Titular', 'Banco', 'Referencia'],
-    ach_push: ['Banco', 'Titular', 'Número de cuenta', 'Routing', 'Referencia'],
-    wire: ['Banco', 'Titular', 'Número de cuenta', 'Routing', 'Referencia'],
-    sepa: ['Titular', 'IBAN', 'BIC', 'Banco', 'Referencia'],
-    spei: ['Titular', 'CLABE', 'Banco', 'Referencia'],
-    pix: ['PIX', 'Titular', 'Referencia'],
+    bre_b: ['Llave Bre-B', 'A nombre de', 'Banco receptor', 'Referencia'],
+    ach_push: ['Banco receptor', 'A nombre de', 'Cuenta de destino', 'Routing', 'Referencia'],
+    wire: ['Banco receptor', 'A nombre de', 'Cuenta de destino', 'Routing', 'Referencia'],
+    sepa: ['A nombre de', 'IBAN', 'BIC', 'Banco receptor', 'Referencia'],
+    spei: ['A nombre de', 'CLABE', 'Banco receptor', 'Referencia'],
+    pix: ['PIX', 'A nombre de', 'Referencia'],
   };
   const keep = byRail[rail];
   if (!keep) return rows;
@@ -167,8 +163,8 @@ const RAILS_BY_CURRENCY: Record<
 > = {
   cop: [{ id: 'bre_b', title: 'Bre-B', subtitle: 'Paga desde tu banco, Nequi o Daviplata' }],
   usd: [
-    { id: 'ach_push', title: 'ACH', subtitle: 'Cuenta y routing en Estados Unidos' },
-    { id: 'wire', title: 'Wire', subtitle: 'Transferencia internacional' },
+    { id: 'ach_push', title: 'ACH', subtitle: 'Paga el monto; el recaudo se actualiza solo' },
+    { id: 'wire', title: 'Wire', subtitle: 'Paga el monto; el recaudo se actualiza solo' },
   ],
   eur: [{ id: 'sepa', title: 'SEPA', subtitle: 'IBAN europeo' }],
   mxn: [{ id: 'spei', title: 'SPEI', subtitle: 'CLABE en México' }],
@@ -180,10 +176,10 @@ export function RecaudoReceiveSheet({
   visible,
   recaudo,
   onClose,
-  onRegister,
-  registering,
-  onEnsureRail,
-  ensuring,
+  onStartPayment,
+  onPollPayment,
+  onPaid,
+  paying,
   kyc,
   onVerify,
   verifying,
@@ -196,10 +192,14 @@ export function RecaudoReceiveSheet({
   visible: boolean;
   recaudo: Recaudo;
   onClose: () => void;
-  onRegister: (amount: string) => Promise<void>;
-  registering: boolean;
-  onEnsureRail?: (currency: ReceiveRail, rail?: string) => Promise<void>;
-  ensuring?: boolean;
+  onStartPayment: (
+    currency: Exclude<ReceiveRail, 'crypto'>,
+    rail: string,
+    amount: string,
+  ) => Promise<RecaudoPaySession>;
+  onPollPayment: (transferId: string) => Promise<RecaudoPaySession>;
+  onPaid: () => Promise<void> | void;
+  paying?: boolean;
   kyc?: RecaudoKyc;
   onVerify?: () => Promise<void>;
   verifying?: boolean;
@@ -214,62 +214,87 @@ export function RecaudoReceiveSheet({
   const [selected, setSelected] = useState<ReceiveRail | null>(null);
   const [selectedRail, setSelectedRail] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
+  const [session, setSession] = useState<RecaudoPaySession | null>(null);
+  const [starting, setStarting] = useState(false);
   const openedUrl = useRef<string | null>(null);
   const needsActivation = Boolean(isOrganizer) && activationPaid === false;
   const needsKyc = Boolean(kyc) && !kyc?.verified;
   const verificationPhase = kycPhase(kyc);
-
-  const detail = useMemo(() => {
-    if (!selected || selected === 'crypto') return undefined;
-    return vaFor(recaudo, selected);
-  }, [recaudo, selected]);
-
-  const rows = selected === 'crypto'
-    ? recaudo.tecnoAccount?.walletAddress
-      ? [
-          { label: 'Red', value: recaudo.tecnoAccount.chain || 'Base' },
-          { label: 'Dirección USDc', value: recaudo.tecnoAccount.walletAddress },
-        ]
-      : []
-    : instructionRows(detail, selectedRail ?? undefined);
-
-  const startUrl = detail?.instructions?.startUrl;
+  const payUrl = session?.startUrl || session?.instructions?.startUrl;
+  const rows =
+    selected === 'crypto'
+      ? recaudo.tecnoAccount?.walletAddress
+        ? [
+            { label: 'Red', value: recaudo.tecnoAccount.chain || 'Base' },
+            { label: 'Dirección USDc', value: recaudo.tecnoAccount.walletAddress },
+          ]
+        : []
+      : instructionRows(session?.instructions, selectedRail ?? undefined);
 
   const titles: Record<string, { title: string; sub: string }> = {
-    cop: { title: 'Pesos', sub: 'Elige cómo aportar. Se convierte a USDc.' },
-    usd: { title: 'Dólares', sub: 'Elige ACH o wire. Se convierte a USDc.' },
-    eur: { title: 'Euros', sub: 'SEPA. Se convierte a USDc.' },
-    mxn: { title: 'Pesos mexicanos', sub: 'SPEI. Se convierte a USDc.' },
-    brl: { title: 'Reales', sub: 'PIX. Se convierte a USDc.' },
+    cop: { title: 'Pesos', sub: 'Escribe el monto. Se convierte a USDc.' },
+    usd: { title: 'Dólares', sub: 'Escribe el monto. Se convierte a USDc.' },
+    eur: { title: 'Euros', sub: 'Escribe el monto. Se convierte a USDc.' },
+    mxn: { title: 'Pesos mexicanos', sub: 'Escribe el monto. Se convierte a USDc.' },
+    brl: { title: 'Reales', sub: 'Escribe el monto. Se convierte a USDc.' },
     crypto: { title: 'Crypto', sub: 'Envía USDc a la billetera del recaudo.' },
+  };
+
+  const resetPay = () => {
+    setSelectedRail(null);
+    setSession(null);
+    setAmount('');
+    openedUrl.current = null;
   };
 
   const closeAll = () => {
     setSelected(null);
-    setSelectedRail(null);
     setMore(false);
-    setAmount('');
-    openedUrl.current = null;
+    resetPay();
     onClose();
-  };
-
-  const pickRail = (railId: string) => {
-    setSelectedRail(railId);
-    if (selected) void onEnsureRail?.(selected, railId);
   };
 
   useEffect(() => {
     if (!visible || !selected || selectedRail || needsKyc || needsActivation) return;
     const rails = RAILS_BY_CURRENCY[selected];
-    if (rails.length === 1) pickRail(rails[0].id);
+    if (rails.length === 1) setSelectedRail(rails[0].id);
   }, [visible, selected, selectedRail, needsKyc, needsActivation]);
 
   useEffect(() => {
-    if (!visible || !selectedRail || ensuring || needsKyc || needsActivation) return;
-    if (!startUrl || openedUrl.current === startUrl) return;
-    openedUrl.current = startUrl;
-    void openHostedVerificationUrl(startUrl).catch(() => undefined);
-  }, [visible, selectedRail, ensuring, needsKyc, needsActivation, startUrl]);
+    if (!visible || !payUrl || openedUrl.current === payUrl) return;
+    openedUrl.current = payUrl;
+    void openHostedVerificationUrl(payUrl).catch(() => undefined);
+  }, [visible, payUrl]);
+
+  useEffect(() => {
+    if (!visible || !session?.transferId || session.paid) return;
+    const timer = setInterval(() => {
+      void onPollPayment(session.transferId)
+        .then((next) => {
+          setSession(next);
+          if (next.paid) void onPaid();
+        })
+        .catch(() => undefined);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [visible, session?.transferId, session?.paid, onPollPayment, onPaid]);
+
+  const startPay = async () => {
+    if (!selected || selected === 'crypto' || !selectedRail) return;
+    setStarting(true);
+    try {
+      const next = await onStartPayment(selected, selectedRail, amount);
+      setSession(next);
+      if (next.paid) await onPaid();
+    } catch (error) {
+      Alert.alert(
+        'No se pudo crear el pago',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setStarting(false);
+    }
+  };
 
   return (
     <>
@@ -350,8 +375,7 @@ export function RecaudoReceiveSheet({
         title={selected ? titles[selected].title : ''}
         subtitle={selected ? titles[selected].sub : undefined}
         onClose={() => {
-          setSelectedRail(null);
-          openedUrl.current = null;
+          resetPay();
           setSelected(null);
         }}>
         {needsActivation ? (
@@ -403,6 +427,27 @@ export function RecaudoReceiveSheet({
               </PrimaryButton>
             ) : null}
           </>
+        ) : selected === 'crypto' ? (
+          rows.length ? (
+            rows.map((row) => (
+              <Pressable
+                key={row.label}
+                onPress={() => void copyValue(row.label, row.value)}
+                style={[styles.field, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.fieldLabel, { color: theme.muted }]}>{row.label}</Text>
+                <View style={styles.fieldValueRow}>
+                  <Text selectable style={[styles.fieldValue, { color: theme.text }]}>
+                    {row.value}
+                  </Text>
+                  <AppIcon name="doc.fill" color={theme.primary} size={16} />
+                </View>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={[styles.empty, { color: theme.muted }]}>
+              Abre la wallet digital de este recaudo para ver la dirección.
+            </Text>
+          )
         ) : !selectedRail ? (
           (selected ? RAILS_BY_CURRENCY[selected] : []).map((rail) => (
             <Row
@@ -410,47 +455,13 @@ export function RecaudoReceiveSheet({
               icon="building.columns.fill"
               title={rail.title}
               subtitle={rail.subtitle}
-              onPress={() => pickRail(rail.id)}
+              onPress={() => setSelectedRail(rail.id)}
             />
           ))
-        ) : ensuring ? (
-          <Text style={[styles.empty, { color: theme.muted }]}>
-            Preparando este medio de aporte…
-          </Text>
-        ) : (
+        ) : !session ? (
           <>
-            {detail?.paymentRails?.length ? (
-              <Text style={[styles.rails, { color: theme.primary }]}>
-                {detail.paymentRails.map(railLabel).join(' · ')}
-              </Text>
-            ) : null}
-            {startUrl ? (
-              <PrimaryButton onPress={() => void openHostedVerificationUrl(startUrl)}>
-                Continuar el aporte
-              </PrimaryButton>
-            ) : null}
-            {rows.length ? (
-              rows.map((row) => (
-                <Pressable
-                  key={row.label}
-                  onPress={() => void copyValue(row.label, row.value)}
-                  style={[styles.field, { borderBottomColor: theme.border }]}>
-                  <Text style={[styles.fieldLabel, { color: theme.muted }]}>{row.label}</Text>
-                  <View style={styles.fieldValueRow}>
-                    <Text selectable style={[styles.fieldValue, { color: theme.text }]}>
-                      {row.value}
-                    </Text>
-                    <AppIcon name="doc.fill" color={theme.primary} size={16} />
-                  </View>
-                </Pressable>
-              ))
-            ) : (
-              <Text style={[styles.empty, { color: theme.muted }]}>
-                Elige realizar un aporte de nuevo cuando la cuenta esté lista, o prueba otro medio.
-              </Text>
-            )}
-            <Text style={[styles.fieldLabel, { color: theme.muted, marginTop: 18 }]}>
-              Si ya transferiste, registra el aporte (USDc)
+            <Text style={[styles.fieldLabel, { color: theme.muted, marginTop: 8 }]}>
+              Monto a pagar
             </Text>
             <TextInput
               value={amount}
@@ -463,16 +474,50 @@ export function RecaudoReceiveSheet({
                 { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
               ]}
             />
-            <PrimaryButton
-              onPress={registering ? undefined : () => void onRegister(amount)}>
-              {registering ? 'Registrando…' : 'Registrar aporte'}
+            <PrimaryButton onPress={starting || paying ? undefined : () => void startPay()}>
+              {starting ? 'Creando pago…' : 'Pagar'}
             </PrimaryButton>
+          </>
+        ) : session.paid ? (
+          <Text style={[styles.empty, { color: theme.primary }]}>
+            Pago recibido. El recaudo ya se actualizó.
+          </Text>
+        ) : (
+          <>
+            <Text style={[styles.sheetSub, { color: theme.muted, marginTop: 4 }]}>
+              {payUrl
+                ? 'Completa el pago en la página que se abrió. El recaudo se actualiza solo cuando llega.'
+                : 'Paga este monto a la cuenta de destino de la pasarela. No es tu banco personal: el dinero entra al recaudo.'}
+            </Text>
+            {payUrl ? (
+              <PrimaryButton onPress={() => void openHostedVerificationUrl(payUrl)}>
+                Continuar el pago
+              </PrimaryButton>
+            ) : null}
+            {rows.map((row) => (
+              <Pressable
+                key={row.label}
+                onPress={() => void copyValue(row.label, row.value)}
+                style={[styles.field, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.fieldLabel, { color: theme.muted }]}>{row.label}</Text>
+                <View style={styles.fieldValueRow}>
+                  <Text selectable style={[styles.fieldValue, { color: theme.text }]}>
+                    {row.value}
+                  </Text>
+                  <AppIcon name="doc.fill" color={theme.primary} size={16} />
+                </View>
+              </Pressable>
+            ))}
+            <Text style={[styles.disclaimer, { color: theme.muted }]}>
+              Esperando el pago… no registres el monto a mano.
+            </Text>
           </>
         )}
       </SheetFrame>
     </>
   );
 }
+
 
 export function RecaudoWithdrawSheet({
   visible,

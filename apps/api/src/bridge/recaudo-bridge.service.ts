@@ -47,6 +47,17 @@ export type TecnoAccountSnapshot = {
   error?: string;
 };
 
+export type TecnoPaySession = {
+  transferId: string;
+  state: string;
+  paid: boolean;
+  amount: string;
+  currency: string;
+  startUrl?: string;
+  creditMinor?: number;
+  instructions?: TecnoDepositInstructions;
+};
+
 export type TecnoKycSnapshot = {
   customerId?: string;
   kycLinkId?: string;
@@ -107,10 +118,26 @@ type BridgeDepositInstructions = {
   redirect_url?: string;
 };
 
+type BridgeReceipt = {
+  initial_amount?: string;
+  final_amount?: string;
+  subtotal_amount?: string;
+};
+
 type BridgeTransfer = {
   id?: string;
+  state?: string;
+  amount?: string;
+  currency?: string;
   source_deposit_instructions?: BridgeDepositInstructions;
-  destination?: { address?: string; to_address?: string; payment_rail?: string };
+  destination?: {
+    address?: string;
+    to_address?: string;
+    payment_rail?: string;
+    currency?: string;
+    amount?: string;
+  };
+  receipt?: BridgeReceipt;
 };
 
 type BridgeVirtualAccount = {
@@ -135,6 +162,16 @@ const TOS_RETURN_URL =
   'https://tecnowallet.onrender.com/api/v1/bridge/tos-return';
 const KYC_RETURN_URL =
   'https://tecnowallet.onrender.com/api/v1/bridge/kyc-return';
+const PAY_RETURN_URL =
+  'https://tecnowallet.onrender.com/api/v1/bridge/pay-return';
+
+const TRANSFER_PAID = new Set([
+  'funds_received',
+  'payment_submitted',
+  'payment_processed',
+  'completed',
+  'settled',
+]);
 
 function withHostedRedirect(url: string | undefined, redirectUri: string) {
   const href = httpsUrl(url);
@@ -217,8 +254,18 @@ function mapKyc(link: BridgeKycLink): TecnoKycSnapshot {
 @Injectable()
 export class RecaudoBridgeService {
   private readonly logger = new Logger(RecaudoBridgeService.name);
+  private transferSettler?: (transferId: string) => Promise<unknown>;
 
   constructor(private readonly bridge: BridgeClient) {}
+
+  onTransferSettled(handler: (transferId: string) => Promise<unknown>) {
+    this.transferSettler = handler;
+  }
+
+  async settleTransferWebhook(transferId: string) {
+    if (!this.transferSettler) return;
+    await this.transferSettler(transferId);
+  }
 
   async createKycLink(input: {
     email: string;
@@ -629,6 +676,47 @@ export class RecaudoBridgeService {
       return null;
     }
   }
+
+  async createContributionTransfer(input: {
+    customerId: string;
+    walletAddress: string;
+    currency: string;
+    rail: string;
+    amount: string;
+    idempotencyKey: string;
+  }): Promise<TecnoPaySession> {
+    const transfer = await this.bridge.post<BridgeTransfer>(
+      '/v0/transfers',
+      {
+        amount: input.amount,
+        on_behalf_of: input.customerId,
+        source: {
+          payment_rail: input.rail,
+          currency: input.currency,
+        },
+        destination: {
+          payment_rail: WALLET_CHAIN,
+          currency: 'usdc',
+          to_address: input.walletAddress,
+        },
+      },
+      input.idempotencyKey,
+    );
+    return mapPaySession(transfer);
+  }
+
+  async getTransfer(transferId: string): Promise<TecnoPaySession | undefined> {
+    const id = transferId.trim();
+    if (!this.bridge.configured || !id) return undefined;
+    try {
+      const transfer = await this.bridge.get<BridgeTransfer>(
+        `/v0/transfers/${id}`,
+      );
+      return mapPaySession(transfer);
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 function hasDepositDetails(account?: TecnoVirtualAccount) {
@@ -672,12 +760,70 @@ function mapVirtualAccount(
     pixCode: text(raw?.br_code),
     breBKey: text(raw?.bre_b_key),
     depositMessage: text(raw?.deposit_message),
-    startUrl: httpsUrl(text(raw?.start_url) ?? text(raw?.redirect_url)),
+    startUrl: withHostedRedirect(
+      text(raw?.start_url) ?? text(raw?.redirect_url),
+      PAY_RETURN_URL,
+    ),
   };
   return {
     id: account.id,
     currency,
     paymentRails: rails,
     instructions,
+  };
+}
+
+function decimalToMinor(value?: string) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  return Math.max(1, Math.round(amount * 100));
+}
+
+function mapPaySession(transfer: BridgeTransfer): TecnoPaySession {
+  const state = transfer.state || 'awaiting_funds';
+  const destCurrency = transfer.destination?.currency?.toLowerCase();
+  const creditSource =
+    destCurrency === 'usdc' || destCurrency === 'usd'
+      ? transfer.destination?.amount ||
+        transfer.receipt?.final_amount ||
+        transfer.amount
+      : transfer.receipt?.final_amount || transfer.amount;
+  const raw = transfer.source_deposit_instructions;
+  const rails =
+    raw?.payment_rails ?? (raw?.payment_rail ? [raw.payment_rail] : []);
+  return {
+    transferId: transfer.id || '',
+    state,
+    paid: TRANSFER_PAID.has(state),
+    amount: transfer.amount || '',
+    currency: (raw?.currency || transfer.currency || '').toLowerCase(),
+    startUrl: withHostedRedirect(
+      text(raw?.start_url) ?? text(raw?.redirect_url),
+      PAY_RETURN_URL,
+    ),
+    creditMinor: decimalToMinor(creditSource),
+    instructions: raw
+      ? {
+          currency: (raw.currency || '').toLowerCase(),
+          paymentRails: rails,
+          bankName: text(raw.bank_name),
+          bankAddress: text(raw.bank_address),
+          beneficiaryName: text(raw.bank_beneficiary_name),
+          accountHolderName: text(raw.account_holder_name),
+          accountNumber:
+            text(raw.bank_account_number) ?? text(raw.account_number),
+          routingNumber: text(raw.bank_routing_number),
+          clabe: text(raw.clabe),
+          iban: text(raw.iban),
+          bic: text(raw.bic),
+          pixCode: text(raw.br_code),
+          breBKey: text(raw.bre_b_key),
+          depositMessage: text(raw.deposit_message),
+          startUrl: withHostedRedirect(
+            text(raw.start_url) ?? text(raw.redirect_url),
+            PAY_RETURN_URL,
+          ),
+        }
+      : undefined,
   };
 }

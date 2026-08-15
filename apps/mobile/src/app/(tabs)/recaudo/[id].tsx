@@ -200,7 +200,8 @@ export default function RecaudoDetailScreen() {
   const deleteRecaudo = useRecaudosStore((state) => state.deleteRecaudo);
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
   const updateRecaudo = useRecaudosStore((state) => state.updateRecaudo);
-  const provisionRail = useRecaudosStore((state) => state.provisionRail);
+  const startDigitalPayment = useRecaudosStore((state) => state.startDigitalPayment);
+  const fetchDigitalPayment = useRecaudosStore((state) => state.fetchDigitalPayment);
   const ensureDigitalWallet = useRecaudosStore((state) => state.ensureDigitalWallet);
   const profile = useAuthStore((state) => state.profile);
   const demo = useAuthStore((state) => state.demo);
@@ -265,7 +266,6 @@ export default function RecaudoDetailScreen() {
   const [savingPlan, setSavingPlan] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>();
   const [kycLive, setKycLive] = useState<RecaudoKyc>();
-  const [ensuringRail, setEnsuringRail] = useState(false);
   const [kycBusy, setKycBusy] = useState(false);
   const [activating, setActivating] = useState(false);
   const [activation, setActivation] = useState<RecaudoActivation>();
@@ -654,29 +654,6 @@ export default function RecaudoDetailScreen() {
     }
   };
 
-  const ensureRail = async (
-    currency: 'cop' | 'usd' | 'eur' | 'mxn' | 'brl' | 'crypto',
-    rail?: string,
-  ) => {
-    if (demo) return;
-    setEnsuringRail(true);
-    try {
-      if (recaudo.isOrganizer) {
-        const next = await fetchRecaudoKyc();
-        setKycLive(next);
-        if (!next.verified) return;
-      }
-      await provisionRail(recaudo.id, currency, rail);
-    } catch (error) {
-      Alert.alert(
-        'No se pudo abrir este medio',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
-      );
-    } finally {
-      setEnsuringRail(false);
-    }
-  };
-
   const payActivation = async () => {
     setActivating(true);
     try {
@@ -751,27 +728,6 @@ export default function RecaudoDetailScreen() {
       );
     } finally {
       setKycBusy(false);
-    }
-  };
-
-  const contributeFromSheet = async (raw: string) => {
-    const amountMinor = amountToMinorUnits(raw, recaudo.currency);
-    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
-      Alert.alert("Aporte inválido", "Escribe un monto mayor a cero.");
-      return;
-    }
-    setContributing(true);
-    try {
-      await addContribution(recaudo.id, amountMinor);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setReceiveOpen(false);
-    } catch (error) {
-      Alert.alert(
-        "No se pudo registrar",
-        error instanceof Error ? error.message : "Inténtalo de nuevo.",
-      );
-    } finally {
-      setContributing(false);
     }
   };
 
@@ -1279,10 +1235,14 @@ export default function RecaudoDetailScreen() {
         visible={receiveOpen}
         recaudo={recaudo}
         onClose={() => setReceiveOpen(false)}
-        onRegister={contributeFromSheet}
-        registering={contributing}
-        onEnsureRail={ensureRail}
-        ensuring={ensuringRail}
+        onStartPayment={(currency, rail, amount) =>
+          startDigitalPayment(recaudo.id, { currency, rail, amount })
+        }
+        onPollPayment={(transferId) => fetchDigitalPayment(recaudo.id, transferId)}
+        onPaid={async () => {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          await refreshRecaudos();
+        }}
         kyc={kycLive}
         onVerify={recaudo.isOrganizer ? verifyForReceive : undefined}
         verifying={kycBusy}

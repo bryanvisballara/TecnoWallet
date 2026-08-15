@@ -56,6 +56,18 @@ export class BridgeKycController {
 <p>Cierra esta ventana y vuelve a TecnoWallet. Actualizaremos el estado de tu verificación.</p>
 </body></html>`);
   }
+
+  @Public()
+  @Get('pay-return')
+  payReturn(@Res() reply: FastifyReply) {
+    return reply.type('text/html; charset=utf-8').send(`<!doctype html>
+<html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pago enviado</title>
+<body style="font-family:-apple-system,sans-serif;padding:32px;max-width:420px;margin:40px auto;color:#111">
+<h1 style="font-size:22px">Pago enviado</h1>
+<p>Cierra esta ventana y vuelve a TecnoWallet. El recaudo se actualiza solo cuando el pago llega.</p>
+</body></html>`);
+  }
 }
 
 @ApiTags('webhooks')
