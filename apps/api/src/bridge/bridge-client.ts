@@ -11,7 +11,33 @@ type BridgeErrorBody = {
   code?: string;
   message?: string;
   error?: string;
+  source?: unknown;
 };
+
+const API_KEY_HINT =
+  'La clave de verificación no es válida para este entorno. En Render, BRIDGE_API_KEY debe ser sk-live si la URL es producción, o sk-test si es sandbox.';
+
+function sourceHint(source: unknown): string | undefined {
+  if (!source) return undefined;
+  if (typeof source === 'string' && source.trim()) return source.trim();
+  if (typeof source !== 'object') return undefined;
+  const rec = source as Record<string, unknown>;
+  if (typeof rec.key === 'string' && rec.key.trim()) return rec.key.trim();
+  try {
+    const packed = JSON.stringify(rec.key ?? rec);
+    return packed && packed !== '{}' ? packed.slice(0, 180) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function looksLikeApiKeyError(status: number, detail: string) {
+  if (status === 401) return true;
+  if (status !== 403) return false;
+  return /invalid credentials|api[- ]key|unauthorized|authentication|not valid for this environment/i.test(
+    detail,
+  );
+}
 
 @Injectable()
 export class BridgeClient {
@@ -85,13 +111,13 @@ export class BridgeClient {
     }
     if (!response.ok) {
       const err = json as BridgeErrorBody;
-      const detail =
-        err.message ?? err.error ?? err.code ?? `Bridge API error ${response.status}`;
+      const hint = sourceHint(err.source);
+      const detail = [err.message ?? err.error ?? err.code, hint]
+        .filter((part): part is string => Boolean(part && part.trim()))
+        .join(' — ') || `Error ${response.status}`;
       this.logger.warn(`Bridge ${method} ${path} → ${response.status}: ${detail}`);
-      if (response.status === 401 || response.status === 403) {
-        throw new ForbiddenException(
-          'La clave de verificación no es válida para este entorno. En Render, BRIDGE_API_KEY debe ser sk-live si la URL es producción, o sk-test si es sandbox.',
-        );
+      if (looksLikeApiKeyError(response.status, detail)) {
+        throw new ForbiddenException(API_KEY_HINT);
       }
       if (response.status >= 400 && response.status < 500) {
         throw new BadRequestException(detail);

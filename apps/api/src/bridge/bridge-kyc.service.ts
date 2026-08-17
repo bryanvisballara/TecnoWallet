@@ -159,7 +159,7 @@ export class BridgeKycService {
         ? (body.event_object as Record<string, unknown>)
         : {};
     const objectId = String(
-      body.event_object_id ?? object.id ?? '',
+      body.event_object_id ?? object.id ?? object.virtual_account_id ?? '',
     ).trim();
     if (!objectId) return { ok: true, ignored: true };
 
@@ -186,6 +186,18 @@ export class BridgeKycService {
     if (category === 'transfer' || type.startsWith('transfer.')) {
       await this.rail.settleTransferWebhook(objectId);
       return { ok: true, transfer: objectId };
+    }
+
+    if (
+      category === 'virtual_account' ||
+      type.startsWith('virtual_account') ||
+      category.includes('virtual_account')
+    ) {
+      const accountId = String(
+        object.virtual_account_id ?? object.id ?? objectId,
+      ).trim();
+      if (accountId) await this.rail.settleTransferWebhook(accountId);
+      return { ok: true, virtualAccount: accountId };
     }
 
     return { ok: true, ignored: true };

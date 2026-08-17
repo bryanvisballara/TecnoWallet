@@ -198,6 +198,7 @@ export class Recaudo {
     }>;
     pendingPayments?: Array<{
       transferId: string;
+      virtualAccountId?: string;
       userId: string;
       currency: string;
       rail: string;
@@ -1685,6 +1686,7 @@ export class RecaudosService implements OnModuleInit {
     });
     recaudo.tecnoAccount = {
       ...snapshot,
+      pendingPayments: recaudo.tecnoAccount?.pendingPayments,
       kycLinkId: snapshot.kycLinkId || organizer.bridgeKyc?.kycLinkId,
       kycStatus: snapshot.kycStatus || organizer.bridgeKyc?.kycStatus,
       tosStatus: snapshot.tosStatus || organizer.bridgeKyc?.tosStatus,
@@ -1803,7 +1805,9 @@ export class RecaudosService implements OnModuleInit {
     try {
       session = await this.tecnoAccounts.createContributionTransfer({
         customerId,
+        recaudoId: id,
         walletAddress,
+        walletId: recaudo.tecnoAccount?.walletId,
         currency: dto.currency,
         rail,
         amount,
@@ -1826,6 +1830,9 @@ export class RecaudosService implements OnModuleInit {
         ...pending.filter((item) => item.transferId !== session.transferId),
         {
           transferId: session.transferId,
+          virtualAccountId: session.viaVirtualAccount
+            ? session.transferId
+            : undefined,
           userId: principal.userId,
           currency: dto.currency,
           rail,
@@ -1855,15 +1862,23 @@ export class RecaudosService implements OnModuleInit {
   async settleBridgeTransfer(transferId: string) {
     const id = transferId.trim();
     if (!id) return undefined;
-    const session = await this.tecnoAccounts.getTransfer(id);
-    if (!session) return undefined;
     const recaudo = await this.recaudos.findOne({
-      'tecnoAccount.pendingPayments.transferId': id,
       deletedAt: { $exists: false },
+      $or: [
+        { 'tecnoAccount.pendingPayments.transferId': id },
+        { 'tecnoAccount.pendingPayments.virtualAccountId': id },
+      ],
     });
+    const session = await this.tecnoAccounts.getTransfer(
+      id,
+      recaudo?.tecnoAccount?.customerId,
+    );
+    if (!session) return undefined;
     if (!recaudo) return session;
     const pending = recaudo.tecnoAccount?.pendingPayments ?? [];
-    const row = pending.find((item) => item.transferId === id);
+    const row =
+      pending.find((item) => item.transferId === id) ??
+      pending.find((item) => item.virtualAccountId === id);
     if (row) {
       row.state = session.state;
       recaudo.markModified('tecnoAccount');

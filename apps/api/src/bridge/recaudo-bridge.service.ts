@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  HttpException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -56,6 +58,7 @@ export type TecnoPaySession = {
   startUrl?: string;
   creditMinor?: number;
   instructions?: TecnoDepositInstructions;
+  viaVirtualAccount?: boolean;
 };
 
 export type TecnoKycSnapshot = {
@@ -75,6 +78,15 @@ type BridgeCustomer = {
   email?: string;
   status?: string;
   endorsements?: Array<{ name?: string; status?: string }>;
+};
+
+type BridgeVaEvent = {
+  id?: string;
+  type?: string;
+  amount?: string;
+  currency?: string;
+  receipt?: BridgeReceipt;
+  destination?: { amount?: string; currency?: string };
 };
 
 type BridgeList<T> = {
@@ -159,7 +171,6 @@ const ONRAMP_RAIL: Record<(typeof VA_CURRENCIES)[number], string> = {
   brl: 'pix',
   eur: 'sepa',
 };
-
 const TOS_RETURN_URL =
   'https://tecnowallet.onrender.com/api/v1/bridge/tos-return';
 const KYC_RETURN_URL =
@@ -367,17 +378,23 @@ export class RecaudoBridgeService {
       );
       return;
     }
-    const requested = new Set(
+    const statusByName = new Map(
       (customer.endorsements ?? [])
-        .map((item) => item.name?.trim().toLowerCase())
-        .filter((item): item is string => Boolean(item)),
+        .map((item) => [
+          item.name?.trim().toLowerCase() ?? '',
+          item.status?.trim().toLowerCase() ?? '',
+        ])
+        .filter((item): item is [string, string] => Boolean(item[0])),
     );
     const missing = EXTRA_ENDORSEMENTS.filter((name) => {
-      if (requested.has(name)) return false;
       if (name === 'pix') {
-        return !(requested.has('pix_onramp') || requested.has('pix_offramp'));
+        return !(
+          statusByName.get('pix') === 'approved' ||
+          statusByName.get('pix_onramp') === 'approved' ||
+          statusByName.get('pix_offramp') === 'approved'
+        );
       }
-      return true;
+      return statusByName.get(name) !== 'approved';
     });
     if (missing.length === 0) {
       this.endorsementsEnsured.add(id);
@@ -388,7 +405,6 @@ export class RecaudoBridgeService {
       .join('&');
     try {
       await this.bridge.get(`/v0/customers/${id}/kyc_link?${batch}`);
-      this.endorsementsEnsured.add(id);
       this.logger.log(
         `Requested endorsements ${missing.join(',')} for customer ${id}`,
       );
@@ -411,7 +427,6 @@ export class RecaudoBridgeService {
         );
       }
     }
-    this.endorsementsEnsured.add(id);
   }
 
   private async withFreshTosLink(snapshot: TecnoKycSnapshot) {
@@ -660,7 +675,6 @@ export class RecaudoBridgeService {
     for (const row of existingRows) {
       const dest = row.destination?.address?.trim().toLowerCase();
       if (dest && dest !== wantedAddress) continue;
-      if (!dest) continue;
       const mapped = mapVirtualAccount(row);
       if (mapped) byCurrency.set(mapped.currency.toLowerCase(), mapped);
     }
@@ -673,6 +687,7 @@ export class RecaudoBridgeService {
         const account = await this.bridge.post<BridgeVirtualAccount>(
           `/v0/customers/${input.customerId}/virtual_accounts`,
           {
+            developer_fee_percent: '0.0',
             source: { currency },
             destination: {
               payment_rail: WALLET_CHAIN,
@@ -720,6 +735,7 @@ export class RecaudoBridgeService {
       const transfer = await this.bridge.post<BridgeTransfer>(
         '/v0/transfers',
         {
+          developer_fee_percent: '0.0',
           on_behalf_of: input.customerId,
           source: {
             payment_rail: input.rail,
@@ -763,41 +779,185 @@ export class RecaudoBridgeService {
 
   async createContributionTransfer(input: {
     customerId: string;
+    recaudoId?: string;
     walletAddress: string;
+    walletId?: string;
     currency: string;
     rail: string;
     amount: string;
     idempotencyKey: string;
   }): Promise<TecnoPaySession> {
     await this.ensureEndorsements(input.customerId);
-    const transfer = await this.bridge.post<BridgeTransfer>(
-      '/v0/transfers',
-      {
-        amount: input.amount,
-        on_behalf_of: input.customerId,
-        source: {
-          payment_rail: input.rail,
-          currency: input.currency,
-        },
-        destination: {
-          payment_rail: WALLET_CHAIN,
-          currency: 'usdc',
-          to_address: input.walletAddress,
-        },
-      },
-      input.idempotencyKey,
+    const currency = input.currency.trim().toLowerCase();
+    const amount = formatPayAmount(currency, input.amount);
+    const destinations = transferDestinations(
+      currency,
+      input.walletAddress,
+      input.walletId,
     );
-    return mapPaySession(transfer);
+    let lastError: string | undefined;
+    for (const [index, destination] of destinations.entries()) {
+      try {
+        const transfer = await this.bridge.post<BridgeTransfer>(
+          '/v0/transfers',
+          {
+            developer_fee_percent: '0.0',
+            amount,
+            on_behalf_of: input.customerId,
+            source: {
+              payment_rail: input.rail,
+              currency,
+            },
+            destination,
+          },
+          `${input.idempotencyKey}-t${index}`,
+        );
+        const session = mapPaySession(transfer);
+        if (session.transferId) return session;
+      } catch (error) {
+        lastError = httpErrorDetail(error);
+        this.logger.warn(
+          `Pay transfer ${currency}/${input.rail} attempt ${index} failed: ${lastError}`,
+        );
+        if (isFatalPayError(error)) {
+          throw new BadRequestException(userPayError(currency, lastError));
+        }
+      }
+    }
+    if (currency !== 'usd') {
+      const viaAccount = await this.payViaVirtualAccount({
+        customerId: input.customerId,
+        recaudoId: input.recaudoId ?? 'pay',
+        walletAddress: input.walletAddress,
+        walletId: input.walletId,
+        currency,
+        amount,
+      });
+      if (viaAccount) return viaAccount;
+    }
+    throw new BadRequestException(
+      userPayError(currency, lastError || 'No se pudo crear el pago.'),
+    );
   }
 
-  async getTransfer(transferId: string): Promise<TecnoPaySession | undefined> {
+  async getTransfer(
+    transferId: string,
+    customerId?: string,
+  ): Promise<TecnoPaySession | undefined> {
     const id = transferId.trim();
     if (!this.bridge.configured || !id) return undefined;
-    try {
-      const transfer = await this.bridge.get<BridgeTransfer>(
-        `/v0/transfers/${id}`,
+    const transferLookup = id.startsWith('va:') ? id.split(':')[1] ?? '' : id;
+    if (!id.startsWith('va:')) {
+      try {
+        const transfer = await this.bridge.get<BridgeTransfer>(
+          `/v0/transfers/${id}`,
+        );
+        return mapPaySession(transfer);
+      } catch {
+        // May be a virtual account id from COP/EUR fallback.
+      }
+    }
+    const owner = customerId?.trim();
+    const accountId = transferLookup.trim();
+    if (!owner || !accountId) return undefined;
+    return this.getVirtualAccountSession(owner, accountId);
+  }
+
+  private async payViaVirtualAccount(input: {
+    customerId: string;
+    recaudoId: string;
+    walletAddress: string;
+    walletId?: string;
+    currency: string;
+    amount: string;
+  }): Promise<TecnoPaySession | undefined> {
+    const listed = await this.bridge
+      .get<BridgeList<BridgeVirtualAccount> | BridgeVirtualAccount[]>(
+        `/v0/customers/${input.customerId}/virtual_accounts`,
+      )
+      .catch(() => ({ data: [] as BridgeVirtualAccount[] }));
+    const existingRows = Array.isArray(listed) ? listed : (listed.data ?? []);
+    const wantedAddress = input.walletAddress.trim().toLowerCase();
+    for (const row of existingRows) {
+      const dest = row.destination?.address?.trim().toLowerCase();
+      if (dest && dest !== wantedAddress) continue;
+      const mapped = mapVirtualAccount(row);
+      if (!mapped || !hasDepositDetails(mapped)) continue;
+      const currency = mapped.currency.toLowerCase() || input.currency;
+      if (currency !== input.currency) continue;
+      return sessionFromVirtualAccount(
+        { ...mapped, currency },
+        input.amount,
       );
-      return mapPaySession(transfer);
+    }
+    const destinations = virtualAccountDestinations(
+      input.walletAddress,
+      input.walletId,
+    );
+    for (const [index, destination] of destinations.entries()) {
+      try {
+        const account = await this.bridge.post<BridgeVirtualAccount>(
+          `/v0/customers/${input.customerId}/virtual_accounts`,
+          {
+            developer_fee_percent: '0.0',
+            source: { currency: input.currency },
+            destination,
+          },
+          `recaudo-va-${input.recaudoId}-${input.currency}-${index}`,
+        );
+        const mapped = mapVirtualAccount(account);
+        if (mapped && hasDepositDetails(mapped)) {
+          return sessionFromVirtualAccount(
+            {
+              ...mapped,
+              currency: mapped.currency || input.currency,
+            },
+            input.amount,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Virtual account ${input.currency} attempt ${index} failed: ${httpErrorDetail(error)}`,
+        );
+        if (isFatalPayError(error)) break;
+      }
+    }
+    return undefined;
+  }
+
+  private async getVirtualAccountSession(
+    customerId: string,
+    accountId: string,
+  ): Promise<TecnoPaySession | undefined> {
+    try {
+      const account = await this.bridge.get<BridgeVirtualAccount>(
+        `/v0/customers/${customerId}/virtual_accounts/${accountId}`,
+      );
+      const mapped = mapVirtualAccount(account);
+      if (!mapped) return undefined;
+      const session = sessionFromVirtualAccount(mapped, '');
+      const history = await this.bridge
+        .get<BridgeList<BridgeVaEvent> | BridgeVaEvent[]>(
+          `/v0/customers/${customerId}/virtual_accounts/${accountId}/history`,
+        )
+        .catch(() => ({ data: [] as BridgeVaEvent[] }));
+      const events = Array.isArray(history) ? history : (history.data ?? []);
+      const paidEvent = events.find((event) => {
+        const type = (event.type ?? '').toLowerCase();
+        return TRANSFER_PAID.has(type) || type.includes('payment_processed');
+      });
+      if (!paidEvent) return session;
+      const creditSource =
+        paidEvent.destination?.amount ||
+        paidEvent.receipt?.final_amount ||
+        (paidEvent.currency?.toLowerCase() === 'usdc' ? paidEvent.amount : undefined);
+      return {
+        ...session,
+        state: paidEvent.type || 'payment_processed',
+        paid: true,
+        amount: paidEvent.amount || session.amount,
+        creditMinor: decimalToMinor(creditSource),
+      };
     } catch {
       return undefined;
     }
@@ -911,4 +1071,144 @@ function mapPaySession(transfer: BridgeTransfer): TecnoPaySession {
         }
       : undefined,
   };
+}
+
+function sessionFromVirtualAccount(
+  account: TecnoVirtualAccount,
+  amount: string,
+): TecnoPaySession {
+  return {
+    transferId: account.id,
+    state: 'awaiting_funds',
+    paid: false,
+    amount,
+    currency: account.currency,
+    startUrl: account.instructions?.startUrl,
+    instructions: account.instructions,
+    viaVirtualAccount: true,
+  };
+}
+
+function formatPayAmount(currency: string, raw: string) {
+  const amount = Number(raw.replace(',', '.'));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new BadRequestException('Escribe un monto mayor a cero.');
+  }
+  if (currency === 'cop' && amount < 100) {
+    throw new BadRequestException('El mínimo para pesos es 100 COP.');
+  }
+  if (currency === 'cop') return String(Math.round(amount));
+  return amount.toFixed(2);
+}
+
+function transferDestinations(
+  currency: string,
+  walletAddress: string,
+  walletId?: string,
+) {
+  const address = walletAddress.trim();
+  const id = walletId?.trim();
+  const dests: Array<Record<string, string>> = [];
+  if (currency === 'eur' && id) {
+    dests.push({
+      currency: 'usdc',
+      payment_rail: WALLET_CHAIN,
+      bridge_wallet_id: id,
+    });
+    dests.push({
+      currency: 'usdc',
+      payment_rail: WALLET_CHAIN,
+      to_address: address,
+      bridge_wallet_id: id,
+    });
+  }
+  dests.push({
+    currency: 'usdc',
+    payment_rail: WALLET_CHAIN,
+    to_address: address,
+  });
+  if (id && currency !== 'eur') {
+    dests.push({
+      currency: 'usdc',
+      payment_rail: WALLET_CHAIN,
+      to_address: address,
+      bridge_wallet_id: id,
+    });
+  }
+  return dests;
+}
+
+function virtualAccountDestinations(walletAddress: string, walletId?: string) {
+  const address = walletAddress.trim();
+  const id = walletId?.trim();
+  const dests: Array<Record<string, string>> = [];
+  dests.push({
+    currency: 'usdc',
+    payment_rail: WALLET_CHAIN,
+    address,
+  });
+  if (id) {
+    dests.push({
+      currency: 'usdc',
+      payment_rail: WALLET_CHAIN,
+      address,
+      bridge_wallet_id: id,
+    });
+    dests.push({
+      currency: 'usdc',
+      payment_rail: WALLET_CHAIN,
+      bridge_wallet_id: id,
+    });
+  }
+  return dests;
+}
+
+function httpErrorDetail(error: unknown) {
+  if (error instanceof HttpException) {
+    const response = error.getResponse();
+    if (typeof response === 'string') return response;
+    if (response && typeof response === 'object' && 'message' in response) {
+      const message = (response as { message?: string | string[] }).message;
+      if (Array.isArray(message)) return message.join(' ');
+      if (typeof message === 'string' && message.trim()) return message;
+    }
+    return error.message;
+  }
+  return error instanceof Error ? error.message : 'error';
+}
+
+function isFatalPayError(error: unknown) {
+  if (!(error instanceof HttpException)) return false;
+  const status = error.getStatus();
+  return status === 401 || status >= 500;
+}
+
+function userPayError(currency: string, raw: string) {
+  const text = raw.toLowerCase();
+  if (/clave de verificación|sk-live|sk-test|api[- ]key/.test(text)) {
+    return raw;
+  }
+  if (
+    /endorsement|not enabled|not available|forbidden|not permitted|not allowed|not granted/.test(
+      text,
+    )
+  ) {
+    if (currency === 'cop') {
+      return 'Pesos aún no están activos en esta cuenta. Completa esa parte de la verificación e inténtalo de nuevo.';
+    }
+    if (currency === 'eur') {
+      return 'Euros aún no están activos en esta cuenta. Completa esa parte de la verificación e inténtalo de nuevo.';
+    }
+    return 'Este medio de aporte aún no está activo. Completa la verificación e inténtalo de nuevo.';
+  }
+  if (/resubmit|missing or invalid|invalid_parameters/.test(text)) {
+    if (currency === 'eur') {
+      return 'No se pudo abrir el aporte en euros. Inténtalo de nuevo o usa dólares.';
+    }
+    if (currency === 'cop') {
+      return 'No se pudo abrir el aporte en pesos. Inténtalo de nuevo o usa dólares.';
+    }
+    return 'No se pudo abrir este aporte. Revisa el monto e inténtalo de nuevo.';
+  }
+  return raw.replace(/\bBridge\b/gi, 'la pasarela').trim() || 'No se pudo crear el pago.';
 }
