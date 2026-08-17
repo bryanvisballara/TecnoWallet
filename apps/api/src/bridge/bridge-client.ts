@@ -23,6 +23,17 @@ function sourceHint(source: unknown): string | undefined {
   if (typeof source !== 'object') return undefined;
   const rec = source as Record<string, unknown>;
   if (typeof rec.key === 'string' && rec.key.trim()) return rec.key.trim();
+  if (rec.key && typeof rec.key === 'object') {
+    try {
+      const parts = Object.entries(rec.key as Record<string, unknown>).map(
+        ([field, reason]) => `${field}: ${String(reason)}`,
+      );
+      const packed = parts.join('; ');
+      return packed ? packed.slice(0, 240) : undefined;
+    } catch {
+      // fall through
+    }
+  }
   try {
     const packed = JSON.stringify(rec.key ?? rec);
     return packed && packed !== '{}' ? packed.slice(0, 180) : undefined;
@@ -31,10 +42,15 @@ function sourceHint(source: unknown): string | undefined {
   }
 }
 
-function looksLikeApiKeyError(status: number, detail: string) {
-  if (status === 401) return true;
-  if (status !== 403) return false;
-  return /invalid credentials|api[- ]key|unauthorized|authentication|not valid for this environment/i.test(
+function looksLikeApiKeyError(_status: number, detail: string) {
+  if (
+    /not_allowed|not authorized|endorsement|enable .*services|contact bridge|not supported/i.test(
+      detail,
+    )
+  ) {
+    return false;
+  }
+  return /invalid credentials|api[- ]key|unauthorized|authentication|not valid for this environment|invalid api/i.test(
     detail,
   );
 }

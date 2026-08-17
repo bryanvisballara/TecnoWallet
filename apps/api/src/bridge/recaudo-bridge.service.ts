@@ -1180,7 +1180,15 @@ function httpErrorDetail(error: unknown) {
 function isFatalPayError(error: unknown) {
   if (!(error instanceof HttpException)) return false;
   const status = error.getStatus();
-  return status === 401 || status >= 500;
+  if (status >= 500) return true;
+  // Real auth failures only — Bridge also uses 401 for "not allowed" rails.
+  return status === 401 && looksLikeCredentialFailure(httpErrorDetail(error));
+}
+
+function looksLikeCredentialFailure(detail: string) {
+  return /invalid credentials|api[- ]key|unauthorized|authentication|not valid for this environment|invalid api/i.test(
+    detail,
+  );
 }
 
 function userPayError(currency: string, raw: string) {
@@ -1189,7 +1197,21 @@ function userPayError(currency: string, raw: string) {
     return raw;
   }
   if (
-    /endorsement|not enabled|not available|forbidden|not permitted|not allowed|not granted/.test(
+    /contact.*enable sepa|enable sepa\/euro|sepa\/euro services|source\.currency:\s*not supported/.test(
+      text,
+    )
+  ) {
+    return 'Euros aún no están habilitados en la cuenta de cobros de TecnoWallet. Pide a la pasarela que active SEPA/Euro (Granted en el organizador no alcanza). Mientras tanto usa dólares.';
+  }
+  if (
+    /'cop' endorsement required|create cop virtual|not authorized to create cop|enable.*cop/.test(
+      text,
+    )
+  ) {
+    return 'Pesos aún no están activos: el organizador tiene COP en Pending. Cuando pase a Granted podrás aportar en pesos. Mientras tanto usa dólares.';
+  }
+  if (
+    /endorsement|not enabled|not available|forbidden|not permitted|not allowed|not granted|not_allowed/.test(
       text,
     )
   ) {
