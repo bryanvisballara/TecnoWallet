@@ -257,7 +257,7 @@ export default function DashboardScreen() {
       <SectionTitle>{copy.home.weeklyActivity}</SectionTitle>
       <Card>
         <WeeklyBars
-          transactions={monthTransactions}
+          transactions={transactions}
           today={weekAnchor}
           resetKey={`${ledger.id}-${year}-${month}`}
         />

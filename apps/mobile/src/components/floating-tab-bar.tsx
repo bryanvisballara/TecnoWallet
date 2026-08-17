@@ -20,6 +20,7 @@ import { Colors, Radius } from '@/constants/theme';
 import { useAppCopy } from '@/i18n/app-copy';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
+import { FEATURE_RECAUDOS_ENABLED } from '@/lib/feature-flags';
 import { tabBarCollapseProgress } from '@/store/tab-bar-progress';
 import { useTabBarStore } from '@/store/tab-bar';
 
@@ -44,7 +45,14 @@ const springSnap = { damping: 16, stiffness: 280, mass: 0.65 };
 
 const FINANCE_ROUTE = 'cuentas';
 const MENU_WIDTH = 220;
-const VISIBLE_TABS = ['inicio', 'sobres', 'cuentas', 'recaudos', 'calendario', 'mas'] as const;
+const VISIBLE_TABS = [
+  'inicio',
+  'sobres',
+  'cuentas',
+  ...(FEATURE_RECAUDOS_ENABLED ? (['recaudos'] as const) : []),
+  'calendario',
+  'mas',
+] as const;
 const FINANCE_SCREENS = new Set([
   'cuentas',
   'mis-cuentas',
@@ -109,7 +117,9 @@ export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBa
   const highlightedName = FINANCE_SCREENS.has(currentRouteName)
     ? FINANCE_ROUTE
     : RECAUDOS_SCREENS.has(currentRouteName)
-      ? 'recaudos'
+      ? FEATURE_RECAUDOS_ENABLED
+        ? 'recaudos'
+        : 'inicio'
       : MAS_SCREENS.has(currentRouteName)
         ? 'mas'
         : SOBRES_SCREENS.has(currentRouteName)

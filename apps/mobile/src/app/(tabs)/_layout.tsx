@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { AppIcon, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
+import { FEATURE_RECAUDOS_ENABLED } from '@/lib/feature-flags';
 import { useAuthStore } from '@/store/auth';
 import { useLedgerStore } from '@/store/ledger';
 
@@ -11,7 +12,9 @@ const tabDefs = [
   { name: 'inicio', key: 'inicio' as const, icon: 'house.fill' },
   { name: 'sobres', key: 'sobres' as const, icon: 'wallet.pass.fill' },
   { name: 'cuentas', key: 'finanzas' as const, icon: 'creditcard.fill' },
-  { name: 'recaudos', key: 'recaudos' as const, icon: 'person.2.fill' },
+  ...(FEATURE_RECAUDOS_ENABLED
+    ? [{ name: 'recaudos', key: 'recaudos' as const, icon: 'person.2.fill' }]
+    : []),
   { name: 'calendario', key: 'calendario' as const, icon: 'calendar' },
   { name: 'mas', key: 'mas' as const, icon: 'ellipsis.circle.fill' },
 ];
@@ -34,6 +37,7 @@ const hiddenTabs = [
   'account/[id]',
   'cashflow/[type]',
   'goal/[id]',
+  ...(FEATURE_RECAUDOS_ENABLED ? [] : (['recaudos'] as const)),
   'recaudo/[id]',
   'afiliados',
   'admin',

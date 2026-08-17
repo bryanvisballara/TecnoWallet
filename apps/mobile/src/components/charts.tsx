@@ -167,17 +167,40 @@ export function WeeklyBars({
   const theme = useAppTheme();
   const locale = useLanguageStore((state) => state.locale);
   const [mode, setMode] = useState<WeeklyMode>('expenses');
+  const [weekOffset, setWeekOffset] = useState(0);
+  const weekAnchor = useMemo(() => {
+    const anchor = new Date(today);
+    anchor.setDate(anchor.getDate() + weekOffset * 7);
+    return anchor;
+  }, [today, weekOffset]);
   const weekDays = useMemo(
-    () => buildWeeklySpend(transactions, today, locale),
-    [transactions, today, locale],
+    () => buildWeeklySpend(transactions, weekAnchor, locale),
+    [transactions, weekAnchor, locale],
   );
-  const todayKey = (dayMetaForLocale(locale).find((item) => item.jsDay === today.getDay())?.key ??
-    'L') as DaySpend['key'];
+  const weekLabel = useMemo(() => {
+    if (weekOffset === 0) return locale === 'es' ? 'Esta semana' : 'This week';
+    if (weekOffset === -1) return locale === 'es' ? 'Semana pasada' : 'Last week';
+    if (weekOffset === 1) return locale === 'es' ? 'Próxima semana' : 'Next week';
+    const start = startOfWeekMonday(weekAnchor);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    const fmt = new Intl.DateTimeFormat(locale === 'es' ? 'es-CO' : 'en-US', {
+      day: 'numeric',
+      month: 'short',
+    });
+    return `${fmt.format(start)} – ${fmt.format(end)}`;
+  }, [weekOffset, weekAnchor, locale]);
+  const todayKey = (dayMetaForLocale(locale).find((item) => item.jsDay === weekAnchor.getDay())
+    ?.key ?? 'L') as DaySpend['key'];
   const [selectedKey, setSelectedKey] = useState<DaySpend['key']>(todayKey);
 
   useEffect(() => {
+    setWeekOffset(0);
+  }, [resetKey]);
+
+  useEffect(() => {
     setSelectedKey(todayKey);
-  }, [resetKey, todayKey]);
+  }, [resetKey, todayKey, weekOffset]);
 
   const totals = useMemo(() => {
     return weekDays.reduce(
@@ -247,9 +270,34 @@ export function WeeklyBars({
       </View>
 
       <View style={styles.summaryHeader}>
-        <View>
-          <Text style={[styles.summaryLabel, { color: theme.muted }]}>Esta semana</Text>
-          <Text style={[styles.summaryValue, { color: theme.text }]}>{money(headerAmount)}</Text>
+        <View style={styles.weekNav}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={locale === 'es' ? 'Semana anterior' : 'Previous week'}
+            onPress={() => setWeekOffset((value) => value - 1)}
+            hitSlop={10}
+            style={[styles.weekArrow, { backgroundColor: theme.surfaceSecondary }]}>
+            <AppIcon name="chevron.left" color={theme.text} size={16} />
+          </Pressable>
+          <View style={styles.weekNavCopy}>
+            <Text style={[styles.summaryLabel, { color: theme.muted }]}>{weekLabel}</Text>
+            <Text style={[styles.summaryValue, { color: theme.text }]}>{money(headerAmount)}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={locale === 'es' ? 'Semana siguiente' : 'Next week'}
+            disabled={weekOffset >= 0}
+            onPress={() => setWeekOffset((value) => Math.min(0, value + 1))}
+            hitSlop={10}
+            style={[
+              styles.weekArrow,
+              {
+                backgroundColor: theme.surfaceSecondary,
+                opacity: weekOffset >= 0 ? 0.35 : 1,
+              },
+            ]}>
+            <AppIcon name="chevron.right" color={theme.text} size={16} />
+          </Pressable>
         </View>
         <Pill
           tone={
@@ -475,6 +523,21 @@ const styles = StyleSheet.create({
   donutCaption: { fontSize: 10, marginTop: 1 },
   chart: { width: '100%', gap: 14 },
   modeRow: { flexDirection: 'row', gap: 8 },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  weekNav: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  weekNavCopy: { flex: 1, minWidth: 0 },
+  weekArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   modeChip: {
     flex: 1,
     minHeight: 34,
@@ -485,11 +548,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   modeChipText: { fontSize: 12, fontWeight: '700' },
-  summaryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   summaryLabel: { fontSize: 12, fontWeight: '600' },
   summaryValue: { fontSize: 20, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] },
   legendRow: { flexDirection: 'row', gap: 14 },
