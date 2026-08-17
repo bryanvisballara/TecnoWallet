@@ -179,7 +179,44 @@ type RecaudosState = {
     recaudoId: string,
     amountMinor: number,
     note?: string,
+    opts?: { externalAccountId: string; rail: 'ach' | 'wire' },
   ) => Promise<void>;
+  fetchPayoutSetup: (recaudoId: string) => Promise<{
+    customerId?: string;
+    walletId?: string;
+    externalAccounts: Array<{
+      id: string;
+      currency: string;
+      bankName?: string;
+      accountOwnerName?: string;
+      last4?: string;
+      routingNumber?: string;
+      accountType?: string;
+      active: boolean;
+    }>;
+    availableMinor: number;
+  }>;
+  addExternalAccount: (
+    recaudoId: string,
+    input: {
+      bankName: string;
+      accountOwnerName: string;
+      firstName?: string;
+      lastName?: string;
+      routingNumber: string;
+      accountNumber: string;
+      checkingOrSavings: 'checking' | 'savings';
+    },
+  ) => Promise<{
+    id: string;
+    currency: string;
+    bankName?: string;
+    accountOwnerName?: string;
+    last4?: string;
+    routingNumber?: string;
+    accountType?: string;
+    active: boolean;
+  }>;
   invite: (
     recaudoId: string,
     email: string,
@@ -918,7 +955,7 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     }
   },
 
-  withdraw: async (recaudoId, amountMinor, note) => {
+  withdraw: async (recaudoId, amountMinor, note, opts) => {
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
       throw new Error("El retiro debe ser mayor a cero.");
     }
@@ -932,6 +969,9 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
     }
     if (amountMinor > current.collectedMinor) {
       throw new Error("No puedes retirar más de lo recaudado.");
+    }
+    if (current.payoutMethod === "digital" && !opts?.externalAccountId) {
+      throw new Error("Registra una cuenta bancaria en dólares antes de retirar.");
     }
     const demo = useAuthStore.getState().demo;
     const profile = useAuthStore.getState().profile;
@@ -964,8 +1004,8 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
         title: "Retiro del recaudo",
         body: `${profile.name} retiró ${(amountMinor / 100).toLocaleString("es-CO", {
           style: "currency",
-          currency: "COP",
-          maximumFractionDigits: 0,
+          currency: "USD",
+          maximumFractionDigits: 2,
         })} de ${current.title}`,
         icon: "arrow.up.circle.fill",
         tone: "orange",
@@ -978,17 +1018,96 @@ export const useRecaudosStore = create<RecaudosState>((set, get) => ({
       return;
     }
     try {
-      const result = await mutateOffline<{ collectedMinor?: number }>({
-        endpoint: `/recaudos/${recaudoId}/withdrawals`,
-        method: "POST",
-        payload: { amountMinor, note },
-      });
-      if (!result.queued) await get().refresh();
+      const payload = {
+        amountMinor,
+        note,
+        ...(opts?.externalAccountId
+          ? {
+              externalAccountId: opts.externalAccountId,
+              rail: opts.rail || "ach",
+            }
+          : {}),
+      };
+      if (current.payoutMethod === "digital") {
+        await apiRequest(`/recaudos/${recaudoId}/withdrawals`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+          headers: {
+            "Idempotency-Key":
+              globalThis.crypto?.randomUUID?.() ??
+              `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          },
+        });
+        await get().refresh();
+      } else {
+        const result = await mutateOffline<{ collectedMinor?: number }>({
+          endpoint: `/recaudos/${recaudoId}/withdrawals`,
+          method: "POST",
+          payload,
+        });
+        if (!result.queued) await get().refresh();
+      }
       notifyWithdraw();
     } catch (error) {
       await get().refresh();
       throw error;
     }
+  },
+
+  fetchPayoutSetup: async (recaudoId) => {
+    if (useAuthStore.getState().demo) {
+      return {
+        externalAccounts: [],
+        availableMinor:
+          get().recaudos.find((item) => item.id === recaudoId)?.collectedMinor ?? 0,
+      };
+    }
+    const row = await apiRequest<{
+      customerId?: string;
+      walletId?: string;
+      externalAccounts?: Array<{
+        id: string;
+        currency: string;
+        bankName?: string;
+        accountOwnerName?: string;
+        last4?: string;
+        routingNumber?: string;
+        accountType?: string;
+        active: boolean;
+      }>;
+      availableMinor?: number;
+    }>(`/recaudos/${recaudoId}/payout-setup`);
+    return {
+      customerId: row.customerId,
+      walletId: row.walletId,
+      externalAccounts: Array.isArray(row.externalAccounts)
+        ? row.externalAccounts
+        : [],
+      availableMinor:
+        typeof row.availableMinor === "number"
+          ? row.availableMinor
+          : get().recaudos.find((item) => item.id === recaudoId)?.collectedMinor ??
+            0,
+    };
+  },
+
+  addExternalAccount: async (recaudoId, input) => {
+    if (useAuthStore.getState().demo) {
+      return {
+        id: id("ea"),
+        currency: "usd",
+        bankName: input.bankName,
+        accountOwnerName: input.accountOwnerName,
+        last4: input.accountNumber.slice(-4),
+        routingNumber: input.routingNumber,
+        accountType: input.checkingOrSavings,
+        active: true,
+      };
+    }
+    return apiRequest(`/recaudos/${recaudoId}/external-accounts`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
   },
 
   invite: async (recaudoId, email) => {

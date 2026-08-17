@@ -330,6 +330,18 @@ export class Withdrawal {
   @Prop({ default: 0 })
   netPayoutMinor?: number;
 
+  @Prop({ trim: true })
+  bridgeTransferId?: string;
+
+  @Prop({ trim: true })
+  externalAccountId?: string;
+
+  @Prop({ trim: true })
+  payoutRail?: string;
+
+  @Prop({ trim: true })
+  bridgeState?: string;
+
   createdAt!: Date;
 }
 export const WithdrawalSchema = SchemaFactory.createForClass(Withdrawal);
@@ -538,6 +550,46 @@ class WithdrawalDto {
   @IsString()
   @Length(0, 500)
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(8, 80)
+  externalAccountId?: string;
+
+  @IsOptional()
+  @IsIn(['ach', 'wire'])
+  rail?: 'ach' | 'wire';
+}
+
+class CreateExternalAccountDto {
+  @IsString()
+  @Length(2, 120)
+  bankName!: string;
+
+  @IsString()
+  @Length(2, 120)
+  accountOwnerName!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  lastName?: string;
+
+  @IsString()
+  @Matches(/^\d{9}$/)
+  routingNumber!: string;
+
+  @IsString()
+  @Matches(/^\d{4,17}$/)
+  accountNumber!: string;
+
+  @IsIn(['checking', 'savings'])
+  checkingOrSavings!: 'checking' | 'savings';
 }
 
 const provisionRails = ['cop', 'usd', 'eur', 'mxn', 'brl', 'crypto'] as const;
@@ -1210,6 +1262,44 @@ export class RecaudosService implements OnModuleInit {
         'El pozo no cubre la comisión (2% al retiro, cuota mensual y KYC). Retira un monto mayor.',
       );
     }
+    let bridgeTransferId: string | undefined;
+    let bridgeState: string | undefined;
+    let payoutRail: 'ach' | 'wire' | undefined;
+    let externalAccountId: string | undefined;
+    if (recaudo.payoutMethod === 'digital') {
+      const customerId = recaudo.tecnoAccount?.customerId?.trim();
+      const walletId = recaudo.tecnoAccount?.walletId?.trim();
+      externalAccountId = dto.externalAccountId?.trim();
+      payoutRail = dto.rail === 'wire' ? 'wire' : 'ach';
+      if (!customerId || !walletId) {
+        throw new BadRequestException(
+          'Abre la wallet digital de este recaudo antes de retirar.',
+        );
+      }
+      if (!externalAccountId) {
+        throw new BadRequestException(
+          'Registra una cuenta bancaria en dólares antes de retirar.',
+        );
+      }
+      const accounts = await this.tecnoAccounts.listExternalAccounts(customerId);
+      const match = accounts.find((item) => item.id === externalAccountId);
+      if (!match || match.currency !== 'usd') {
+        throw new BadRequestException(
+          'No encontramos esa cuenta bancaria. Vuelve a registrarla.',
+        );
+      }
+      const netUsd = (quote.netPayoutMinor / 100).toFixed(2);
+      const offramp = await this.tecnoAccounts.createFiatOfframp({
+        customerId,
+        walletId,
+        externalAccountId,
+        amountUsd: netUsd,
+        rail: payoutRail,
+        idempotencyKey: `wd-${idempotencyKey}`,
+      });
+      bridgeTransferId = offramp.transferId;
+      bridgeState = offramp.state;
+    }
     try {
       const withdrawal = await this.withdrawals.create({
         recaudoId: recaudo._id,
@@ -1221,6 +1311,10 @@ export class RecaudosService implements OnModuleInit {
         platformFeeMinor: quote.spreadMinor,
         digitalFeesMinor: quote.digitalFeesMinor,
         netPayoutMinor: quote.netPayoutMinor,
+        bridgeTransferId,
+        externalAccountId,
+        payoutRail,
+        bridgeState,
       });
       recaudo.digitalMonthlyBilledMinor =
         (recaudo.digitalMonthlyBilledMinor ?? 0) + quote.monthlyDueMinor;
@@ -1908,6 +2002,105 @@ export class RecaudosService implements OnModuleInit {
     return session;
   }
 
+  async getPayoutSetup(id: string, principal: AuthPrincipal) {
+    await this.assertOrganizer(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException('Este recaudo no usa una cuenta TecnoWallet.');
+    }
+    const customerId = recaudo.tecnoAccount?.customerId?.trim();
+    if (!customerId) {
+      throw new BadRequestException(
+        'Abre la wallet digital de este recaudo antes de retirar.',
+      );
+    }
+    const [fiatPayoutConfiguration, externalAccounts] = await Promise.all([
+      this.tecnoAccounts.getFiatPayoutConfiguration(customerId),
+      this.tecnoAccounts.listExternalAccounts(customerId),
+    ]);
+    const available = await this.collected(id);
+    const participantCount = await this.participants.countDocuments({
+      recaudoId: id,
+    });
+    const quote =
+      available > 0
+        ? quoteDigitalWithdrawal({
+            amountMinor: available,
+            activatedAt: recaudo.digitalActivatedAt,
+            monthlyIncluded: false,
+            monthlyBilledMinor: recaudo.digitalMonthlyBilledMinor ?? 0,
+            participantCount,
+            kycBilledMinor: recaudo.digitalKycBilledMinor ?? 0,
+            absorbKyc:
+              recaudo.targetMinor >= DIGITAL_KYC_ABSORB_TARGET_MINOR,
+          })
+        : null;
+    return {
+      customerId,
+      walletId: recaudo.tecnoAccount?.walletId,
+      fiatPayoutConfiguration,
+      externalAccounts: externalAccounts.filter((item) => item.currency === 'usd'),
+      rails: {
+        usd: [
+          { id: 'ach', title: 'ACH', available: true, default: true },
+          { id: 'wire', title: 'Wire', available: true, default: false },
+        ],
+        eur: [{ id: 'sepa', title: 'SEPA', available: false }],
+        mxn: [{ id: 'spei', title: 'SPEI', available: false }],
+        brl: [{ id: 'pix', title: 'PIX', available: false }],
+        cop: [{ id: 'bre_b', title: 'Bre-B', available: false }],
+      },
+      availableMinor: available,
+      withdrawQuotePreview: quote,
+    };
+  }
+
+  async createExternalAccount(
+    id: string,
+    dto: CreateExternalAccountDto,
+    principal: AuthPrincipal,
+  ) {
+    await this.assertOrganizer(id, principal.userId);
+    const recaudo = await this.findRecaudo(id);
+    if (recaudo.payoutMethod !== 'digital') {
+      throw new BadRequestException('Este recaudo no usa una cuenta TecnoWallet.');
+    }
+    const customerId = recaudo.tecnoAccount?.customerId?.trim();
+    if (!customerId) {
+      throw new BadRequestException(
+        'Abre la wallet digital de este recaudo antes de retirar.',
+      );
+    }
+    const names = dto.accountOwnerName.trim().split(/\s+/).filter(Boolean);
+    const account = await this.tecnoAccounts.createUsdExternalAccount(
+      customerId,
+      {
+        bankName: dto.bankName,
+        accountOwnerName: dto.accountOwnerName,
+        firstName: dto.firstName?.trim() || names[0] || 'Account',
+        lastName:
+          dto.lastName?.trim() ||
+          (names.length > 1 ? names.slice(1).join(' ') : names[0] || 'Owner'),
+        routingNumber: dto.routingNumber,
+        accountNumber: dto.accountNumber,
+        checkingOrSavings: dto.checkingOrSavings,
+      },
+      `ea-${id}-${principal.userId}-${randomUUID()}`,
+    );
+    const label = [
+      account.bankName,
+      account.accountOwnerName,
+      account.last4 ? `····${account.last4}` : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    if (label.length >= 8) {
+      recaudo.payoutAccountDetails = label;
+      await recaudo.save();
+    }
+    return account;
+  }
+
   async ensureDigitalWallet(id: string, principal: AuthPrincipal) {
     await this.assertOrganizer(id, principal.userId);
     const recaudo = await this.findRecaudo(id);
@@ -2234,6 +2427,20 @@ class RecaudosController {
     @CurrentUser() user: AuthPrincipal,
   ) {
     return this.service.withdraw(id, dto, idempotencyKey, user);
+  }
+
+  @Get(':id/payout-setup')
+  payoutSetup(@Param('id') id: string, @CurrentUser() user: AuthPrincipal) {
+    return this.service.getPayoutSetup(id, user);
+  }
+
+  @Post(':id/external-accounts')
+  createExternalAccount(
+    @Param('id') id: string,
+    @Body() dto: CreateExternalAccountDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.service.createExternalAccount(id, dto, user);
   }
 
   @Post(':id/tecno-account')

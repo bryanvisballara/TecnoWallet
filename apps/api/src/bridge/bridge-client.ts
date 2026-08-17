@@ -154,4 +154,12 @@ export class BridgeClient {
   ) {
     return this.request<T>('POST', path, body, idempotencyKey);
   }
+
+  async patch<T = unknown>(
+    path: string,
+    body: unknown,
+    idempotencyKey?: string,
+  ) {
+    return this.request<T>('PATCH', path, body, idempotencyKey);
+  }
 }

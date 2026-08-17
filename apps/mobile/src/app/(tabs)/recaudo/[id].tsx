@@ -53,6 +53,7 @@ import {
   hostedVerificationUrl,
   kycPhase,
   continueRecaudoVerification,
+  nextVerificationAction,
   openHostedVerificationUrl,
   resetRecaudoKycDraft,
   startRecaudoKyc,
@@ -196,6 +197,8 @@ export default function RecaudoDetailScreen() {
   const hydrate = useRecaudosStore((state) => state.hydrate);
   const addContribution = useRecaudosStore((state) => state.addContribution);
   const withdraw = useRecaudosStore((state) => state.withdraw);
+  const fetchPayoutSetup = useRecaudosStore((state) => state.fetchPayoutSetup);
+  const addExternalAccount = useRecaudosStore((state) => state.addExternalAccount);
   const updateMyPlan = useRecaudosStore((state) => state.updateMyPlan);
   const deleteRecaudo = useRecaudosStore((state) => state.deleteRecaudo);
   const refreshRecaudos = useRecaudosStore((state) => state.refresh);
@@ -405,6 +408,10 @@ export default function RecaudoDetailScreen() {
     !demo && recaudo.isOrganizer && recaudo.payoutMethod === "digital";
   const needsEnable = digitalOrganizer && activation?.paid !== true;
   const verificationPhase = kycPhase(
+    kycLive,
+    recaudo.tecnoAccount?.kycStatus,
+  );
+  const verificationAction = nextVerificationAction(
     kycLive,
     recaudo.tecnoAccount?.kycStatus,
   );
@@ -731,7 +738,10 @@ export default function RecaudoDetailScreen() {
     }
   };
 
-  const withdrawFromSheet = async (raw: string) => {
+  const withdrawFromSheet = async (
+    raw: string,
+    opts?: { externalAccountId: string; rail: "ach" | "wire" },
+  ) => {
     setWithdrawAmount(raw);
     const amountMinor = amountToMinorUnits(raw, recaudo.currency);
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
@@ -747,9 +757,14 @@ export default function RecaudoDetailScreen() {
     }
     setWithdrawing(true);
     try {
-      await withdraw(recaudo.id, amountMinor);
+      await withdraw(recaudo.id, amountMinor, undefined, opts);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setWithdrawOpen(false);
+      setSuccessMessage(
+        opts?.rail === "wire"
+          ? "Retiro Wire enviado. El banco puede tardar unas horas."
+          : "Retiro ACH enviado. Suele llegar en 1–3 días hábiles.",
+      );
     } catch (error) {
       Alert.alert(
         "No se pudo retirar",
@@ -1018,18 +1033,18 @@ export default function RecaudoDetailScreen() {
               ? "Pendiente"
               : verificationPhase === "rejected"
                 ? "Rechazada"
-                : verificationPhase === "continue"
-                  ? "Incompleta"
-                  : "Sin verificación"}
+                : verificationAction === "kyc"
+                  ? "Términos listos"
+                  : "Sin completar"}
           </Text>
           <Text style={[styles.rowMeta, { color: theme.muted }]}>
             {verificationPhase === "pending"
               ? "Ya enviaste tus datos. Estamos esperando la aprobación. Cuando quede lista podrás realizar aportes."
               : verificationPhase === "rejected"
                 ? "La verificación no se aprobó. Vuelve a iniciarla para continuar."
-                : verificationPhase === "continue"
-                  ? "Falta aceptar los términos y completar tu identidad. Hazlo aquí para dejar la cuenta lista."
-                  : "Inicia la verificación de identidad para abrir tu wallet digital y recibir aportes."}
+                : verificationAction === "kyc"
+                  ? "Ya aceptaste los términos. Ahora confirma tu identidad."
+                  : "Primero acepta los términos. En el siguiente paso confirmas tu identidad."}
           </Text>
           {verificationPhase === "pending" ? null : (
             <PrimaryButton onPress={kycBusy ? undefined : () => void verifyForReceive()}>
@@ -1037,9 +1052,9 @@ export default function RecaudoDetailScreen() {
                 ? "Abriendo…"
                 : verificationPhase === "rejected"
                   ? "Volver a verificar"
-                  : verificationPhase === "continue"
-                    ? "Continuar verificación"
-                    : "Iniciar verificación"}
+                  : verificationAction === "kyc"
+                    ? "Verificar identidad"
+                    : "Aceptar términos"}
             </PrimaryButton>
           )}
         </Card>
@@ -1264,6 +1279,8 @@ export default function RecaudoDetailScreen() {
         onSaveDestination={(details) =>
           updateRecaudo(recaudo.id, { payoutAccountDetails: details }).then(() => undefined)
         }
+        onLoadPayoutSetup={() => fetchPayoutSetup(recaudo.id)}
+        onAddExternalAccount={(input) => addExternalAccount(recaudo.id, input)}
         onWithdraw={withdrawFromSheet}
         withdrawing={withdrawing}
       />

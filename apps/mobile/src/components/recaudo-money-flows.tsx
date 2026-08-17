@@ -18,10 +18,12 @@ import {
   kycPhase,
   kycStatusColor,
   kycStatusLabel,
+  nextVerificationAction,
   openHostedVerificationUrl,
   type RecaudoKyc,
 } from '@/lib/recaudo-kyc';
 import type { Recaudo, RecaudoPaySession } from '@/store/recaudos';
+import { quoteDigitalPayout } from '@/lib/recaudo-digital-pricing';
 
 type Va = NonNullable<NonNullable<Recaudo['tecnoAccount']>['virtualAccounts']>[number];
 
@@ -220,6 +222,7 @@ export function RecaudoReceiveSheet({
   const needsActivation = Boolean(isOrganizer) && activationPaid === false;
   const needsKyc = Boolean(kyc) && !kyc?.verified;
   const verificationPhase = kycPhase(kyc);
+  const verificationAction = nextVerificationAction(kyc);
   const payUrl = session?.startUrl || session?.instructions?.startUrl;
   const rows =
     selected === 'crypto'
@@ -396,9 +399,9 @@ export function RecaudoReceiveSheet({
               {isOrganizer
                 ? verificationPhase === 'pending'
                   ? 'Ya enviaste tu verificación. Cuando esté lista se abren los datos de depósito.'
-                  : verificationPhase === 'continue'
-                    ? 'Falta aceptar los términos y completar tu identidad. Hazlo aquí para dejar la cuenta lista.'
-                    : 'Para recibir aportes verifica tu identidad. Esto se hace una sola vez.'
+                  : verificationAction === 'kyc'
+                    ? 'Ya aceptaste los términos. Ahora confirma tu identidad.'
+                    : 'Primero acepta los términos. En el siguiente paso confirmas tu identidad.'
                 : 'El organizador debe verificar su identidad antes de recibir aportes.'}
             </Text>
             <Text style={[styles.rowTitle, { color: theme.text, marginTop: 12 }]}>
@@ -409,17 +412,16 @@ export function RecaudoReceiveSheet({
             </Text>
             {isOrganizer &&
             onVerify &&
-            (verificationPhase === 'none' ||
-              verificationPhase === 'continue' ||
+            (verificationPhase === 'continue' ||
               verificationPhase === 'rejected') ? (
               <PrimaryButton onPress={verifying ? undefined : () => void onVerify()}>
                 {verifying
                   ? 'Abriendo…'
                   : verificationPhase === 'rejected'
                     ? 'Volver a verificar'
-                    : verificationPhase === 'continue'
-                      ? 'Continuar verificación'
-                      : 'Verifica tu identidad'}
+                    : verificationAction === 'kyc'
+                      ? 'Verificar identidad'
+                      : 'Aceptar términos'}
               </PrimaryButton>
             ) : isOrganizer && onVerify ? (
               <PrimaryButton onPress={verifying ? undefined : () => void onVerify()}>
@@ -519,12 +521,35 @@ export function RecaudoReceiveSheet({
 }
 
 
+export type RecaudoExternalAccount = {
+  id: string;
+  currency: string;
+  bankName?: string;
+  accountOwnerName?: string;
+  last4?: string;
+  routingNumber?: string;
+  accountType?: string;
+  active: boolean;
+};
+
+export type RecaudoPayoutSetup = {
+  customerId?: string;
+  walletId?: string;
+  externalAccounts: RecaudoExternalAccount[];
+  rails: {
+    usd: Array<{ id: string; title: string; available: boolean; default?: boolean }>;
+  };
+  availableMinor: number;
+};
+
 export function RecaudoWithdrawSheet({
   visible,
   recaudo,
   availableLabel,
   onClose,
   onSaveDestination,
+  onLoadPayoutSetup,
+  onAddExternalAccount,
   onWithdraw,
   withdrawing,
 }: {
@@ -533,11 +558,27 @@ export function RecaudoWithdrawSheet({
   availableLabel: string;
   onClose: () => void;
   onSaveDestination: (details: string) => Promise<void>;
-  onWithdraw: (amount: string) => Promise<void>;
+  onLoadPayoutSetup?: () => Promise<RecaudoPayoutSetup>;
+  onAddExternalAccount?: (input: {
+    bankName: string;
+    accountOwnerName: string;
+    firstName?: string;
+    lastName?: string;
+    routingNumber: string;
+    accountNumber: string;
+    checkingOrSavings: 'checking' | 'savings';
+  }) => Promise<RecaudoExternalAccount>;
+  onWithdraw: (
+    amount: string,
+    opts?: { externalAccountId: string; rail: 'ach' | 'wire' },
+  ) => Promise<void>;
   withdrawing: boolean;
 }) {
   const theme = useAppTheme();
-  const [step, setStep] = useState<'method' | 'form'>('method');
+  const isDigital = recaudo.payoutMethod === 'digital';
+  const [step, setStep] = useState<'method' | 'form' | 'accounts' | 'add' | 'pay'>(
+    isDigital ? 'accounts' : 'method',
+  );
   const [method, setMethod] = useState<'breb' | 'bank'>('bank');
   const [kind, setKind] = useState<'individual' | 'empresa'>('individual');
   const [firstName, setFirstName] = useState('');
@@ -551,13 +592,49 @@ export function RecaudoWithdrawSheet({
   const [brebKey, setBrebKey] = useState('');
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loadingSetup, setLoadingSetup] = useState(false);
+  const [accounts, setAccounts] = useState<RecaudoExternalAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [rail, setRail] = useState<'ach' | 'wire'>('ach');
+  const [routingNumber, setRoutingNumber] = useState('');
+  const [usAccountNumber, setUsAccountNumber] = useState('');
+  const [checkingOrSavings, setCheckingOrSavings] = useState<'checking' | 'savings'>(
+    'checking',
+  );
+  const [ownerName, setOwnerName] = useState('');
+
+  const amountMinor = Math.round(Number(amount.replace(',', '.')) * 100);
+  const feePreview =
+    Number.isFinite(amountMinor) && amountMinor > 0
+      ? quoteDigitalPayout(amountMinor)
+      : null;
 
   const closeAll = () => {
-    setStep('method');
+    setStep(isDigital ? 'accounts' : 'method');
+    setAmount('');
     onClose();
   };
 
-  const save = async () => {
+  useEffect(() => {
+    if (!visible || !isDigital || !onLoadPayoutSetup) return;
+    setLoadingSetup(true);
+    void onLoadPayoutSetup()
+      .then((setup) => {
+        setAccounts(setup.externalAccounts ?? []);
+        const first = setup.externalAccounts?.[0];
+        if (first) setSelectedAccountId(first.id);
+        setStep(setup.externalAccounts?.length ? 'pay' : 'accounts');
+      })
+      .catch((error) => {
+        Alert.alert(
+          'No se pudo cargar el retiro',
+          error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        );
+      })
+      .finally(() => setLoadingSetup(false));
+  }, [visible, isDigital, onLoadPayoutSetup]);
+
+  const savePersonal = async () => {
     const details =
       method === 'breb'
         ? `Bre-B · ${brebKey.trim()}`
@@ -581,6 +658,186 @@ export function RecaudoWithdrawSheet({
       setSaving(false);
     }
   };
+
+  const saveUsdAccount = async () => {
+    if (!onAddExternalAccount) return;
+    if (
+      !bank.trim() ||
+      !ownerName.trim() ||
+      !/^\d{9}$/.test(routingNumber.trim()) ||
+      !/^\d{4,17}$/.test(usAccountNumber.trim())
+    ) {
+      Alert.alert(
+        'Datos incompletos',
+        'Necesitas banco, titular, routing (9 dígitos) y número de cuenta.',
+      );
+      return;
+    }
+    setSaving(true);
+    try {
+      const parts = ownerName.trim().split(/\s+/);
+      const created = await onAddExternalAccount({
+        bankName: bank.trim(),
+        accountOwnerName: ownerName.trim(),
+        firstName: parts[0],
+        lastName: parts.length > 1 ? parts.slice(1).join(' ') : parts[0],
+        routingNumber: routingNumber.trim(),
+        accountNumber: usAccountNumber.trim(),
+        checkingOrSavings,
+      });
+      setAccounts((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+      setSelectedAccountId(created.id);
+      setStep('pay');
+      Alert.alert('Cuenta guardada', 'Ya puedes retirar a ese banco en dólares.');
+    } catch (error) {
+      Alert.alert(
+        'No se pudo registrar la cuenta',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startDigitalWithdraw = async () => {
+    if (!selectedAccountId) {
+      Alert.alert('Elige una cuenta', 'Registra o selecciona una cuenta bancaria en dólares.');
+      return;
+    }
+    await onWithdraw(amount, { externalAccountId: selectedAccountId, rail });
+  };
+
+  if (isDigital) {
+    return (
+      <>
+        <SheetFrame
+          visible={visible && (step === 'accounts' || loadingSetup)}
+          title="Retirar a banco (USD)"
+          subtitle="ACH por defecto. Wire también disponible."
+          onClose={closeAll}>
+          {loadingSetup ? (
+            <Text style={[styles.rowSub, { color: theme.muted }]}>Cargando cuentas…</Text>
+          ) : (
+            <>
+              <Text style={[styles.rowSub, { color: theme.muted }]}>
+                Disponible {availableLabel}
+              </Text>
+              {accounts.length ? (
+                accounts.map((account) => (
+                  <Row
+                    key={account.id}
+                    icon="building.columns.fill"
+                    title={account.bankName || 'Banco USD'}
+                    subtitle={`${account.accountOwnerName || 'Titular'} · ····${account.last4 || '----'}`}
+                    onPress={() => {
+                      setSelectedAccountId(account.id);
+                      setStep('pay');
+                    }}
+                  />
+                ))
+              ) : (
+                <Text style={[styles.empty, { color: theme.muted }]}>
+                  Aún no hay una cuenta bancaria en dólares. Agrégala para retirar.
+                </Text>
+              )}
+              <PrimaryButton onPress={() => setStep('add')}>Agregar cuenta USD</PrimaryButton>
+              <Text style={[styles.disclaimer, { color: theme.muted }]}>
+                Euros, pesos y otros rieles FIAT se habilitarán cuando la pasarela los active.
+              </Text>
+            </>
+          )}
+        </SheetFrame>
+
+        <SheetFrame
+          visible={visible && step === 'add'}
+          title="Cuenta bancaria USD"
+          onClose={() => setStep(accounts.length ? 'pay' : 'accounts')}>
+          <UnderlineField label="Banco" value={bank} onChange={setBank} />
+          <UnderlineField label="Titular" value={ownerName} onChange={setOwnerName} />
+          <UnderlineField
+            label="Routing number"
+            value={routingNumber}
+            onChange={setRoutingNumber}
+            keyboard="number-pad"
+          />
+          <UnderlineField
+            label="Número de cuenta"
+            value={usAccountNumber}
+            onChange={setUsAccountNumber}
+            keyboard="number-pad"
+          />
+          <View style={[styles.segment, { backgroundColor: theme.surfaceSecondary }]}>
+            {(['checking', 'savings'] as const).map((item) => {
+              const selected = checkingOrSavings === item;
+              return (
+                <Pressable
+                  key={item}
+                  onPress={() => setCheckingOrSavings(item)}
+                  style={[styles.segmentItem, selected && { backgroundColor: theme.surface }]}>
+                  <Text style={[styles.segmentText, { color: theme.text }]}>
+                    {item === 'checking' ? 'Checking' : 'Savings'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <PrimaryButton onPress={saving ? undefined : () => void saveUsdAccount()}>
+            {saving ? 'Guardando…' : 'Guardar cuenta'}
+          </PrimaryButton>
+        </SheetFrame>
+
+        <SheetFrame
+          visible={visible && step === 'pay'}
+          title="Retirar USDc"
+          subtitle={`Disponible ${availableLabel}`}
+          onClose={closeAll}>
+          <Text style={[styles.section, { color: theme.text }]}>Cuenta destino</Text>
+          <Text style={[styles.rowSub, { color: theme.muted }]}>
+            {accounts.find((item) => item.id === selectedAccountId)?.bankName || 'Cuenta USD'}
+            {' · '}
+            ····
+            {accounts.find((item) => item.id === selectedAccountId)?.last4 || '----'}
+          </Text>
+          <PrimaryButton onPress={() => setStep('accounts')}>Cambiar cuenta</PrimaryButton>
+
+          <Text style={[styles.section, { color: theme.text }]}>Método</Text>
+          <View style={[styles.segment, { backgroundColor: theme.surfaceSecondary }]}>
+            {([
+              { id: 'ach' as const, label: 'ACH' },
+              { id: 'wire' as const, label: 'Wire' },
+            ]).map((item) => {
+              const selected = rail === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setRail(item.id)}
+                  style={[styles.segmentItem, selected && { backgroundColor: theme.surface }]}>
+                  <Text style={[styles.segmentText, { color: theme.text }]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <UnderlineField
+            label="Monto en USDc"
+            value={amount}
+            onChange={setAmount}
+            keyboard="decimal-pad"
+          />
+          {feePreview && feePreview.netPayoutMinor > 0 ? (
+            <Text style={[styles.rowSub, { color: theme.muted }]}>
+              Comisión ~{(feePreview.spreadMinor / 100).toFixed(2)} USDc · Neto a banco{' '}
+              {(feePreview.netPayoutMinor / 100).toFixed(2)} USD
+            </Text>
+          ) : null}
+          <PrimaryButton
+            onPress={withdrawing ? undefined : () => void startDigitalWithdraw()}>
+            {withdrawing ? 'Retirando…' : 'Retirar'}
+          </PrimaryButton>
+        </SheetFrame>
+      </>
+    );
+  }
 
   return (
     <>
@@ -676,13 +933,13 @@ export function RecaudoWithdrawSheet({
           </>
         ) : null}
 
-        <PrimaryButton onPress={saving ? undefined : () => void save()}>
+        <PrimaryButton onPress={saving ? undefined : () => void savePersonal()}>
           {saving ? 'Guardando…' : 'Guardar destinatario'}
         </PrimaryButton>
 
         <Text style={[styles.section, { color: theme.text }]}>Retirar</Text>
         <Text style={[styles.rowSub, { color: theme.muted }]}>Disponible {availableLabel}</Text>
-        <UnderlineField label="Monto en USDc" value={amount} onChange={setAmount} keyboard="decimal-pad" />
+        <UnderlineField label="Monto" value={amount} onChange={setAmount} keyboard="decimal-pad" />
         <PrimaryButton onPress={withdrawing ? undefined : () => void onWithdraw(amount)}>
           {withdrawing ? 'Retirando…' : 'Retirar'}
         </PrimaryButton>

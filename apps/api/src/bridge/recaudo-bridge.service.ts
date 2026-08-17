@@ -73,11 +73,78 @@ export type TecnoKycSnapshot = {
   nextStep?: 'tos' | 'kyc' | 'wait' | 'done' | 'retry';
 };
 
+export type TecnoFiatPayoutConfig = {
+  usd?: { wire?: string; ach?: string };
+  eur?: { sepa?: string };
+  brl?: { pix?: string };
+  mxn?: { spei?: string };
+};
+
+export type TecnoExternalAccount = {
+  id: string;
+  currency: string;
+  bankName?: string;
+  accountOwnerName?: string;
+  last4?: string;
+  routingNumber?: string;
+  accountType?: string;
+  active: boolean;
+};
+
+export type TecnoOfframpSession = {
+  transferId: string;
+  state: string;
+  amount: string;
+  currency: string;
+  rail: string;
+};
+
+export type CreateUsdExternalAccountInput = {
+  bankName: string;
+  accountOwnerName: string;
+  firstName: string;
+  lastName: string;
+  routingNumber: string;
+  accountNumber: string;
+  checkingOrSavings: 'checking' | 'savings';
+  streetLine1?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+};
+
 type BridgeCustomer = {
   id?: string;
   email?: string;
   status?: string;
+  first_name?: string;
+  last_name?: string;
   endorsements?: Array<{ name?: string; status?: string }>;
+  residential_address?: {
+    street_line_1?: string;
+    street_line_2?: string;
+    city?: string;
+    state?: string;
+    subdivision?: string;
+    postal_code?: string;
+    country?: string;
+  };
+};
+
+type BridgeExternalAccount = {
+  id?: string;
+  currency?: string;
+  bank_name?: string;
+  account_owner_name?: string;
+  active?: boolean;
+  account_type?: string;
+  last_4?: string;
+  account?: {
+    last_4?: string;
+    routing_number?: string;
+    checking_or_savings?: string;
+  };
 };
 
 type BridgeVaEvent = {
@@ -863,6 +930,208 @@ export class RecaudoBridgeService {
     return this.getVirtualAccountSession(owner, accountId);
   }
 
+  async getFiatPayoutConfiguration(
+    customerId: string,
+  ): Promise<TecnoFiatPayoutConfig> {
+    const id = customerId.trim();
+    if (!this.bridge.configured || !id) return {};
+    try {
+      const row = await this.bridge.get<{
+        fiat_payout_configuration?: TecnoFiatPayoutConfig;
+      }>(`/v0/customers/${id}/fiat_payout_configuration`);
+      return row.fiat_payout_configuration ?? {};
+    } catch (error) {
+      this.logger.warn(
+        `Fiat payout config failed for ${id}: ${httpErrorDetail(error)}`,
+      );
+      return {};
+    }
+  }
+
+  async updateFiatPayoutConfiguration(
+    customerId: string,
+    patch: TecnoFiatPayoutConfig,
+  ): Promise<TecnoFiatPayoutConfig> {
+    const id = customerId.trim();
+    if (!this.bridge.configured || !id) {
+      throw new ServiceUnavailableException(
+        'La verificación no está configurada todavía.',
+      );
+    }
+    const row = await this.bridge.patch<{
+      fiat_payout_configuration?: TecnoFiatPayoutConfig;
+    }>(
+      `/v0/customers/${id}/fiat_payout_configuration`,
+      { fiat_payout_configuration: patch },
+      `fiat-payout-${id}-${Date.now()}`,
+    );
+    return row.fiat_payout_configuration ?? patch;
+  }
+
+  async listExternalAccounts(
+    customerId: string,
+  ): Promise<TecnoExternalAccount[]> {
+    const id = customerId.trim();
+    if (!this.bridge.configured || !id) return [];
+    try {
+      const listed = await this.bridge.get<
+        BridgeList<BridgeExternalAccount> | BridgeExternalAccount[]
+      >(`/v0/customers/${id}/external_accounts`);
+      const rows = Array.isArray(listed) ? listed : (listed.data ?? []);
+      return rows
+        .map(mapExternalAccount)
+        .filter((item): item is TecnoExternalAccount => Boolean(item));
+    } catch (error) {
+      this.logger.warn(
+        `List external accounts failed for ${id}: ${httpErrorDetail(error)}`,
+      );
+      return [];
+    }
+  }
+
+  async createUsdExternalAccount(
+    customerId: string,
+    input: CreateUsdExternalAccountInput,
+    idempotencyKey: string,
+  ): Promise<TecnoExternalAccount> {
+    const id = customerId.trim();
+    if (!this.bridge.configured || !id) {
+      throw new ServiceUnavailableException(
+        'La verificación no está configurada todavía.',
+      );
+    }
+    const customer = await this.bridge
+      .get<BridgeCustomer>(`/v0/customers/${id}`)
+      .catch(() => undefined);
+    const address = customer?.residential_address;
+    const street =
+      input.streetLine1?.trim() || text(address?.street_line_1) || '';
+    const city = input.city?.trim() || text(address?.city) || '';
+    const state =
+      input.state?.trim() ||
+      text(address?.state) ||
+      text(address?.subdivision) ||
+      '';
+    const postal =
+      input.postalCode?.trim() || text(address?.postal_code) || '';
+    const countryRaw = (
+      input.country?.trim() ||
+      text(address?.country) ||
+      'USA'
+    ).toUpperCase();
+    const country =
+      countryRaw === 'US' || countryRaw === 'USA' || countryRaw === 'UNITED STATES'
+        ? 'USA'
+        : countryRaw;
+    if (!street || !city || !state || !postal) {
+      throw new BadRequestException(
+        'Falta la dirección del organizador para registrar la cuenta bancaria. Completa la verificación e inténtalo de nuevo.',
+      );
+    }
+    const names = splitOwnerName(input.accountOwnerName);
+    const account = await this.bridge.post<BridgeExternalAccount>(
+      `/v0/customers/${id}/external_accounts`,
+      {
+        currency: 'usd',
+        account_type: 'us',
+        bank_name: input.bankName.trim(),
+        account_name: `${input.bankName.trim()} account`,
+        account_owner_type: 'individual',
+        account_owner_name: input.accountOwnerName.trim(),
+        first_name: input.firstName.trim() || names.firstName,
+        last_name: input.lastName.trim() || names.lastName,
+        account: {
+          routing_number: input.routingNumber.replace(/\D/g, ''),
+          account_number: input.accountNumber.replace(/\D/g, ''),
+          checking_or_savings: input.checkingOrSavings,
+        },
+        address: {
+          street_line_1: street,
+          city,
+          state,
+          postal_code: postal,
+          country,
+        },
+      },
+      idempotencyKey,
+    );
+    const mapped = mapExternalAccount(account);
+    if (!mapped) {
+      throw new BadRequestException(
+        'No se pudo registrar la cuenta bancaria. Revisa los datos e inténtalo de nuevo.',
+      );
+    }
+    return mapped;
+  }
+
+  async createFiatOfframp(input: {
+    customerId: string;
+    walletId: string;
+    externalAccountId: string;
+    amountUsd: string;
+    rail: 'ach' | 'wire';
+    idempotencyKey: string;
+  }): Promise<TecnoOfframpSession> {
+    const customerId = input.customerId.trim();
+    const walletId = input.walletId.trim();
+    const externalAccountId = input.externalAccountId.trim();
+    if (!this.bridge.configured || !customerId || !walletId || !externalAccountId) {
+      throw new BadRequestException(
+        'Abre la wallet digital y registra una cuenta bancaria antes de retirar.',
+      );
+    }
+    const amount = formatPayAmount('usd', input.amountUsd);
+    const rail = input.rail === 'wire' ? 'wire' : 'ach';
+    if (rail === 'wire') {
+      try {
+        await this.updateFiatPayoutConfiguration(customerId, {
+          usd: { wire: 'developer' },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Could not set wire payout identity: ${httpErrorDetail(error)}`,
+        );
+      }
+    }
+    try {
+      const transfer = await this.bridge.post<BridgeTransfer>(
+        '/v0/transfers',
+        {
+          developer_fee_percent: '0.0',
+          amount,
+          on_behalf_of: customerId,
+          source: {
+            payment_rail: 'bridge_wallet',
+            currency: 'usdc',
+            bridge_wallet_id: walletId,
+          },
+          destination: {
+            currency: 'usd',
+            payment_rail: rail,
+            external_account_id: externalAccountId,
+          },
+        },
+        input.idempotencyKey,
+      );
+      if (!transfer.id) {
+        throw new BadRequestException(
+          'No se pudo crear el retiro. Inténtalo de nuevo.',
+        );
+      }
+      return {
+        transferId: transfer.id,
+        state: transfer.state || 'awaiting_funds',
+        amount: transfer.amount || amount,
+        currency: 'usd',
+        rail,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        userWithdrawError(httpErrorDetail(error)),
+      );
+    }
+  }
+
   private async payViaVirtualAccount(input: {
     customerId: string;
     recaudoId: string;
@@ -1233,4 +1502,45 @@ function userPayError(currency: string, raw: string) {
     return 'No se pudo abrir este aporte. Revisa el monto e inténtalo de nuevo.';
   }
   return raw.replace(/\bBridge\b/gi, 'la pasarela').trim() || 'No se pudo crear el pago.';
+}
+
+function mapExternalAccount(
+  account: BridgeExternalAccount,
+): TecnoExternalAccount | null {
+  if (!account.id) return null;
+  return {
+    id: account.id,
+    currency: (account.currency || '').toLowerCase(),
+    bankName: text(account.bank_name),
+    accountOwnerName: text(account.account_owner_name),
+    last4: text(account.last_4) ?? text(account.account?.last_4),
+    routingNumber: text(account.account?.routing_number),
+    accountType:
+      text(account.account?.checking_or_savings) ?? text(account.account_type),
+    active: account.active !== false,
+  };
+}
+
+function splitOwnerName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: 'Account', lastName: 'Owner' };
+  if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+function userWithdrawError(raw: string) {
+  const text = raw.toLowerCase();
+  if (/insufficient|balance|not enough/.test(text)) {
+    return 'No hay saldo suficiente en la wallet digital para este retiro.';
+  }
+  if (/external_account|routing|account_number|invalid/.test(text)) {
+    return 'La cuenta bancaria no es válida. Revisa routing y número e inténtalo de nuevo.';
+  }
+  if (/endorsement|not enabled|not allowed|not_allowed|forbidden/.test(text)) {
+    return 'Este medio de retiro aún no está activo. Usa ACH en dólares o inténtalo más tarde.';
+  }
+  return raw.replace(/\bBridge\b/gi, 'la pasarela').trim() || 'No se pudo crear el retiro.';
 }
