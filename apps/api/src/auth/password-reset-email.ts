@@ -37,7 +37,7 @@ export function passwordResetEmailHtml(input: {
     ? 'Crea una contraseña'
     : 'Restablece tu contraseña';
   const body = createPassword
-    ? `${greeting} tu cuenta entra con Google, pero puedes crear una contraseña para iniciar sesión con correo. El enlace caduca en 15 minutos:`
+    ? `${greeting} tu cuenta entra con Google o Apple, pero puedes crear una contraseña para iniciar sesión con correo. El enlace caduca en 15 minutos:`
     : `${greeting} recibimos una solicitud para cambiar la contraseña de tu cuenta. Pulsa el botón (válido 15 minutos):`;
   const cta = createPassword ? 'Crear contraseña' : 'Cambiar contraseña';
 

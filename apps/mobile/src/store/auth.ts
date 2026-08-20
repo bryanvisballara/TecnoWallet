@@ -47,6 +47,12 @@ type AuthState = {
     email: string,
   ) => Promise<{ delivered: boolean; devCode?: string }>;
   signInWithGoogle: (idToken: string) => Promise<void>;
+  signInWithApple: (input: {
+    identityToken: string;
+    nonce: string;
+    givenName?: string;
+    familyName?: string;
+  }) => Promise<void>;
   signOut: () => Promise<void>;
   requestDeleteAccountCode: () => Promise<{
     email: string;
@@ -413,6 +419,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const auth = await apiRequest<AuthResponse>('/auth/google', {
       method: 'POST',
       body: JSON.stringify({ idToken }),
+    });
+    const profile = await persistAuthSession(auth);
+    set({ authenticated: true, demo: false, profile });
+  },
+  signInWithApple: async (input) => {
+    if (!input.identityToken?.trim()) {
+      throw new Error('No recibimos el token de Apple. Inténtalo de nuevo.');
+    }
+    await clearLocalSession();
+    set({ authenticated: false, demo: false });
+    const auth = await apiRequest<AuthResponse>('/auth/apple', {
+      method: 'POST',
+      body: JSON.stringify({
+        identityToken: input.identityToken,
+        nonce: input.nonce,
+        givenName: input.givenName,
+        familyName: input.familyName,
+      }),
     });
     const profile = await persistAuthSession(auth);
     set({ authenticated: true, demo: false, profile });

@@ -41,6 +41,8 @@ const schema = Joi.object({
   GOOGLE_CLIENT_ID_WEB: Joi.string().optional().allow(''),
   GOOGLE_CLIENT_ID_IOS: Joi.string().optional().allow(''),
   GOOGLE_CLIENT_SECRET: Joi.string().optional().allow(''),
+  /** Comma-separated Sign in with Apple audiences (iOS bundle id). */
+  APPLE_CLIENT_IDS: Joi.string().optional().allow(''),
   BELVO_SECRET_ID: Joi.string().optional().allow(''),
   BELVO_SECRET_PASSWORD: Joi.string().optional().allow(''),
   BELVO_API_URL: Joi.string().uri().default('https://sandbox.belvo.com'),

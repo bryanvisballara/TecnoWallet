@@ -1,3 +1,4 @@
+import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -22,6 +23,7 @@ import { Card, PrimaryButton, useAppTheme } from '@/components/ui';
 import { authCopy } from '@/i18n/languages';
 import { ApiError } from '@/services/api';
 import { PENDING_COLLABORATION_INVITE_KEY } from '@/services/collaboration-api';
+import { createAppleNonce } from '@/services/apple-auth';
 import {
   GOOGLE_WEB_CLIENT_ID,
   NATIVE_OAUTH_RETURN,
@@ -59,6 +61,7 @@ export default function AuthScreen() {
   const verifyEmail = useAuthStore((state) => state.verifyEmail);
   const resendVerification = useAuthStore((state) => state.resendVerification);
   const signInWithGoogle = useAuthStore((state) => state.signInWithGoogle);
+  const signInWithApple = useAuthStore((state) => state.signInWithApple);
   const requestPasswordReset = useAuthStore((state) => state.requestPasswordReset);
   const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot'>('login');
   const [name, setName] = useState('');
@@ -69,6 +72,14 @@ export default function AuthScreen() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    void AppleAuthentication.isAvailableAsync()
+      .then(setAppleAvailable)
+      .catch(() => setAppleAvailable(false));
+  }, []);
 
   const goHome = async () => {
     const collaborationToken = await localStorage.get<string | null>(
@@ -263,6 +274,55 @@ export default function AuthScreen() {
     }
   };
 
+  const submitApple = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      const { rawNonce, hashedNonce } = await createAppleNonce();
+      const credential = await AppleAuthentication.signInAsync({
+        nonce: hashedNonce,
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (!credential.identityToken) {
+        throw new Error('Apple no devolvió un token. Inténtalo de nuevo.');
+      }
+      await signInWithApple({
+        identityToken: credential.identityToken,
+        nonce: rawNonce,
+        givenName: credential.fullName?.givenName ?? undefined,
+        familyName: credential.fullName?.familyName ?? undefined,
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await goHome();
+    } catch (cause) {
+      const code =
+        cause && typeof cause === 'object' && 'code' in cause
+          ? String((cause as { code?: string }).code)
+          : '';
+      if (code === 'ERR_REQUEST_CANCELED') {
+        return;
+      }
+      const message =
+        cause instanceof ApiError
+          ? cause.message === 'Invalid Apple identity token'
+            ? 'Apple rechazó el token. Revisa el bundle id y vuelve a intentar.'
+            : cause.message === 'Sign in with Apple is not configured'
+              ? 'El servidor no tiene Sign in with Apple configurado.'
+              : cause.message
+          : cause instanceof Error
+            ? cause.message
+            : copy.genericError;
+      setError(message);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -439,14 +499,25 @@ export default function AuthScreen() {
                 <View style={[styles.line, { backgroundColor: theme.border }]} />
               </View>
 
-              <Pressable
-                accessibilityRole="button"
-                disabled={loading}
-                style={[styles.socialButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
-                onPress={() => void submitGoogle()}>
-                <GoogleMark />
-                <Text style={[styles.socialText, { color: theme.text }]}>{copy.google}</Text>
-              </Pressable>
+              <View style={styles.socialStack}>
+                {appleAvailable ? (
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                    cornerRadius={16}
+                    style={styles.appleButton}
+                    onPress={() => void submitApple()}
+                  />
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={loading}
+                  style={[styles.socialButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                  onPress={() => void submitGoogle()}>
+                  <GoogleMark />
+                  <Text style={[styles.socialText, { color: theme.text }]}>{copy.google}</Text>
+                </Pressable>
+              </View>
             </>
           ) : null}
 
@@ -523,6 +594,8 @@ const styles = StyleSheet.create({
   demo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   line: { flex: 1, height: StyleSheet.hairlineWidth },
   or: { fontSize: 13 },
+  socialStack: { gap: 10 },
+  appleButton: { width: '100%', height: 50 },
   socialButton: {
     minHeight: 50,
     borderWidth: StyleSheet.hairlineWidth,

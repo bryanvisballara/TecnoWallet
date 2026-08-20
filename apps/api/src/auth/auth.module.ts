@@ -35,6 +35,7 @@ import {
   IsString,
   Length,
   Matches,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 import { compare, hash } from 'bcryptjs';
@@ -42,6 +43,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
+import { verifyAppleIdentityToken } from './apple-identity';
 import { otpEmailHtml, otpEmailSubject } from './otp-email';
 import {
   passwordResetEmailHtml,
@@ -73,7 +75,10 @@ export class User {
   @Prop({ unique: true, sparse: true, trim: true })
   googleId?: string;
 
-  /** Password accounts require email OTP; Google accounts are trusted. */
+  @Prop({ unique: true, sparse: true, trim: true })
+  appleId?: string;
+
+  /** Password accounts require email OTP; Google/Apple accounts are trusted. */
   @Prop({ default: true })
   emailVerified!: boolean;
 
@@ -267,6 +272,27 @@ class GoogleLoginDto {
   @IsString()
   @MinLength(20)
   idToken!: string;
+}
+
+class AppleLoginDto {
+  @IsString()
+  @MinLength(20)
+  identityToken!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  nonce?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  givenName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  familyName?: string;
 }
 
 class VerifyEmailDto {
@@ -632,6 +658,111 @@ export class AuthService {
     return this.issueTokens(user, { replaceSession: true });
   }
 
+  private appleAudiences() {
+    const fromEnv = (this.config.get<string>('APPLE_CLIENT_IDS') ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (fromEnv.length) return fromEnv;
+    const bundle = this.config.get<string>('APNS_BUNDLE_ID')?.trim();
+    return [bundle || 'com.tecnowallet.mobile'];
+  }
+
+  private displayNameFromApple(dto: AppleLoginDto, email?: string) {
+    const name = [dto.givenName, dto.familyName]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    if (name) return name;
+    const local = email?.split('@')[0]?.trim();
+    if (local && !local.startsWith('apple+')) return local;
+    return 'Usuario';
+  }
+
+  async loginWithApple(dto: AppleLoginDto) {
+    const audiences = this.appleAudiences();
+    let identity: Awaited<ReturnType<typeof verifyAppleIdentityToken>>;
+    try {
+      identity = await verifyAppleIdentityToken({
+        identityToken: dto.identityToken,
+        audiences,
+        rawNonce: dto.nonce,
+      });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : '';
+      if (message === 'Apple identity token is not configured') {
+        throw new UnauthorizedException('Sign in with Apple is not configured');
+      }
+      throw new UnauthorizedException('Invalid Apple identity token');
+    }
+
+    const email =
+      identity.email ||
+      `apple+${identity.appleId.replace(/[^a-zA-Z0-9]+/g, '')}@privaterelay.tecnowallet.invalid`;
+    const name = this.displayNameFromApple(dto, identity.email);
+
+    let user = await this.users.findOne({
+      appleId: identity.appleId,
+      active: true,
+    });
+    if (!user && identity.email) {
+      user = await this.users.findOne({
+        email: identity.email,
+        active: true,
+      });
+    }
+    if (user?.appleId && user.appleId !== identity.appleId) {
+      throw new ConflictException('That email is already in use');
+    }
+    if (!user) {
+      user = await this.users.create({
+        email,
+        name,
+        appleId: identity.appleId,
+        emailVerified: true,
+      });
+      const workspace = await this.workspaces.create({
+        name: 'Hogar',
+        type: 'personal',
+        ownerId: user._id,
+        baseCurrency: 'COP',
+        color: '#F5C518',
+        icon: 'house.fill',
+        freeSlot: 1,
+      });
+      await this.memberships.create({
+        workspaceId: workspace._id,
+        userId: user._id,
+        role: 'owner',
+      });
+    } else {
+      user.appleId = user.appleId ?? identity.appleId;
+      user.emailVerified = true;
+      if (
+        identity.email &&
+        user.email.endsWith('@privaterelay.tecnowallet.invalid')
+      ) {
+        const taken = await this.users.exists({
+          email: identity.email,
+          _id: { $ne: user._id },
+        });
+        if (!taken) user.email = identity.email;
+      }
+      const appleName = [dto.givenName, dto.familyName]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (appleName && (!user.name?.trim() || user.name === 'Usuario')) {
+        user.name = appleName;
+      }
+      await user.save();
+    }
+
+    return this.issueTokens(user, { replaceSession: true });
+  }
+
   async refresh(rawToken: string) {
     let payload: { sub: string; email: string; jti: string; kind: string };
     try {
@@ -742,6 +873,7 @@ export class AuthService {
         },
         $unset: {
           googleId: 1,
+          appleId: 1,
           passwordHash: 1,
           emailVerificationCodeHash: 1,
           emailVerificationExpiresAt: 1,
@@ -809,7 +941,7 @@ export class AuthService {
     if (!user?.active) throw new NotFoundException('User not found');
     if (!user.passwordHash) {
       throw new BadRequestException(
-        'Esta cuenta inicia con Google. No tiene contraseña para cambiar.',
+        'Esta cuenta inicia con Google o Apple. No tiene contraseña para cambiar.',
       );
     }
     if (!(await compare(dto.currentPassword, user.passwordHash))) {
@@ -827,7 +959,7 @@ export class AuthService {
 
   /**
    * Always returns accepted to avoid email enumeration.
-   * Sends a 15-minute reset/create-password link (including Google-only accounts).
+   * Sends a 15-minute reset/create-password link (including Google/Apple-only accounts).
    */
   async requestPasswordReset(dto: ForgotPasswordDto) {
     const email = dto.email.trim().toLowerCase();
@@ -1151,6 +1283,12 @@ export class AuthController {
   @Post('google')
   google(@Body() dto: GoogleLoginDto) {
     return this.auth.loginWithGoogle(dto);
+  }
+
+  @Public()
+  @Post('apple')
+  apple(@Body() dto: AppleLoginDto) {
+    return this.auth.loginWithApple(dto);
   }
 
   @Public()

@@ -17,8 +17,10 @@
       "bundleIdentifier": "com.tecnowallet.mobile",
       "googleServicesFile": "./GoogleService-Info.plist",
       "supportsTablet": true,
+      "usesAppleSignIn": true,
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": ["remote-notification"],
+        "CFBundleAllowMixedLocalizations": true
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -45,6 +47,7 @@
     "plugins": [
       "./plugins/with-app-delegate-no-rctbridge.js",
       "expo-router",
+      "expo-apple-authentication",
       [
         "expo-notifications",
         {
