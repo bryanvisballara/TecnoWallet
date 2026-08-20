@@ -40,6 +40,15 @@ export async function storeWebAffiliateReferral(code: string, clickId?: string) 
   if (await tokenStorage.get()) return claimPendingAffiliate();
 }
 
+export async function peekPendingAffiliateCode() {
+  const pending = await localStorage.get<PendingReferral | null>(
+    PENDING_KEY,
+    null,
+  );
+  const code = pending?.code?.trim().toUpperCase();
+  return code || null;
+}
+
 export async function claimPendingAffiliate() {
   if (!(await tokenStorage.get())) return null;
   const pending = await localStorage.get<PendingReferral | null>(

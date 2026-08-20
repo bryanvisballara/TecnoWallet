@@ -33,6 +33,10 @@ type PlusState = {
   paywallPlan: PaywallPlan;
   priceLabel: string | null;
   businessPriceLabel: string | null;
+  listPriceLabel: string | null;
+  listBusinessPriceLabel: string | null;
+  couponCode: string | null;
+  couponName: string | null;
   hydrate: () => Promise<void>;
   reset: () => void;
   openPaywall: (
@@ -42,6 +46,9 @@ type PlusState = {
   closePaywall: () => void;
   setPriceLabel: (price: string | null) => void;
   setBusinessPriceLabel: (price: string | null) => void;
+  setListPriceLabel: (price: string | null) => void;
+  setListBusinessPriceLabel: (price: string | null) => void;
+  setCoupon: (code: string | null, name?: string | null) => void;
   setBilling: (billing: BillingStatus) => void;
 };
 
@@ -55,6 +62,10 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   paywallPlan: 'plus',
   priceLabel: FALLBACK_PLUS_PRICE_LABEL,
   businessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
+  listPriceLabel: FALLBACK_PLUS_PRICE_LABEL,
+  listBusinessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
+  couponCode: null,
+  couponName: null,
   hydrate: async () => {
     set({ loading: true });
     try {
@@ -80,6 +91,10 @@ export const usePlusStore = create<PlusState>((set, get) => ({
       paywallPlan: 'plus',
       priceLabel: FALLBACK_PLUS_PRICE_LABEL,
       businessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
+      listPriceLabel: FALLBACK_PLUS_PRICE_LABEL,
+      listBusinessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
+      couponCode: null,
+      couponName: null,
     }),
   openPaywall: (paywallReason = 'UPGRADE', options) => {
     const access = get().access;
@@ -93,6 +108,14 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   closePaywall: () => set({ paywallOpen: false }),
   setPriceLabel: (priceLabel) => set({ priceLabel }),
   setBusinessPriceLabel: (businessPriceLabel) => set({ businessPriceLabel }),
+  setListPriceLabel: (listPriceLabel) => set({ listPriceLabel }),
+  setListBusinessPriceLabel: (listBusinessPriceLabel) =>
+    set({ listBusinessPriceLabel }),
+  setCoupon: (couponCode, couponName = null) =>
+    set({
+      couponCode: couponCode?.trim().toUpperCase() || null,
+      couponName: couponName?.trim() || null,
+    }),
   setBilling: (billing) => set({ billing, access: billing.access }),
 }));
 

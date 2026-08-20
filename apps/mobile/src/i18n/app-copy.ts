@@ -285,6 +285,13 @@ export type AppCopy = {
     viewBusiness: string;
     pricePerMonth: (price: string) => string;
     priceBeforeConfirm: string;
+    couponLabel: string;
+    couponPlaceholder: string;
+    couponApply: string;
+    couponApplying: string;
+    couponApplied: (code: string) => string;
+    couponHint: string;
+    couponInvalid: string;
     restore: string;
     purchaseFailed: string;
     restoreEmpty: string;
@@ -790,6 +797,13 @@ const es: AppCopy = {
     viewBusiness: 'Ver TecnoWallet Business',
     pricePerMonth: (price) => `${price} al mes`,
     priceBeforeConfirm: 'Precio mostrado antes de confirmar',
+    couponLabel: 'Cupón de referido',
+    couponPlaceholder: 'Ej. TECNO10',
+    couponApply: 'Aplicar',
+    couponApplying: 'Aplicando…',
+    couponApplied: (code) => `Cupón ${code} aplicado`,
+    couponHint: 'Con un código de afiliado, Plus queda en US$9.99 y Business en US$14.99.',
+    couponInvalid: 'Ese código no es válido.',
     restore: 'Restaurar compras',
     purchaseFailed: 'No pudimos completar la compra.',
     restoreEmpty: 'No encontramos una suscripción activa para restaurar.',
@@ -1355,6 +1369,13 @@ const en: AppCopy = {
     viewBusiness: 'View TecnoWallet Business',
     pricePerMonth: (price) => `${price} / month`,
     priceBeforeConfirm: 'Price shown before you confirm',
+    couponLabel: 'Referral coupon',
+    couponPlaceholder: 'e.g. TECNO10',
+    couponApply: 'Apply',
+    couponApplying: 'Applying…',
+    couponApplied: (code) => `Coupon ${code} applied`,
+    couponHint: 'With an affiliate code, Plus is US$9.99 and Business is US$14.99.',
+    couponInvalid: 'That code isn’t valid.',
     restore: 'Restore purchases',
     purchaseFailed: 'We couldn’t complete the purchase.',
     restoreEmpty: 'We couldn’t find an active subscription to restore.',

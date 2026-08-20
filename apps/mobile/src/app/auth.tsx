@@ -33,7 +33,6 @@ import {
   parseIdTokenFromUrl,
 } from '@/services/google-auth';
 import { localStorage } from '@/services/persistence';
-import { storeManualAffiliateCode } from '@/services/branch';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 
@@ -67,7 +66,6 @@ export default function AuthScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [referralCode, setReferralCode] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -114,9 +112,6 @@ export default function AuthScreen() {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         await goHome();
         return;
-      }
-      if (referralCode.trim()) {
-        await storeManualAffiliateCode(referralCode);
       }
       const result = await signUp(name, email, password);
       setEmail(result.email);
@@ -423,25 +418,6 @@ export default function AuthScreen() {
                       placeholder={copy.namePlaceholder}
                       placeholderTextColor={theme.muted}
                       style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
-                    />
-                    <Text style={[styles.label, { color: theme.text }]}>
-                      Código de recomendación (opcional)
-                    </Text>
-                    <TextInput
-                      value={referralCode}
-                      onChangeText={(value) => setReferralCode(value.toUpperCase())}
-                      autoCapitalize="characters"
-                      autoCorrect={false}
-                      placeholder="Ej. TECNO10"
-                      placeholderTextColor={theme.muted}
-                      style={[
-                        styles.input,
-                        {
-                          color: theme.text,
-                          backgroundColor: theme.surfaceSecondary,
-                          borderColor: theme.border,
-                        },
-                      ]}
                     />
                   </>
                 ) : null}

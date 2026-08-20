@@ -1,12 +1,14 @@
 import * as Linking from 'expo-linking';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -16,7 +18,18 @@ import {
   useAppTheme,
 } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
+import { ApiError } from '@/services/api';
 import {
+  claimAffiliate,
+  getAffiliateCode,
+  getMyAffiliate,
+} from '@/services/affiliate-api';
+import {
+  peekPendingAffiliateCode,
+  storeManualAffiliateCode,
+} from '@/services/branch';
+import {
+  loadOfferings,
   purchaseBusiness,
   purchasePlus,
   restorePlusPurchases,
@@ -49,15 +62,30 @@ export function PlusPaywallModal() {
   const plan = usePlusStore((state) => state.paywallPlan);
   const priceLabel = usePlusStore((state) => state.priceLabel);
   const businessPriceLabel = usePlusStore((state) => state.businessPriceLabel);
+  const listPriceLabel = usePlusStore((state) => state.listPriceLabel);
+  const listBusinessPriceLabel = usePlusStore(
+    (state) => state.listBusinessPriceLabel,
+  );
+  const couponCode = usePlusStore((state) => state.couponCode);
   const close = usePlusStore((state) => state.closePaywall);
   const setBilling = usePlusStore((state) => state.setBilling);
-  const [working, setWorking] = useState<'buy' | 'restore' | null>(null);
+  const setCoupon = usePlusStore((state) => state.setCoupon);
+  const [working, setWorking] = useState<'buy' | 'restore' | 'coupon' | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
+  const [couponDraft, setCouponDraft] = useState('');
   const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
   const benefitLabels = isBusiness ? copy.paywall.businessBenefits : copy.paywall.plusBenefits;
   const benefitIcons = isBusiness ? businessBenefitIcons : plusBenefitIcons;
   const activePrice = isBusiness ? businessPriceLabel : priceLabel;
+  const listPrice = isBusiness ? listBusinessPriceLabel : listPriceLabel;
+  const showStrike =
+    Boolean(couponCode) &&
+    Boolean(listPrice) &&
+    Boolean(activePrice) &&
+    listPrice !== activePrice;
   const brandLabel = isBusiness ? 'TECNOWALLET BUSINESS' : 'TECNOWALLET+';
 
   const title = isBusiness
@@ -67,6 +95,69 @@ export function PlusPaywallModal() {
     : reason === 'UPGRADE'
       ? copy.paywall.unlockPlus
       : reasonCopy.title;
+
+  useEffect(() => {
+    if (!visible) return;
+    setError(null);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mine = await getMyAffiliate().catch(() => null);
+        if (cancelled) return;
+        if (mine?.code) {
+          setCoupon(mine.code, mine.name);
+          setCouponDraft(mine.code);
+          await loadOfferings();
+          return;
+        }
+        const pending = await peekPendingAffiliateCode();
+        if (cancelled) return;
+        if (pending) {
+          setCouponDraft(pending);
+          await applyCoupon(pending, { silent: true });
+        } else {
+          await loadOfferings();
+        }
+      } catch {
+        await loadOfferings().catch(() => undefined);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate coupon once per open
+  }, [visible]);
+
+  const applyCoupon = async (raw: string, options?: { silent?: boolean }) => {
+    const code = raw.trim().toUpperCase();
+    if (!code) return;
+    if (!options?.silent) {
+      setError(null);
+      setWorking('coupon');
+    }
+    try {
+      const affiliate = await getAffiliateCode(code);
+      try {
+        await claimAffiliate({ code: affiliate.code, source: 'manual' });
+      } catch {
+        await storeManualAffiliateCode(affiliate.code);
+      }
+      setCoupon(affiliate.code, affiliate.name);
+      setCouponDraft(affiliate.code);
+      await loadOfferings();
+    } catch (couponError) {
+      if (options?.silent) return;
+      const message =
+        couponError instanceof ApiError
+          ? copy.paywall.couponInvalid
+          : couponError instanceof Error
+            ? couponError.message
+            : copy.paywall.couponInvalid;
+      setError(message);
+    } finally {
+      if (!options?.silent) setWorking(null);
+    }
+  };
 
   const runPurchase = async (target: PaywallPlan = plan) => {
     setError(null);
@@ -129,6 +220,10 @@ export function PlusPaywallModal() {
               shadowColor: theme.shadow,
             },
           ]}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.sheetInner}>
           <View style={styles.topRow}>
             <View style={[styles.logo, { backgroundColor: theme.primarySoft }]}>
               <AppIcon
@@ -168,6 +263,66 @@ export function PlusPaywallModal() {
             ))}
           </View>
 
+          {couponCode ? (
+            <View
+              style={[
+                styles.couponApplied,
+                { backgroundColor: theme.successSoft },
+              ]}>
+              <AppIcon name="checkmark.circle.fill" color={theme.success} size={18} />
+              <Text style={[styles.couponAppliedText, { color: theme.success }]}>
+                {copy.paywall.couponApplied(couponCode)}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.couponBlock}>
+              <Text style={[styles.couponLabel, { color: theme.text }]}>
+                {copy.paywall.couponLabel}
+              </Text>
+              <View style={styles.couponRow}>
+                <TextInput
+                  value={couponDraft}
+                  onChangeText={(value) => setCouponDraft(value.toUpperCase())}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!working}
+                  placeholder={copy.paywall.couponPlaceholder}
+                  placeholderTextColor={theme.muted}
+                  style={[
+                    styles.couponInput,
+                    {
+                      color: theme.text,
+                      backgroundColor: theme.surfaceSecondary,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                />
+                <ScalePressable
+                  accessibilityRole="button"
+                  disabled={Boolean(working) || !couponDraft.trim()}
+                  onPress={() => void applyCoupon(couponDraft)}
+                  style={[
+                    styles.couponButton,
+                    {
+                      backgroundColor: theme.primary,
+                      opacity: working || !couponDraft.trim() ? 0.6 : 1,
+                    },
+                  ]}>
+                  {working === 'coupon' ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.couponButtonText}>
+                      {copy.paywall.couponApply}
+                    </Text>
+                  )}
+                </ScalePressable>
+              </View>
+              <Text style={[styles.couponHint, { color: theme.muted }]}>
+                {copy.paywall.couponHint}
+              </Text>
+            </View>
+          )}
+
           <ScalePressable
             accessibilityRole="button"
             disabled={Boolean(working)}
@@ -192,6 +347,9 @@ export function PlusPaywallModal() {
                       ? copy.paywall.viewBusiness
                       : copy.paywall.viewPlus}
                 </Text>
+                {showStrike ? (
+                  <Text style={styles.strike}>{listPrice}</Text>
+                ) : null}
                 <Text style={styles.price}>
                   {activePrice
                     ? copy.paywall.pricePerMonth(activePrice)
@@ -226,6 +384,7 @@ export function PlusPaywallModal() {
               <Text style={[styles.legalLink, { color: theme.primary }]}>{copy.paywall.privacy}</Text>
             </Pressable>
           </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -248,6 +407,10 @@ const styles = StyleSheet.create({
     padding: 24,
     gap: 12,
     zIndex: 2,
+    maxHeight: '92%',
+  },
+  sheetInner: {
+    gap: 12,
   },
   topRow: {
     flexDirection: 'row',
@@ -292,6 +455,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   benefitText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  couponBlock: { gap: 6, marginTop: 4 },
+  couponLabel: { fontSize: 13, fontWeight: '700' },
+  couponRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  couponInput: {
+    flex: 1,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  couponButton: {
+    height: 44,
+    minWidth: 88,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  couponButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  couponHint: { fontSize: 12, lineHeight: 16 },
+  couponApplied: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  couponAppliedText: { fontSize: 13, fontWeight: '700' },
   primary: {
     marginTop: 8,
     borderRadius: 18,
@@ -301,6 +496,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   primaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  strike: {
+    color: '#FFFFFF99',
+    fontSize: 12,
+    fontWeight: '600',
+    textDecorationLine: 'line-through',
+  },
   price: { color: '#FFFFFFCC', fontSize: 13, fontWeight: '600' },
   restore: { alignItems: 'center', paddingVertical: 8 },
   restoreText: { fontSize: 14, fontWeight: '700' },

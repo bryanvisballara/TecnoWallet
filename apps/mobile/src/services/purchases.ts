@@ -3,6 +3,7 @@ import Purchases, {
   PURCHASES_ERROR_CODE,
   type PurchasesPackage,
 } from 'react-native-purchases';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import {
@@ -10,10 +11,15 @@ import {
   type BillingStatus,
 } from './plus-api';
 import {
-  BUSINESS_PRODUCT_ID,
+  AFFILIATE_OFFERING_ID,
+  BUSINESS_COUPON_PRODUCT_IDS,
+  BUSINESS_LIST_PRODUCT_IDS,
+  FALLBACK_BUSINESS_COUPON_PRICE_LABEL,
   FALLBACK_BUSINESS_PRICE_LABEL,
+  FALLBACK_PLUS_COUPON_PRICE_LABEL,
   FALLBACK_PLUS_PRICE_LABEL,
-  PLUS_PRODUCT_ID,
+  PLUS_COUPON_PRODUCT_IDS,
+  PLUS_LIST_PRODUCT_IDS,
 } from './billing-prices';
 import { usePlusStore } from '@/store/plus';
 
@@ -24,10 +30,28 @@ export {
   PLUS_PRODUCT_ID,
 } from './billing-prices';
 
-const IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY;
+function packageByProductIds(
+  packages: PurchasesPackage[],
+  ids: readonly string[],
+) {
+  const byId = new Map(
+    packages.map((item) => [item.product.identifier.toLowerCase(), item]),
+  );
+  for (const id of ids) {
+    const found = byId.get(id.toLowerCase());
+    if (found) return found;
+  }
+  return null;
+}
+
+const IOS_API_KEY =
+  process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim() ||
+  (Constants.expoConfig?.extra?.revenueCatIosApiKey as string | undefined)?.trim() ||
+  '';
 let configuredUserId: string | null = null;
 let plusPackage: PurchasesPackage | null = null;
 let businessPackage: PurchasesPackage | null = null;
+
 function assertNativeIos() {
   if (Platform.OS !== 'ios') {
     throw new Error(
@@ -39,6 +63,20 @@ function assertNativeIos() {
       'RevenueCat no está configurado en este build de TecnoWallet.',
     );
   }
+}
+
+function applyFallbackPrices(coupon: boolean) {
+  const store = usePlusStore.getState();
+  store.setListPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
+  store.setListBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
+  store.setPriceLabel(
+    coupon ? FALLBACK_PLUS_COUPON_PRICE_LABEL : FALLBACK_PLUS_PRICE_LABEL,
+  );
+  store.setBusinessPriceLabel(
+    coupon
+      ? FALLBACK_BUSINESS_COUPON_PRICE_LABEL
+      : FALLBACK_BUSINESS_PRICE_LABEL,
+  );
 }
 
 export async function configurePurchases(appUserId: string) {
@@ -62,9 +100,7 @@ export async function resetPurchases() {
     configuredUserId = null;
     plusPackage = null;
     businessPackage = null;
-    const store = usePlusStore.getState();
-    store.setPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
-    store.setBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
+    applyFallbackPrices(false);
   }
 }
 
@@ -72,29 +108,52 @@ export async function loadOfferings(): Promise<{
   plus: PurchasesPackage | null;
   business: PurchasesPackage | null;
 }> {
+  const coupon = Boolean(usePlusStore.getState().couponCode);
   if (Platform.OS !== 'ios' || !IOS_API_KEY || !configuredUserId) {
-    const store = usePlusStore.getState();
-    store.setPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
-    store.setBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
+    applyFallbackPrices(coupon);
     return { plus: null, business: null };
   }
   const offerings = await Purchases.getOfferings();
-  const offering = offerings.current ?? offerings.all.default;
-  const packages = offering?.availablePackages ?? [];
-  plusPackage =
-    offering?.monthly ??
-    packages.find((item) => item.product.identifier === PLUS_PRODUCT_ID) ??
-    null;
-  businessPackage =
-    packages.find((item) => item.product.identifier === BUSINESS_PRODUCT_ID) ??
-    offerings.all.business?.availablePackages.find(
-      (item) => item.product.identifier === BUSINESS_PRODUCT_ID,
-    ) ??
-    null;
+  const current = offerings.current ?? offerings.all.default;
+  const affiliate = offerings.all[AFFILIATE_OFFERING_ID];
+  const allPackages = [
+    ...(current?.availablePackages ?? []),
+    ...(affiliate?.availablePackages ?? []),
+    ...Object.values(offerings.all).flatMap((item) => item.availablePackages),
+  ];
+  const listPlus = packageByProductIds(allPackages, PLUS_LIST_PRODUCT_IDS);
+  const listBusiness = packageByProductIds(
+    allPackages,
+    BUSINESS_LIST_PRODUCT_IDS,
+  );
+  const couponPlus = packageByProductIds(
+    [...(affiliate?.availablePackages ?? []), ...allPackages],
+    PLUS_COUPON_PRODUCT_IDS,
+  );
+  const couponBusiness = packageByProductIds(
+    [...(affiliate?.availablePackages ?? []), ...allPackages],
+    BUSINESS_COUPON_PRODUCT_IDS,
+  );
+  plusPackage = coupon ? (couponPlus ?? listPlus) : listPlus;
+  businessPackage = coupon
+    ? (couponBusiness ?? listBusiness)
+    : listBusiness;
   const store = usePlusStore.getState();
-  store.setPriceLabel(plusPackage?.product.priceString ?? FALLBACK_PLUS_PRICE_LABEL);
+  store.setListPriceLabel(
+    listPlus?.product.priceString ?? FALLBACK_PLUS_PRICE_LABEL,
+  );
+  store.setListBusinessPriceLabel(
+    listBusiness?.product.priceString ?? FALLBACK_BUSINESS_PRICE_LABEL,
+  );
+  store.setPriceLabel(
+    plusPackage?.product.priceString ??
+      (coupon ? FALLBACK_PLUS_COUPON_PRICE_LABEL : FALLBACK_PLUS_PRICE_LABEL),
+  );
   store.setBusinessPriceLabel(
-    businessPackage?.product.priceString ?? FALLBACK_BUSINESS_PRICE_LABEL,
+    businessPackage?.product.priceString ??
+      (coupon
+        ? FALLBACK_BUSINESS_COUPON_PRICE_LABEL
+        : FALLBACK_BUSINESS_PRICE_LABEL),
   );
   return { plus: plusPackage, business: businessPackage };
 }
@@ -144,5 +203,5 @@ export async function purchaseBusiness(): Promise<BillingStatus> {
 export async function restorePlusPurchases(): Promise<BillingStatus> {
   assertNativeIos();
   await Purchases.restorePurchases();
-  return syncBillingStatus();
+  return await syncBillingStatus();
 }
