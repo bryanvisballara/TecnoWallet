@@ -4,6 +4,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { AppLinearGradient } from '@/components/app-linear-gradient';
 import { AppIcon } from '@/components/ui';
 import { getActiveMoneyCurrency, moneyAmount } from '@/data/demo';
+import { useLedgerStore } from '@/store/ledger';
 
 type Stat = {
   label: string;
@@ -23,6 +24,7 @@ type Props = {
   toggleA11yLabel?: string;
   style?: ViewStyle;
   compact?: boolean;
+  currency?: string;
 };
 
 function WealthWatermark() {
@@ -65,8 +67,13 @@ export function HeroNetWorthBanner({
   toggleA11yLabel,
   style,
   compact = false,
+  currency: currencyProp,
 }: Props) {
-  const currency = getActiveMoneyCurrency();
+  const ledgerCurrency = useLedgerStore((state) => {
+    const active = state.ledgers.find((item) => item.id === state.activeLedgerId);
+    return (active?.baseCurrency || '').toUpperCase();
+  });
+  const currency = (currencyProp || ledgerCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase();
   const amountText = hidden ? '••••••' : moneyAmount(amount);
 
   return (

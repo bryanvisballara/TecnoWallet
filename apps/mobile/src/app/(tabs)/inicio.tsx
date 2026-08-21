@@ -7,7 +7,7 @@ import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { LedgerSwitcher } from '@/components/ledger-switcher';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, IconButton, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
-import { getActiveMoneyCurrency, money, moneyAmount } from '@/data/demo';
+import { getActiveMoneyCurrency, money, moneyAmount, setActiveMoneyCurrency } from '@/data/demo';
 import {
   displayLedgerName,
   timeGreeting,
@@ -57,8 +57,12 @@ export default function DashboardScreen() {
   const value = (amount: number, compact = false) => (hidden ? '••••••' : money(amount, compact));
   const amountOnly = (amount: number, compact = false) =>
     hidden ? '••••••' : moneyAmount(amount, compact);
-  const moneyCurrency = getActiveMoneyCurrency();
+  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase();
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
+
+  useEffect(() => {
+    if (ledger?.baseCurrency) setActiveMoneyCurrency(ledger.baseCurrency);
+  }, [ledger?.baseCurrency]);
 
   useEffect(() => {
     setHidden(hideBalances);
@@ -192,6 +196,7 @@ export default function DashboardScreen() {
           money(liquidezTotal),
           liquidAccounts.length,
         )}
+        currency={moneyCurrency}
         onPress={() => router.push('/(tabs)/mis-cuentas')}
       />
 

@@ -4,6 +4,7 @@ import Svg, { Rect } from 'react-native-svg';
 import { AppLinearGradient } from '@/components/app-linear-gradient';
 import { AppIcon, ScalePressable } from '@/components/ui';
 import { getActiveMoneyCurrency, moneyAmount } from '@/data/demo';
+import { useLedgerStore } from '@/store/ledger';
 
 type Props = {
   label: string;
@@ -18,6 +19,7 @@ type Props = {
   accessibilityLabel?: string;
   style?: ViewStyle;
   compact?: boolean;
+  currency?: string;
 };
 
 function CardsWatermark() {
@@ -110,8 +112,13 @@ export function HeroBalanceBanner({
   accessibilityLabel,
   style,
   compact = false,
+  currency: currencyProp,
 }: Props) {
-  const currency = getActiveMoneyCurrency();
+  const ledgerCurrency = useLedgerStore((state) => {
+    const active = state.ledgers.find((item) => item.id === state.activeLedgerId);
+    return (active?.baseCurrency || '').toUpperCase();
+  });
+  const currency = (currencyProp || ledgerCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase();
   const amountText = hidden ? '••••••' : moneyAmount(amount);
   const body = (
     <BannerBody

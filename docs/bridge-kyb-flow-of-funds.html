@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TecnoWallet — Flow of Funds (Bridge KYB)</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --line: #d1d5db;
+      --box: #f8fafc;
+      --accent: #1e4fd7;
+      --accent-soft: #e8eefc;
+      --ok: #0f766e;
+      --ok-soft: #ecfdf5;
+      --warn: #9a3412;
+      --warn-soft: #fff7ed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #fff;
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px 32px 40px;
+    }
+    h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 22px 0 10px; }
+    p, li { font-size: 13.5px; }
+    .answers {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 12px 0 20px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: var(--box);
+    }
+    .card strong { display: block; margin-bottom: 4px; font-size: 13px; }
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr;
+      align-items: stretch;
+      gap: 0;
+      margin: 8px 0 6px;
+    }
+    .node {
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fff;
+      min-height: 118px;
+    }
+    .node.accent { border-color: var(--accent); background: var(--accent-soft); }
+    .node.dest { border-color: var(--ok); background: var(--ok-soft); }
+    .node h3 { margin: 0 0 6px; font-size: 13px; }
+    .node p { margin: 0; color: var(--muted); font-size: 12px; }
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 22px;
+      font-weight: 700;
+    }
+    .caption { font-size: 12px; color: var(--muted); margin: 0 0 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; }
+    .note {
+      background: var(--warn-soft);
+      border: 1px solid #fdba74;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+    .small { font-size: 12px; color: var(--muted); }
+    @media print {
+      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .page { padding: 12px; max-width: none; }
+    }
+    @page { size: landscape; margin: 12mm; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>TecnoWallet — Flow of Funds</h1>
+    <p class="sub">
+      Bridge KYB · Intended use-case: <strong>Recaudos</strong> (shared group collections).
+      Applicant: TecnoWallet · Software orchestration only · Funds custodied by Bridge, not by TecnoWallet.
+    </p>
+
+    <div class="answers">
+      <div class="card">
+        <strong>1. Currency exchange?</strong>
+        Yes, <em>only if needed</em>. If the contributor pays in the same currency as the organizer’s payout (typically USD), there is <strong>no FX</strong>. If currencies differ (e.g. COP in → USD hold, or USD hold → COP bank), Bridge converts at payout/on-ramp. TecnoWallet does not run its own FX book.
+      </div>
+      <div class="card">
+        <strong>2. Ultimate destination?</strong>
+        The <strong>Recaudo organizer’s personal bank account</strong> (the end user who created the shared pot), when they withdraw after the goal is reached. Recaudo funds never settle into TecnoWallet’s operating account. Subscriptions and affiliate USDT are separate and do not use Bridge.
+      </div>
+    </div>
+
+    <h2>Primary flow — Recaudos via Bridge</h2>
+    <div class="flow">
+      <div class="node">
+        <h3>1. Contributors</h3>
+        <p>Friends, family, or group members in TecnoWallet. They pledge a monthly or one-time amount to a Recaudo (trip, gift, event, family support, purchase).</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <h3>2. Funding rail</h3>
+        <p>Local bank transfer / ACH / Bridge on-ramp into USD (or USDC). TecnoWallet records the contribution against the Recaudo; it does not take possession of the cash.</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node accent">
+        <h3>3. Bridge account</h3>
+        <p>A Bridge virtual account / wallet <strong>in the organizer’s name</strong>, tagged to that Recaudo. Funds sit here until the group goal is met. Partner custody: Bridge.</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node dest">
+        <h3>4. Organizer bank</h3>
+        <p><strong>Ultimate destination.</strong> Organizer withdraws to their own bank (USD wire or local off-ramp, e.g. COP). Purpose: pay the trip, gift, event, or family need — not for resale of payments.</p>
+      </div>
+    </div>
+    <p class="caption">
+      TecnoWallet fee on the pot: none. Bridge/network fees may apply as charged by Bridge.
+      TecnoWallet’s role: create the Recaudo, invite members, show balances, trigger payout to the organizer.
+    </p>
+
+    <h2>What this is (and is not)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Flow</th>
+          <th>Payer</th>
+          <th>Through Bridge?</th>
+          <th>Who holds funds</th>
+          <th>Ultimate beneficiary</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Recaudos (this KYB)</strong></td>
+          <td>Group members</td>
+          <td>Yes — intended Bridge use</td>
+          <td>Bridge (virtual account in organizer’s name)</td>
+          <td>Organizer’s bank, for the recaudo purpose</td>
+        </tr>
+        <tr>
+          <td>App subscriptions (Plus US$9.99 / Business US$14.99)</td>
+          <td>App user</td>
+          <td>No</td>
+          <td>Apple App Store</td>
+          <td>TecnoWallet developer (SaaS revenue)</td>
+        </tr>
+        <tr>
+          <td>Affiliate commissions (20/30/40%)</td>
+          <td>TecnoWallet company</td>
+          <td>No</td>
+          <td>Company treasury, then USDT</td>
+          <td>Affiliate’s USDT wallet (BEP20/TRC20/ERC20/SOL)</td>
+        </tr>
+        <tr>
+          <td>Personal finance ledger / Belvo</td>
+          <td>N/A (tracking only)</td>
+          <td>No</td>
+          <td>User’s own banks</td>
+          <td>No money movement by TecnoWallet</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Intended use-case (narrative)</h2>
+    <p>
+      TecnoWallet is a personal-finance app. <strong>Recaudos</strong> let a user (the organizer) create a shared pot:
+      “we are saving US$2,000 for a trip”, “siblings sending money to our parents”, “group gift”.
+      Each member has a contribution plan. When Bridge is enabled, TecnoWallet opens a <strong>digital account in the organizer’s name</strong>
+      via Bridge. Members fund that account. When the goal is reached (or on an allowed withdrawal),
+      the organizer sends the balance to <strong>their own bank account</strong>.
+    </p>
+    <p>
+      TecnoWallet is not a marketplace, not a payroll product, and not a crypto exchange.
+      It does not pool recaudo funds with other customers in a TecnoWallet omnibus for its own use.
+      It does not exchange recaudo funds as a dealer; any FX is Bridge converting the same customer’s money
+      from the contribution currency into the payout currency.
+    </p>
+
+    <div class="note">
+      <strong>Today vs. intended.</strong>
+      Recaudos already exist in the app as group tracking. Until Bridge APIs are approved, contributions are recorded
+      as accounting only (members pay the organizer off-platform). This application is to enable the real movement:
+      inbound funding → Bridge-held recaudo account → outbound to the organizer’s bank.
+    </div>
+    <p class="small">Document for Bridge Third-Party Money Movement / Flow of Funds · TecnoWallet · Recaudos module</p>
+  </div>
+</body>
+</html>

@@ -19,6 +19,22 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+const pushIosStub = path.resolve(
+  projectRoot,
+  'src/polyfills/push-notification-ios-stub.js',
+);
+const expoResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const name = typeof moduleName === 'string' ? moduleName.replace(/\\/g, '/') : '';
+  if (platform === 'ios' && name.includes('PushNotificationIOS/PushNotificationIOS')) {
+    return { type: 'sourceFile', filePath: pushIosStub };
+  }
+  if (expoResolveRequest) {
+    return expoResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 // Eager SHA1 so file edits always invalidate the bundle graph.
 config.watcher = {
   ...config.watcher,

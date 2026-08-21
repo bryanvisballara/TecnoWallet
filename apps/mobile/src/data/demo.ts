@@ -113,7 +113,7 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
       { slug: 'divisa', title: 'Divisa', subtitle: 'Moneda del libro activo', icon: 'banknote.fill', color: '#12B76A' },
       { slug: 'idioma', title: 'Idioma', subtitle: 'Español', icon: 'globe', color: '#F79009' },
       { slug: 'bancos', title: 'Cuentas bancarias', subtitle: 'Próximamente', icon: 'building.columns.fill', color: '#0878F9', badge: 'Pronto', badgeTone: 'neutral' },
-      { slug: 'datos', title: 'Exportar', subtitle: 'Descarga tus movimientos en CSV', icon: 'square.and.arrow.up', color: '#F79009' },
+      { slug: 'datos', title: 'Exportar', subtitle: 'Descarga tus movimientos en Excel o PDF', icon: 'square.and.arrow.up', color: '#F79009' },
       { slug: 'sonido', title: 'Sonido y haptics', subtitle: 'Feedback al tocar y registrar', icon: 'speaker.wave.2.fill', color: '#06AED4' },
       { slug: 'apariencia', title: 'Apariencia', subtitle: 'Automático · sistema', icon: 'paintbrush.fill', color: '#EE46BC' },
     ],
@@ -179,7 +179,8 @@ export const money = (value: number, compact = false) =>
   new Intl.NumberFormat('es-ES', {
     style: 'currency',
     currency: activeMoneyCurrency,
-    maximumFractionDigits: compact ? 0 : 2,
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
     notation: compact ? 'compact' : 'standard',
   }).format(value);
 
@@ -187,7 +188,7 @@ export const money = (value: number, compact = false) =>
 export const moneyAmount = (value: number, compact = false) =>
   new Intl.NumberFormat('es-ES', {
     style: 'decimal',
-    maximumFractionDigits: compact ? 0 : 2,
-    minimumFractionDigits: compact ? 0 : 2,
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
     notation: compact ? 'compact' : 'standard',
   }).format(value);

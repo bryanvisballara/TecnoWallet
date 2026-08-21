@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import * as Linking from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState, type ComponentType } from 'react';
 import { AppState } from 'react-native';
@@ -23,6 +24,10 @@ import { useNotificationsStore } from '@/store/notifications';
 import { usePreferencesStore } from '@/store/preferences';
 import { usePlusStore } from '@/store/plus';
 import { useRecaudosStore } from '@/store/recaudos';
+import { deliverGoogleIdToken } from '@/lib/google-oauth-return';
+import { requestVoiceDictation, isVoiceCommandUrl, voiceTextFromUrl } from '@/lib/voice-intent';
+import { isGoogleReturnUrl, parseIdTokenFromUrl } from '@/services/google-auth';
+import { syncCalendarWidget } from '@/lib/sync-calendar-widget';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -112,10 +117,11 @@ export default function RootLayout() {
   ]);
 
   useEffect(() => {
-    // Overlay hides the native splash on first layout. Keep a fallback.
+    // Never hide the native splash before the branded overlay can paint.
+    // BrandSplashOverlay calls hideAsync on first layout; this is a last resort.
     const t = setTimeout(() => {
       void SplashScreen.hideAsync().catch(() => undefined);
-    }, 1600);
+    }, 8000);
     return () => clearTimeout(t);
   }, []);
 
@@ -219,6 +225,8 @@ export default function RootLayout() {
           }),
         );
         if (authenticated) {
+          const calendar = useCalendarStore.getState();
+          if (calendar.hydrated) syncCalendarWidget(calendar.items);
           void import('@/services/push-notifications').then(
             ({ registerRemotePushToken }) =>
               registerRemotePushToken().catch(() => undefined),
@@ -237,6 +245,26 @@ export default function RootLayout() {
       subscription.remove();
     };
   }, [hydrated, authenticated, refreshRecaudos, hydrateLedger, hydrateCalendar]);
+
+  useEffect(() => {
+    let lastVoiceUrlAt = 0;
+    const handleUrl = (url: string | null) => {
+      if (!url) return;
+      if (isGoogleReturnUrl(url)) {
+        const token = parseIdTokenFromUrl(url);
+        if (token) deliverGoogleIdToken(token);
+        return;
+      }
+      if (!isVoiceCommandUrl(url)) return;
+      const now = Date.now();
+      if (now - lastVoiceUrlAt < 1500) return;
+      lastVoiceUrlAt = now;
+      requestVoiceDictation(voiceTextFromUrl(url));
+    };
+    void Linking.getInitialURL().then(handleUrl);
+    const sub = Linking.addEventListener('url', (event) => handleUrl(event.url));
+    return () => sub.remove();
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -260,6 +288,7 @@ export default function RootLayout() {
               <Stack.Screen name="restablecer" />
               <Stack.Screen name="oauth-google" />
               <Stack.Screen name="oauth-google-callback" />
+              <Stack.Screen name="oauthredirect" />
               <Stack.Screen name="(tabs)" />
               <Stack.Screen
                 name="add-transaction"

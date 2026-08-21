@@ -1,6 +1,25 @@
 const { withAppDelegate, withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+
+function packagerHost() {
+  const fromEnv = process.env.REACT_NATIVE_PACKAGER_HOSTNAME?.trim();
+  if (fromEnv) return fromEnv;
+  const found = [];
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs || []) {
+      const v4 = a.family === 'IPv4' || a.family === 4;
+      if (v4 && !a.internal) found.push(a.address);
+    }
+  }
+  return (
+    found.find((ip) => ip.startsWith('192.168.')) ||
+    found.find((ip) => !ip.startsWith('169.254.')) ||
+    found[0] ||
+    '127.0.0.1'
+  );
+}
 
 /**
  * RN 0.86 / New Architecture: RCTBridge is not visible to Swift AppDelegate.
@@ -29,7 +48,7 @@ module.exports = function withAppDelegateNoRctBridge(config) {
     ) {
       source = source.replace(
         /override func bundleURL\(\) -> URL\? \{\n#if DEBUG\n\s*return RCTBundleURLProvider\.sharedSettings\(\)\.jsBundleURL\(forBundleRoot: "\.expo\/\.virtual-metro-entry"\)\n#else/,
-        `override func bundleURL() -> URL? {\n#if DEBUG\n    let settings = RCTBundleURLProvider.sharedSettings()\n    if settings.jsLocation == nil || settings.jsLocation?.isEmpty == true {\n      settings.jsLocation = "192.168.1.56"\n    }\n    return settings.jsBundleURL(forBundleRoot: ".expo/.virtual-metro-entry")\n#else`,
+        `override func bundleURL() -> URL? {\n#if DEBUG\n    let settings = RCTBundleURLProvider.sharedSettings()\n    settings.jsLocation = "${packagerHost()}"\n    return settings.jsBundleURL(forBundleRoot: ".expo/.virtual-metro-entry")\n#else`,
       );
     }
 

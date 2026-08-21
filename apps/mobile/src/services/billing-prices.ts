@@ -3,14 +3,14 @@
  * Apple actually charges whatever is configured in App Store Connect
  * (shown via RevenueCat `product.priceString` when offerings load).
  *
- * List products: $11.99 Plus / $17.99 Business.
+ * List products: $12.99 Plus / $17.99 Business.
  * Affiliate coupon products: $9.99 Plus / $14.99 Business.
  *
  * Product IDs must match App Store Connect exactly (case-sensitive).
  * Prefer Standard/Affiliate SKUs when they exist; fall back to the
  * current TecnoWalletPlus / TecnoWalletBusiness identifiers.
  */
-export const FALLBACK_PLUS_PRICE_LABEL = 'US$11.99';
+export const FALLBACK_PLUS_PRICE_LABEL = 'US$12.99';
 export const FALLBACK_BUSINESS_PRICE_LABEL = 'US$17.99';
 export const FALLBACK_PLUS_COUPON_PRICE_LABEL = 'US$9.99';
 export const FALLBACK_BUSINESS_COUPON_PRICE_LABEL = 'US$14.99';

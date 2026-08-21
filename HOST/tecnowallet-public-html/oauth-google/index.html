@@ -17,24 +17,24 @@
       var clientId = "136391979829-01l02cpdn6klgpbi4n34ftb0ukvtgc0m.apps.googleusercontent.com";
       var callback = "https://tecnowallet.app/oauth-google-callback/";
       if (!clientId) {
-        document.getElementById("msg").textContent = "Google Sign-In no está configurado.";
+        document.getElementById('msg').textContent = 'Google Sign-In no está configurado.';
         return;
       }
       var params = new URLSearchParams(window.location.search);
-      var nonce = params.get("nonce") || Math.random().toString(36).slice(2) + Date.now().toString(36);
-      var native = params.get("native") === "1";
+      var nonce = params.get('nonce') || Math.random().toString(36).slice(2) + Date.now().toString(36);
+      var native = params.get('native') === '1';
       try {
-        sessionStorage.setItem("tw-google-nonce", nonce);
-        sessionStorage.setItem("tw-google-native", native ? "1" : "0");
+        sessionStorage.setItem('tw-google-nonce', nonce);
+        sessionStorage.setItem('tw-google-native', native ? '1' : '0');
       } catch (e) {}
-      var url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-      url.searchParams.set("client_id", clientId);
-      url.searchParams.set("redirect_uri", callback);
-      url.searchParams.set("response_type", "id_token");
-      url.searchParams.set("scope", "openid email profile");
-      url.searchParams.set("nonce", nonce);
-      url.searchParams.set("prompt", "select_account");
-      url.searchParams.set("state", native ? "native" : "web");
+      var url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      url.searchParams.set('client_id', clientId);
+      url.searchParams.set('redirect_uri', callback);
+      url.searchParams.set('response_type', 'id_token');
+      url.searchParams.set('scope', 'openid email profile');
+      url.searchParams.set('nonce', nonce);
+      url.searchParams.set('prompt', 'select_account');
+      url.searchParams.set('state', native ? 'native' : 'web');
       window.location.replace(url.toString());
     })();
   </script>

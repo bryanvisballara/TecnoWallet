@@ -135,17 +135,35 @@ export async function ensureAuthSession() {
   return refreshAccessToken();
 }
 
+const FETCH_TIMEOUT_MS = 20_000;
+
 async function performRequest(path: string, init: RequestInit) {
   const token = await tokenStorage.get();
-  return fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  if (init.signal) {
+    if (init.signal.aborted) controller.abort();
+    else init.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+  try {
+    return await fetch(`${API_URL}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError('La conexión tardó demasiado. Inténtalo de nuevo.', 408);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function apiRequest<T>(

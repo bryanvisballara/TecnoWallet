@@ -25,6 +25,7 @@ import {
 import { localStorage } from '@/services/persistence';
 import { useLedgerStore } from '@/store/ledger';
 import { recordActivity } from '@/store/notifications';
+import { syncCalendarWidget } from '@/lib/sync-calendar-widget';
 
 export type CalendarMemberRole = 'owner' | 'editor' | 'viewer';
 
@@ -200,6 +201,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         items: defaultItems,
         hydrated: true,
       });
+      syncCalendarWidget(defaultItems);
       return;
     }
 
@@ -211,6 +213,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         items: [],
         hydrated: true,
       });
+      syncCalendarWidget([]);
       return;
     }
 
@@ -375,6 +378,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           ? (migratedActive as string)
           : preferredOwn?.id ?? calendars[0]?.id ?? '';
       set({ calendars, activeCalendarId, items, hydrated: true });
+      syncCalendarWidget(items);
       void import('@/services/collaboration-api').then(
         ({ notifyNewTeamCalendarItems }) =>
           notifyNewTeamCalendarItems().catch(() => undefined),
@@ -483,6 +487,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     };
     const items = [nextItem, ...get().items];
     set({ items });
+    syncCalendarWidget(items);
     try {
       const created = await createCalendarItem(nextItem);
       set({
@@ -500,6 +505,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         icon: typeIcons[created.type] ?? 'calendar',
         route: '/(tabs)/calendario',
       });
+      syncCalendarWidget(get().items);
       return created.id;
     } catch (error) {
       set({ items: get().items.filter((current) => current.id !== nextItem.id) });
@@ -525,6 +531,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
             : current,
         ),
       });
+      syncCalendarWidget(get().items);
     } catch (error) {
       if (previous) {
         set({
@@ -547,6 +554,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         : item,
     );
     set({ items });
+    syncCalendarWidget(items);
     if (changed) void updateCalendarItem(changed);
   },
 
@@ -554,6 +562,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     const removed = get().items.find((item) => item.id === id);
     const items = get().items.filter((item) => item.id !== id);
     set({ items });
+    syncCalendarWidget(items);
     void deleteCalendarItem(id);
     void import('@/services/push-notifications').then(({ cancelCalendarReminder }) =>
       cancelCalendarReminder(id),

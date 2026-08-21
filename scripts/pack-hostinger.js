@@ -27,6 +27,10 @@ RewriteRule ^recaudos/?$ /mp-wallet.html [L]
 # Google OAuth — physical files (Hostinger SPA rewrite is often off).
 RewriteRule ^oauth-google/?$ /oauth-google.html [L]
 RewriteRule ^oauth-google-callback/?$ /oauth-google-callback.html [L]
+# Legal pages (App Store / in-app links)
+RewriteRule ^privacy/?$ /privacy.html [L]
+RewriteRule ^terms/?$ /terms.html [L]
+RewriteRule ^support/?$ /support.html [L]
 # Old collaboration emails used /invite.html?token=… (Unmatched in Expo Router).
 RewriteCond %{QUERY_STRING} (^|&)token=
 RewriteRule ^invite\\.html$ /colaborar/? [R=302,L,QSA]
@@ -239,6 +243,14 @@ fs.mkdirSync(path.join(staging, 'invite'), { recursive: true });
 // Only write invite/index.html if it would not block invite/[token].html.
 // Directory listing /invite/ gets the stub; /invite/TOKEN still serves [token].html.
 fs.writeFileSync(path.join(staging, 'invite', 'index.html'), redirectStub);
+
+for (const legalPage of ['privacy.html', 'support.html', 'terms.html']) {
+  const source = path.join(hostDir, legalPage);
+  if (fs.existsSync(source)) {
+    fs.copyFileSync(source, path.join(staging, legalPage));
+    ensureDirIndex(legalPage.replace(/\.html$/, ''));
+  }
+}
 
 fs.mkdirSync(hostDir, { recursive: true });
 fs.rmSync(zipPath, { force: true });

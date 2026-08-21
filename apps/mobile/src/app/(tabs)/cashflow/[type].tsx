@@ -83,6 +83,17 @@ export default function CashflowDetailScreen() {
         </View>
       </Card>
 
+      <PrimaryButton
+        icon="plus"
+        onPress={() =>
+          router.push({
+            pathname: '/add-transaction',
+            params: { type: isIncome ? 'income' : 'expense' },
+          })
+        }>
+        {meta.add}
+      </PrimaryButton>
+
       <Card>
         <Text style={[styles.section, { color: theme.text }]}>{copy.cashflow.byCategory}</Text>
         {categories.length === 0 ? (
@@ -117,8 +128,17 @@ export default function CashflowDetailScreen() {
           <Text style={[styles.empty, { color: theme.muted }]}>{meta.empty}</Text>
         ) : (
           items.map((item, index) => (
-            <View
+            <ScalePressable
               key={item.id}
+              haptic={false}
+              accessibilityRole="button"
+              accessibilityLabel={`Editar ${item.title}`}
+              onPress={() =>
+                router.push({
+                  pathname: '/add-transaction',
+                  params: { id: item.id },
+                })
+              }
               style={[
                 styles.row,
                 index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
@@ -135,21 +155,10 @@ export default function CashflowDetailScreen() {
               <Text style={[styles.rowAmount, { color: type === 'ingresos' ? theme.success : theme.text }]}>
                 {type === 'ingresos' ? '+' : ''}{money(item.amount)}
               </Text>
-            </View>
+            </ScalePressable>
           ))
         )}
       </Card>
-
-      <PrimaryButton
-        icon="plus"
-        onPress={() =>
-          router.push({
-            pathname: '/add-transaction',
-            params: { type: isIncome ? 'income' : 'expense' },
-          })
-        }>
-        {meta.add}
-      </PrimaryButton>
 
       <ScalePressable onPress={() => router.push('/(tabs)/movimientos')}>
         <Text style={[styles.link, { color: theme.primary }]}>{copy.cashflow.viewAll}</Text>

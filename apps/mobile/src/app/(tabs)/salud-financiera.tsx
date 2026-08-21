@@ -239,7 +239,7 @@ export default function SaludFinancieraScreen() {
   const { accounts, ledger, transactions, upcoming, planning } = useActiveLedger();
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
-  const moneyCurrency = getActiveMoneyCurrency();
+  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase();
 
   const liquidAccounts = useMemo(
     () => accounts.filter((item) => isLiquidAccount(item.kind)),
@@ -329,6 +329,7 @@ export default function SaludFinancieraScreen() {
           { label: copy.health.assets, amount: bienes, tone: 'positive', prefix: '+' },
           { label: copy.health.debts, amount: deudas, tone: 'negative', prefix: '−' },
         ]}
+        currency={moneyCurrency}
       />
 
       <Card style={styles.health}>

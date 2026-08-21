@@ -73,6 +73,10 @@ export default function AddTransactionScreen() {
     if (existing) return existing.amount >= 0 ? 'income' : 'expense';
     return initialTransactionType(params.type);
   });
+  useEffect(() => {
+    if (isEditing) return;
+    setType(initialTransactionType(params.type));
+  }, [isEditing, params.type]);
   const [amount, setAmount] = useState(() =>
     existing ? String(Math.abs(existing.amount)) : '',
   );
@@ -529,7 +533,7 @@ function Field({ label, children, style }: PropsWithChildren<{ label: string; st
 const styles = StyleSheet.create({
   flex: { flex: 1 }, header: { height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18 },
   cancel: { fontSize: 15, fontWeight: '600' }, headerTitle: { fontSize: 17, fontWeight: '700' }, headerSpacer: { width: 62 },
-  content: { padding: 18, paddingBottom: 60, gap: 18, maxWidth: 620, width: '100%', alignSelf: 'center' },
+  content: { padding: 18, paddingBottom: 60, gap: 18, width: '100%' },
   segmented: { padding: 4, borderRadius: 14, flexDirection: 'row' }, segment: { flex: 1, minHeight: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.06, shadowRadius: 5 },
   segmentText: { fontSize: 12, fontWeight: '600' }, amountBlock: { alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   currency: { fontSize: 12, fontWeight: '700', letterSpacing: 1 }, amountInput: { fontSize: 52, fontWeight: '700', minWidth: 200, textAlign: 'center', letterSpacing: -1.5 },

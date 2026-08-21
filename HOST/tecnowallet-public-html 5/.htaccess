@@ -1,0 +1,11 @@
+RewriteEngine On
+RewriteBase /
+RewriteRule ^index\.html$ - [L]
+# Old collaboration emails used /invite.html?token=… (Unmatched in Expo Router).
+RewriteCond %{QUERY_STRING} (^|&)token=
+RewriteRule ^invite\.html$ /colaborar/? [R=302,L,QSA]
+RewriteCond %{QUERY_STRING} (^|&)token=
+RewriteRule ^invite/?$ /colaborar/? [R=302,L,QSA]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.html [L]

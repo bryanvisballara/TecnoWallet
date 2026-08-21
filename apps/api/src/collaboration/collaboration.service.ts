@@ -1216,7 +1216,7 @@ export class CollaborationService {
         })
         .lean();
       if (!membership) {
-        throw new ForbiddenException('Only the calendar owner can invite');
+      throw new ForbiddenException('Only the calendar owner can invite');
       }
     }
     return calendar.name;
@@ -1502,12 +1502,12 @@ export class CalendarService {
       seen.add(memberUserId);
       return [
         {
-          id: membership._id,
-          userId: membership.userId,
-          role: membership.role,
+      id: membership._id,
+      userId: membership.userId,
+      role: membership.role,
           name: users.get(memberUserId)?.name,
           email: users.get(memberUserId)?.email,
-          sponsored: Boolean(membership.sponsorUserId),
+      sponsored: Boolean(membership.sponsorUserId),
         },
       ];
     });

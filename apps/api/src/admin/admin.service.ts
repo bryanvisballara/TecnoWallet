@@ -803,8 +803,8 @@ export class AdminService {
             entitlementId,
             productId:
               plan === 'business'
-                ? 'tecnowallet_business_monthly'
-                : 'tecnowallet_plus_monthly',
+                ? 'TecnoWalletBusiness'
+                : 'TecnoWalletPlus',
             purchasedAt: occurredAt,
             expiresAt: new Date(occurredAt.getTime() + 30 * 24 * 60 * 60 * 1000),
             willRenew: true,
@@ -823,8 +823,8 @@ export class AdminService {
             affiliateId,
             product:
               plan === 'business'
-                ? 'tecnowallet_business_monthly'
-                : 'tecnowallet_plus_monthly',
+                ? 'TecnoWalletBusiness'
+                : 'TecnoWalletPlus',
             eventType: 'admin_simulate',
             grossAmountMinor: netMinor,
             netAmountMinor: netMinor,

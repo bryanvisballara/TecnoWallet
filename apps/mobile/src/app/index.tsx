@@ -13,7 +13,7 @@ export default function IndexScreen() {
 
   if (!hydrated || (authenticated && !ledgerHydrated)) {
     return (
-      <View style={[styles.loading, { backgroundColor: theme.background }]}>
+      <View style={[styles.loading, { backgroundColor: '#12357A' }]}>
         <ActivityIndicator color={theme.primary} />
       </View>
     );

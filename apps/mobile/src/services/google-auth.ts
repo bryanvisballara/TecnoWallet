@@ -12,7 +12,8 @@ export const APP_WEB_ORIGIN = (
 
 export const NATIVE_OAUTH_RETURN = 'tecnowallet://oauthredirect';
 
-function apiOrigin() {
+/** Hostinger does not serve /oauth-google*. Render does. */
+function oauthPageOrigin() {
   const api = process.env.EXPO_PUBLIC_API_URL?.trim();
   if (!api) return 'https://tecnowallet.onrender.com';
   try {
@@ -30,16 +31,22 @@ function currentWebOrigin() {
 }
 
 export function googleCallbackUrl() {
-  return `${apiOrigin()}/oauth-google-callback/`;
+  return `${oauthPageOrigin()}/oauth-google-callback/`;
 }
 
 export function googleStartUrl(params?: { nonce?: string }) {
-  const url = new URL(`${apiOrigin()}/oauth-google.html`);
+  const url = new URL(`${oauthPageOrigin()}/oauth-google.html`);
   if (params?.nonce) url.searchParams.set('nonce', params.nonce);
   if (Platform.OS !== 'web') url.searchParams.set('native', '1');
   const local = currentWebOrigin();
-  if (local) url.searchParams.set('return', `${local}/auth`);
+  if (local && !/onrender\.com$/i.test(local) && local !== APP_WEB_ORIGIN) {
+    url.searchParams.set('return', `${local}/auth`);
+  }
   return url.toString();
+}
+
+export function isGoogleReturnUrl(url: string) {
+  return /tecnowallet:\/\/([^/?#]*\/)?oauthredirect(?:\?|#|$)/i.test(url);
 }
 
 export async function createOauthNonce() {

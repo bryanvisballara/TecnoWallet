@@ -23,8 +23,10 @@ import { usePlusStore } from '@/store/plus';
 import { usePreferencesStore } from '@/store/preferences';
 import { useRecaudosStore } from '@/store/recaudos';
 
-const GREEN = '#39E639';
-const LOGO = require('@/assets/images/splash-logo.png');
+const ICON = require('@/assets/images/app-icon.png');
+const COBALT = '#1E4BB3';
+const SKY = '#79B2F9';
+const GOLD = '#C9926A';
 
 type BrandSplashOverlayProps = {
   /** When true, fill to 100% and fade out. */
@@ -32,8 +34,8 @@ type BrandSplashOverlayProps = {
 };
 
 /**
- * Branded launch overlay: gradient + wordmark, with the hydration loader at the bottom.
- * Native splash is white so the first frames are not a solid blue hold.
+ * Branded launch overlay matching the Tw wallet icon:
+ * cobalt field, sky-blue loader, gold accent. Native hold matches this field.
  */
 export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   const insets = useSafeAreaInsets();
@@ -134,29 +136,27 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
       style={[styles.overlay, fadeStyle]}
       onLayout={hideNativeSplash}>
       <AppLinearGradient
-        colors={['#04102C', '#0A2C7A', '#1A58C8']}
-        locations={[0, 0.42, 1]}
-        start={{ x: 0.08, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={['#12357A', COBALT, '#5AA4F0']}
+        locations={[0, 0.48, 1]}
+        start={{ x: 0.12, y: 0 }}
+        end={{ x: 0.92, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.stage, { paddingTop: insets.top + 72 }]}>
+      <View style={[styles.stage, { paddingTop: insets.top + 64 }]}>
         <View style={styles.markWrap}>
           <Image
-            source={LOGO}
+            source={ICON}
             style={styles.mark}
-            contentFit="cover"
+            contentFit="contain"
             transition={0}
             cachePolicy="memory-disk"
             priority="high"
           />
         </View>
-        <Text style={styles.wordmark}>
-          TECNO<Text style={styles.wordmarkAccent}>WALLET</Text>
-        </Text>
         <View style={styles.rule} />
-        <Text style={styles.tagline}>Tu dinero, tu control</Text>
+        <Text style={styles.taglineLead}>Toma el control</Text>
+        <Text style={styles.tagline}>de tus finanzas..</Text>
       </View>
 
       <View style={[styles.loader, { bottom: Math.max(insets.bottom, 16) + 56 }]}>
@@ -176,47 +176,51 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFill,
     zIndex: 1000,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#12357A',
   },
   stage: {
     alignItems: 'center',
     paddingHorizontal: 32,
   },
   markWrap: {
-    width: 92,
-    height: 92,
-    borderRadius: 24,
+    width: 132,
+    height: 132,
+    borderRadius: 36,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
-    marginBottom: 28,
+    marginBottom: 22,
+    shadowColor: '#0B2A6A',
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
   },
   mark: {
     width: '100%',
     height: '100%',
   },
-  wordmark: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-  },
-  wordmarkAccent: {
-    color: 'rgba(255,255,255,0.72)',
-    fontWeight: '700',
-  },
   rule: {
-    width: 36,
+    width: 42,
     height: 2,
     borderRadius: 2,
-    backgroundColor: GREEN,
-    marginTop: 16,
-    marginBottom: 12,
+    backgroundColor: GOLD,
+    marginBottom: 16,
+  },
+  taglineLead: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textAlign: 'center',
   },
   tagline: {
-    color: 'rgba(220,230,255,0.72)',
-    fontSize: 13,
+    color: 'rgba(232, 243, 255, 0.88)',
+    fontSize: 16,
     fontWeight: '500',
-    letterSpacing: 0.4,
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: 4,
   },
   loader: {
     position: 'absolute',
@@ -225,7 +229,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   loadingLabel: {
-    color: 'rgba(230,236,255,0.9)',
+    color: 'rgba(232, 243, 255, 0.92)',
     fontSize: 14,
     textAlign: 'center',
     fontWeight: '500',
@@ -240,14 +244,14 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(120,170,255,0.55)',
-    backgroundColor: 'rgba(0,20,70,0.45)',
+    borderColor: 'rgba(201, 146, 106, 0.45)',
+    backgroundColor: 'rgba(10, 40, 110, 0.35)',
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     borderRadius: 999,
-    backgroundColor: GREEN,
+    backgroundColor: SKY,
   },
   progressPct: {
     color: '#FFFFFF',

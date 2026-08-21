@@ -191,14 +191,14 @@ export default function AddCalendarItemScreen() {
   const people = useMemo(() => {
     const map = new Map<string, { name: string; email: string }>();
     map.set(profile.email.toLowerCase(), { name: profile.name, email: profile.email });
-    ledger.members.forEach((member) => {
+    (ledger?.members ?? []).forEach((member) => {
       map.set(member.email.toLowerCase(), { name: member.name, email: member.email });
     });
     calendar?.members.forEach((member) => {
       map.set(member.email.toLowerCase(), { name: member.name, email: member.email });
     });
     return [...map.values()];
-  }, [profile.name, profile.email, ledger.members, calendar?.members]);
+  }, [profile.name, profile.email, ledger?.members, calendar?.members]);
 
   const dateLabel = useMemo(
     () => formatDayLabel(parseDateKey(dateKey), locale),

@@ -432,7 +432,6 @@ const styles = StyleSheet.create({
   },
   barColumn: {
     width: '100%',
-    maxWidth: 480,
     position: 'relative',
   },
   menu: {

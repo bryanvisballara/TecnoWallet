@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -35,6 +35,7 @@ import { dateLocale } from '@/i18n/locale-format';
 import { useAppRefresh } from '@/hooks/use-app-refresh';
 import { useTabBarScrollHandler } from '@/hooks/use-tab-bar-scroll';
 import { useActiveCalendar, useCalendarStore } from '@/store/calendar';
+import { useCalendarFabStore } from '@/store/calendar-fab';
 import { useLanguageStore } from '@/store/language';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { usePreferencesStore, weekStartsOnJsDay } from '@/store/preferences';
@@ -69,7 +70,10 @@ export default function CalendarScreen() {
   );
   const [selectedKey, setSelectedKey] = useState(() => toDateKey(today));
   const [view, setView] = useState<'month' | 'day'>('month');
-  const [fabOpen, setFabOpen] = useState(false);
+  const fabOpen = useCalendarFabStore((state) => state.open);
+  const setFabOpen = useCalendarFabStore((state) => state.setOpen);
+
+  useEffect(() => () => setFabOpen(false), [setFabOpen]);
 
   const months = useMemo(() => {
     const list: Date[] = [];

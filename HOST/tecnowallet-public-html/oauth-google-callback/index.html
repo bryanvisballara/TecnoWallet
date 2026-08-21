@@ -15,28 +15,28 @@
   <script>
     (function () {
       var raw = window.location.href;
-      var hashIndex = raw.indexOf("#");
-      var queryIndex = raw.indexOf("?");
-      var hash = hashIndex >= 0 ? raw.slice(hashIndex + 1) : "";
-      var query = queryIndex >= 0 ? raw.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined) : "";
+      var hashIndex = raw.indexOf('#');
+      var queryIndex = raw.indexOf('?');
+      var hash = hashIndex >= 0 ? raw.slice(hashIndex + 1) : '';
+      var query = queryIndex >= 0 ? raw.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined) : '';
       var params = new URLSearchParams(hash || query);
-      var token = (params.get("id_token") || "").trim();
-      var err = params.get("error_description") || params.get("error");
+      var token = (params.get('id_token') || '').trim();
+      var err = params.get('error_description') || params.get('error');
       if (!token) {
-        document.getElementById("msg").textContent = err || "Google no devolvió un token.";
+        document.getElementById('msg').textContent = err || 'Google no devolvió un token.';
         return;
       }
-      var native = params.get("state") === "native";
+      var native = params.get('state') === 'native';
       try {
-        native = native || sessionStorage.getItem("tw-google-native") === "1";
-        sessionStorage.setItem("tw-google-id-token", token);
-        sessionStorage.removeItem("tw-google-native");
+        native = native || sessionStorage.getItem('tw-google-native') === '1';
+        sessionStorage.setItem('tw-google-id-token', token);
+        sessionStorage.removeItem('tw-google-native');
       } catch (e) {}
       if (native) {
-        window.location.replace("tecnowallet://oauthredirect?id_token=" + encodeURIComponent(token));
+        window.location.replace('tecnowallet://oauthredirect?id_token=' + encodeURIComponent(token));
         return;
       }
-      window.location.replace("/auth.html");
+      window.location.replace('/auth.html');
     })();
   </script>
 </body>

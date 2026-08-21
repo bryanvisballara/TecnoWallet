@@ -95,6 +95,7 @@ export default function MisCuentasScreen() {
         ledgerLabel={ledgerLabel}
         ledgerIcon={ledger.icon || 'house.fill'}
         actionLabel={copy.home.liquidityFromAccounts(liquidAccounts.length)}
+        currency={(ledger.baseCurrency || 'COP').toUpperCase()}
       />
 
       <View style={styles.accountsHeader}>

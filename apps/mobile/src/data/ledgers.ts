@@ -74,6 +74,15 @@ export const ownerSelf: LedgerMember = {
   role: 'owner',
 };
 
+export const emptyLedger: LedgerMeta = {
+  id: '',
+  name: '',
+  color: '#0878F9',
+  icon: 'house.fill',
+  type: 'personal',
+  members: [],
+};
+
 export function emptySnapshot(): LedgerSnapshot {
   const stamp = Date.now();
   return {

@@ -1,14 +1,12 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
-import { useMemo, useRef, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import { useMemo, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
-import { money, type Transaction } from '@/data/demo';
+import { money } from '@/data/demo';
 import { filterTransactionsByMonth } from '@/lib/dates';
-import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { usePeriodStore } from '@/store/period';
 
@@ -17,14 +15,10 @@ export default function EnvelopeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { envelopes, transactions, ledger } = useActiveLedger();
   const removeEnvelope = useLedgerStore((state) => state.removeEnvelope);
-  const voidTransaction = useFinanceStore((state) => state.voidTransaction);
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
   const monthLabel = usePeriodStore((state) => state.label);
   const envelope = envelopes.find((item) => item.id === id) ?? envelopes[0];
-  const swipeRefs = useRef<Record<string, Swipeable | null>>({});
-  /** Ignore presses that fire on the same gesture that opened the swipe. */
-  const ignoreActionUntil = useRef<Record<string, number>>({});
   const monthTransactions = useMemo(
     () => filterTransactionsByMonth(transactions, { year, month }),
     [transactions, year, month],
@@ -51,62 +45,8 @@ export default function EnvelopeDetailScreen() {
   const isSavings = envelope.kind === 'savings';
   const isIncome = envelope.kind === 'income';
   const [deleting, setDeleting] = useState(false);
-  const [voidingId, setVoidingId] = useState<string | null>(null);
   const openEdit = () =>
     router.push({ pathname: '/add-envelope', params: { id: envelope.id, kind: envelope.kind } });
-
-  const closeSwipe = (transactionId: string) => {
-    swipeRefs.current[transactionId]?.close();
-  };
-
-  const markSwipeGesture = (transactionId: string) => {
-    ignoreActionUntil.current[transactionId] = Date.now() + 450;
-  };
-
-  const canAcceptAction = (transactionId: string) =>
-    Date.now() >= (ignoreActionUntil.current[transactionId] ?? 0);
-
-  const openTransactionEdit = (transactionId: string) => {
-    if (!canAcceptAction(transactionId)) return;
-    closeSwipe(transactionId);
-    router.push({
-      pathname: '/add-transaction',
-      params: { id: transactionId },
-    });
-  };
-
-  const confirmVoidTransaction = (item: Transaction) => {
-    if (!canAcceptAction(item.id)) return;
-    closeSwipe(item.id);
-    const run = async () => {
-      setVoidingId(item.id);
-      try {
-        await voidTransaction(item.id);
-        try {
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch {
-          // ignore
-        }
-      } catch (error) {
-        Alert.alert(
-          'No se pudo anular',
-          error instanceof Error ? error.message : 'Inténtalo de nuevo.',
-        );
-      } finally {
-        setVoidingId(null);
-      }
-    };
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      if (window.confirm(`¿Anular «${item.title}»? Se quitará del libro.`)) {
-        void run();
-      }
-      return;
-    }
-    Alert.alert('Anular movimiento', `¿Anular «${item.title}»? Se quitará del libro.`, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Anular', style: 'destructive', onPress: () => void run() },
-    ]);
-  };
 
   const confirmDelete = () => {
     Alert.alert(
@@ -298,81 +238,53 @@ export default function EnvelopeDetailScreen() {
           </Text>
         ) : (
           envelopeTransactions.map((item, index) => (
-            <Swipeable
+            <ScalePressable
               key={item.id}
-              ref={(ref) => {
-                swipeRefs.current[item.id] = ref;
-              }}
-              overshootRight={false}
-              friction={0.35}
-              overshootFriction={8}
-              rightThreshold={8}
-              dragOffsetFromRightEdge={12}
-              onSwipeableWillOpen={() => markSwipeGesture(item.id)}
-              onSwipeableOpen={() => markSwipeGesture(item.id)}
-              onSwipeableClose={() => markSwipeGesture(item.id)}
-              renderRightActions={() => (
-                <View style={styles.swipeActions}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Editar ${item.title}`}
-                    disabled={voidingId === item.id}
-                    onPress={() => openTransactionEdit(item.id)}
-                    style={[styles.swipeEdit, { backgroundColor: theme.primary }]}>
-                    <AppIcon name="paintbrush.fill" color="#FFFFFF" size={18} />
-                    <Text style={styles.swipeActionText}>Editar</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Eliminar ${item.title}`}
-                    disabled={voidingId === item.id}
-                    onPress={() => confirmVoidTransaction(item)}
-                    style={[styles.swipeDelete, { backgroundColor: theme.danger }]}>
-                    <AppIcon name="trash" color="#FFFFFF" size={18} />
-                    <Text style={styles.swipeActionText}>
-                      {voidingId === item.id ? '…' : 'Eliminar'}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}>
+              haptic={false}
+              accessibilityRole="button"
+              accessibilityLabel={`Editar ${item.title}`}
+              onPress={() =>
+                router.push({
+                  pathname: '/add-transaction',
+                  params: { id: item.id },
+                })
+              }
+              style={[
+                styles.transaction,
+                { backgroundColor: theme.surface },
+                index > 0 && {
+                  borderTopColor: theme.border,
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                },
+              ]}>
               <View
                 style={[
-                  styles.transaction,
-                  { backgroundColor: theme.surface },
-                  index > 0 && {
-                    borderTopColor: theme.border,
-                    borderTopWidth: StyleSheet.hairlineWidth,
+                  styles.transactionIcon,
+                  {
+                    backgroundColor:
+                      item.amount >= 0 ? theme.successSoft : theme.surfaceSecondary,
                   },
                 ]}>
-                <View
-                  style={[
-                    styles.transactionIcon,
-                    {
-                      backgroundColor:
-                        item.amount >= 0 ? theme.successSoft : theme.surfaceSecondary,
-                    },
-                  ]}>
-                  <AppIcon
-                    name={item.icon}
-                    color={item.amount >= 0 ? theme.success : envelope.color}
-                  />
-                </View>
-                <View style={styles.copy}>
-                  <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
-                  <Text style={[styles.small, { color: theme.muted }]}>
-                    {item.date} · Desliza y luego toca Editar o Eliminar
-                  </Text>
-                </View>
-                <Text
-                  style={[
-                    styles.amount,
-                    { color: item.amount >= 0 ? theme.success : theme.text },
-                  ]}>
-                  {item.amount > 0 ? '+' : ''}
-                  {money(item.amount)}
+                <AppIcon
+                  name={item.icon}
+                  color={item.amount >= 0 ? theme.success : envelope.color}
+                />
+              </View>
+              <View style={styles.copy}>
+                <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
+                <Text style={[styles.small, { color: theme.muted }]}>
+                  {item.account} · {item.date}
                 </Text>
               </View>
-            </Swipeable>
+              <Text
+                style={[
+                  styles.amount,
+                  { color: item.amount >= 0 ? theme.success : theme.text },
+                ]}>
+                {item.amount > 0 ? '+' : ''}
+                {money(item.amount)}
+              </Text>
+            </ScalePressable>
           ))
         )}
       </Card>
@@ -441,20 +353,6 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   amount: { fontSize: 13, fontWeight: '700' },
-  swipeActions: { flexDirection: 'row', width: 140 },
-  swipeEdit: {
-    width: 70,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  swipeDelete: {
-    width: 70,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  swipeActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
   deleteBtn: {
     marginTop: 8,
     minHeight: 48,

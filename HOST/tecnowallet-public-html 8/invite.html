@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TecnoWallet</title>
+  <script>
+    (function () {
+      var q = window.location.search || '';
+      if (!q && window.location.hash.indexOf('token=') !== -1) {
+        q = '?' + window.location.hash.replace(/^#/, '');
+      }
+      window.location.replace('/colaborar/' + q);
+    })();
+  </script>
+</head>
+<body>Redirigiendo a la invitación…</body>
+</html>

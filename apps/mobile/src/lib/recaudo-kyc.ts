@@ -53,17 +53,23 @@ export function kycPhase(kyc?: RecaudoKyc | null, fallbackStatus?: string): Reca
   if (kyc?.nextStep === 'wait' || status === 'under_review' || status === 'paused') {
     return 'pending';
   }
-  if (
-    status === 'incomplete' ||
-    status === 'awaiting_questionnaire' ||
-    status === 'awaiting_ubo' ||
-    kyc?.nextStep === 'tos' ||
-    kyc?.nextStep === 'kyc' ||
-    (kyc?.tosStatus && kyc.tosStatus !== 'approved')
-  ) {
-    return 'continue';
-  }
-  return 'none';
+  return 'continue';
+}
+
+export function tosIsApproved(kyc?: RecaudoKyc | null) {
+  return kyc?.tosStatus === 'approved';
+}
+
+export function nextVerificationAction(
+  kyc?: RecaudoKyc | null,
+  fallbackStatus?: string,
+): 'tos' | 'kyc' | 'wait' | 'retry' | 'done' {
+  const phase = kycPhase(kyc, fallbackStatus);
+  if (phase === 'approved') return 'done';
+  if (phase === 'rejected') return 'retry';
+  if (phase === 'pending') return 'wait';
+  if (!tosIsApproved(kyc)) return 'tos';
+  return 'kyc';
 }
 
 export function kycStatusLabel(status?: string) {
@@ -215,29 +221,28 @@ async function refreshKycUntil(
 
 export async function continueRecaudoVerification() {
   let snap = await startRecaudoKyc(false);
-  if (snap.verified || snap.nextStep === 'wait' || snap.nextStep === 'retry') {
-    return snap;
-  }
+  if (snap.verified) return snap;
+  if (snap.nextStep === 'wait' || snap.nextStep === 'retry') return snap;
+
   if (snap.tosStatus !== 'approved') {
     if (!snap.tosUrl) {
       throw new Error(
-        'No se pudo abrir los términos. Pulsa de nuevo Continuar verificación.',
+        'No se pudo abrir los términos. Pulsa de nuevo Aceptar términos.',
       );
     }
     await openHostedVerificationUrl(snap.tosUrl);
-    snap = await refreshKycUntil(
+    return refreshKycUntil(
       (next) => next.verified || next.tosStatus === 'approved',
     );
-    if (snap.verified) return snap;
-    if (snap.tosStatus !== 'approved') return snap;
   }
+
   if (
     snap.kycUrl &&
     snap.kycStatus !== 'under_review' &&
     snap.kycStatus !== 'approved'
   ) {
     await openHostedVerificationUrl(snap.kycUrl);
-    snap = await refreshKycUntil(
+    return refreshKycUntil(
       (next) =>
         next.verified ||
         next.kycStatus === 'under_review' ||

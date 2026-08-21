@@ -1,58 +1,77 @@
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
-import { safeGoBack } from '@/lib/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
+import { getActiveMoneyCurrency } from '@/data/demo';
+import { buildPdfBytes } from '@/lib/export-pdf';
 import {
-  buildBudgetCsv,
+  buildExportReport,
   exportFileName,
   exportTimeRanges,
+  formatMoney,
+  type ExportFormat,
   type ExportTimeRangeId,
-} from '@/lib/export-csv';
-import { useActiveLedger } from '@/store/ledger';
+} from '@/lib/export-report';
+import { buildXlsxBytes } from '@/lib/export-xlsx';
+import { safeGoBack } from '@/lib/navigation';
+import { saveExportFile } from '@/lib/save-export';
 import { useAuthStore } from '@/store/auth';
+import { useActiveLedger } from '@/store/ledger';
+
+function todayKey() {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${mm}-${dd}`;
+}
+
+function yearStartKey() {
+  return `${new Date().getFullYear()}-01-01`;
+}
 
 export default function ExportScreen() {
   const theme = useAppTheme();
   const profile = useAuthStore((state) => state.profile);
-  const { accounts, transactions, ledger } = useActiveLedger();
+  const { accounts, transactions, envelopes, ledger } = useActiveLedger();
   const [selectedAccounts, setSelectedAccounts] = useState(() => new Set(accounts.map((item) => item.id)));
-  const [range, setRange] = useState<ExportTimeRangeId>('all');
-  const [customFrom, setCustomFrom] = useState('2026-01-01');
-  const [customTo, setCustomTo] = useState('2026-08-05');
+  const [range, setRange] = useState<ExportTimeRangeId>('month');
+  const [format, setFormat] = useState<ExportFormat>('xlsx');
+  const [customFrom, setCustomFrom] = useState(yearStartKey);
+  const [customTo, setCustomTo] = useState(todayKey);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     setSelectedAccounts(new Set(accounts.map((item) => item.id)));
   }, [ledger.id, accounts]);
 
-  const canExport = selectedAccounts.size > 0 && !exporting;
+  const report = useMemo(
+    () =>
+      buildExportReport({
+        accounts,
+        transactions,
+        envelopes,
+        accountIds: [...selectedAccounts],
+        range,
+        customFrom: range === 'custom' ? customFrom : undefined,
+        customTo: range === 'custom' ? customTo : undefined,
+        ledgerName: ledger.name,
+        recorder: profile.name,
+        currency: ledger.baseCurrency || getActiveMoneyCurrency(),
+      }),
+    [accounts, transactions, envelopes, selectedAccounts, range, customFrom, customTo, ledger.name, ledger.baseCurrency, profile.name],
+  );
 
-  const previewCount = useMemo(() => {
-    const csv = buildBudgetCsv({
-      accounts,
-      transactions,
-      accountIds: [...selectedAccounts],
-      range,
-      customFrom: range === 'custom' ? customFrom : undefined,
-      customTo: range === 'custom' ? customTo : undefined,
-      ledgerName: ledger.name,
-      recorder: profile.name,
-    });
-    return Math.max(0, csv.split('\n').length - 1);
-  }, [accounts, transactions, selectedAccounts, range, customFrom, customTo, ledger.name, profile.name]);
+  const canExport = selectedAccounts.size > 0 && !exporting;
 
   const toggleAccount = (id: string) => {
     setSelectedAccounts((current) => {
@@ -63,57 +82,37 @@ export default function ExportScreen() {
     });
   };
 
-  const downloadOnWeb = (csv: string, filename: string) => {
-    if (typeof document === 'undefined') return false;
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    return true;
-  };
-
-  const onExport = async () => {
+  const onGenerate = async () => {
     if (!canExport) {
-      Alert.alert('Selecciona al menos una cuenta', 'Elige qué incluir en el CSV.');
+      Alert.alert('Selecciona al menos una cuenta', 'Elige qué incluir en el archivo.');
       return;
     }
-
     setExporting(true);
     try {
       void Haptics.selectionAsync();
-      const filename = exportFileName(range);
-      const csv = buildBudgetCsv({
-        accounts,
-        transactions,
-        accountIds: [...selectedAccounts],
-        range,
-        customFrom: range === 'custom' ? customFrom : undefined,
-        customTo: range === 'custom' ? customTo : undefined,
-        ledgerName: ledger.name,
-        recorder: profile.name,
+      const filename = exportFileName(range, format);
+      const bytes = format === 'pdf' ? buildPdfBytes(report) : buildXlsxBytes(report);
+      await saveExportFile({
+        bytes,
+        filename,
+        mime:
+          format === 'pdf'
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-
-      if (Platform.OS === 'web' && downloadOnWeb(csv, filename)) {
-        Alert.alert('Exportación lista', `${previewCount} movimientos en ${filename}`);
-        return;
-      }
-
-      await Share.share({
-        title: filename,
-        message: csv,
-      });
+      Alert.alert(
+        'Archivo listo',
+        `${report.movements.length} movimiento${report.movements.length === 1 ? '' : 's'} en ${filename}`,
+      );
     } catch {
-      Alert.alert('No se pudo exportar', 'Inténtalo de nuevo en un momento.');
+      Alert.alert('No se pudo generar', 'Inténtalo de nuevo en un momento.');
     } finally {
       setExporting(false);
     }
   };
 
   return (
-    <SheetScreen fallback="/(tabs)/mas">
+    <SheetScreen heightRatio={0.92} fallback="/(tabs)/mas">
       <View style={styles.body}>
         <View style={[styles.header, { borderBottomColor: theme.border }]}>
           <Pressable
@@ -128,6 +127,48 @@ export default function ExportScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.section, { color: theme.text }]}>Formato</Text>
+          <View style={styles.formatRow}>
+            {(
+              [
+                { id: 'xlsx' as const, title: 'Excel', subtitle: 'Hoja .xlsx', icon: 'tablecells.fill' },
+                { id: 'pdf' as const, title: 'PDF', subtitle: 'Informe visual', icon: 'doc.richtext.fill' },
+              ] as const
+            ).map((item) => {
+              const selected = format === item.id;
+              return (
+                <ScalePressable
+                  key={item.id}
+                  haptic={false}
+                  onPress={() => setFormat(item.id)}
+                  style={[
+                    styles.formatCard,
+                    {
+                      borderColor: selected ? theme.primary : theme.border,
+                      backgroundColor: selected ? theme.primarySoft : theme.surface,
+                    },
+                  ]}>
+                  <View style={[styles.formatIcon, { backgroundColor: selected ? theme.primary : theme.surfaceSecondary }]}>
+                    <AppIcon name={item.icon} color={selected ? '#FFFFFF' : theme.primary} size={18} />
+                  </View>
+                  <Text style={[styles.formatTitle, { color: theme.text }]}>{item.title}</Text>
+                  <Text style={[styles.formatSub, { color: theme.muted }]}>{item.subtitle}</Text>
+                </ScalePressable>
+              );
+            })}
+          </View>
+
+          <ScalePressable
+            accessibilityRole="button"
+            disabled={!canExport}
+            onPress={() => void onGenerate()}
+            style={[styles.downloadBtn, { backgroundColor: theme.primary, opacity: canExport ? 1 : 0.5 }]}>
+            <AppIcon name="square.and.arrow.down" color="#FFFFFF" size={20} />
+            <Text style={styles.downloadText}>
+              {exporting ? 'Descargando…' : `Descargar ${format === 'pdf' ? 'PDF' : 'Excel'}`}
+            </Text>
+          </ScalePressable>
+
           <Text style={[styles.section, { color: theme.text }]}>Cuentas</Text>
           <View style={[styles.card, { borderColor: theme.border }]}>
             {accounts.map((account, index) => {
@@ -139,10 +180,7 @@ export default function ExportScreen() {
                   onPress={() => toggleAccount(account.id)}
                   style={[
                     styles.row,
-                    index > 0 && {
-                      borderTopWidth: StyleSheet.hairlineWidth,
-                      borderTopColor: theme.border,
-                    },
+                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
                   ]}>
                   <Text style={[styles.rowLabel, { color: theme.text }]}>{account.name}</Text>
                   <View
@@ -171,10 +209,7 @@ export default function ExportScreen() {
                   onPress={() => setRange(item.id)}
                   style={[
                     styles.row,
-                    index > 0 && {
-                      borderTopWidth: StyleSheet.hairlineWidth,
-                      borderTopColor: theme.border,
-                    },
+                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
                   ]}>
                   <Text style={[styles.rowLabel, { color: theme.text }]}>{item.label}</Text>
                   <View
@@ -202,14 +237,7 @@ export default function ExportScreen() {
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={theme.muted}
                   autoCapitalize="none"
-                  style={[
-                    styles.input,
-                    {
-                      color: theme.text,
-                      borderColor: theme.border,
-                      backgroundColor: theme.surfaceSecondary,
-                    },
-                  ]}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
                 />
               </View>
               <View style={styles.customField}>
@@ -220,34 +248,71 @@ export default function ExportScreen() {
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={theme.muted}
                   autoCapitalize="none"
-                  style={[
-                    styles.input,
-                    {
-                      color: theme.text,
-                      borderColor: theme.border,
-                      backgroundColor: theme.surfaceSecondary,
-                    },
-                  ]}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
                 />
               </View>
             </View>
           ) : null}
 
-          <Text style={[styles.hint, { color: theme.muted }]}>
-            {previewCount} movimiento{previewCount === 1 ? '' : 's'} · CSV compatible con Budget
-          </Text>
+          <View style={[styles.summary, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
+            <Text style={[styles.summaryTitle, { color: theme.text }]}>Vista previa</Text>
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryLabel, { color: theme.success }]}>Ingresos</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {formatMoney(report.incomeTotal, report.currency)}
+                </Text>
+              </View>
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryLabel, { color: theme.danger }]}>Gastos</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {formatMoney(report.expenseTotal, report.currency)}
+                </Text>
+              </View>
+            </View>
+            {report.incomeEnvelopes.slice(0, 3).map((item) => (
+              <Text key={`in-${item.name}`} style={[styles.hint, { color: theme.muted }]}>
+                {item.name}: {formatMoney(item.periodTotal, report.currency)}
+              </Text>
+            ))}
+            {report.expenseEnvelopes.slice(0, 3).map((item) => (
+              <Text key={`ex-${item.name}`} style={[styles.hint, { color: theme.muted }]}>
+                {item.name}: {formatMoney(item.periodTotal, report.currency)}
+              </Text>
+            ))}
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryLabel, { color: theme.success }]}>Activos</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {formatMoney(report.assetsTotal, report.currency)}
+                </Text>
+              </View>
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryLabel, { color: theme.danger }]}>Deudas</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {formatMoney(report.debtsTotal, report.currency)}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.hint, { color: theme.text }]}>
+              Patrimonio {formatMoney(report.netWorth, report.currency)}
+            </Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              {report.movements.length} movimiento{report.movements.length === 1 ? '' : 's'} · {report.assets.length} activo{report.assets.length === 1 ? '' : 's'} · {report.debts.length} deuda{report.debts.length === 1 ? '' : 's'} · {format === 'pdf' ? 'PDF TecnoWallet' : 'Excel .xlsx'}
+            </Text>
+          </View>
         </ScrollView>
 
-        <View style={[styles.footer, { borderTopColor: theme.border }]}>
+        <View style={[styles.footer, { borderTopColor: theme.border, backgroundColor: theme.surface }]}>
           <ScalePressable
             accessibilityRole="button"
             disabled={!canExport}
-            onPress={() => void onExport()}
-            style={[
-              styles.exportButton,
-              { backgroundColor: theme.primary, opacity: canExport ? 1 : 0.5 },
-            ]}>
-            <Text style={styles.exportText}>{exporting ? 'Exportando…' : 'Exportar'}</Text>
+            onPress={() => void onGenerate()}
+            style={[styles.exportButton, { backgroundColor: theme.primary, opacity: canExport ? 1 : 0.5 }]}>
+            <AppIcon name="square.and.arrow.down" color="#FFFFFF" size={18} />
+            <Text style={styles.exportText}>
+              {exporting ? 'Descargando…' : `Descargar ${format === 'pdf' ? 'PDF' : 'Excel'}`}
+            </Text>
           </ScalePressable>
         </View>
       </View>
@@ -267,8 +332,36 @@ const styles = StyleSheet.create({
   },
   close: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 17, fontWeight: '700' },
-  content: { padding: 18, gap: 10, paddingBottom: 28 },
-  section: { fontSize: 20, fontWeight: '700', marginTop: 8, marginBottom: 2 },
+  content: { padding: 18, gap: 10, paddingBottom: 20 },
+  section: { fontSize: 18, fontWeight: '700', marginTop: 8, marginBottom: 2 },
+  formatRow: { flexDirection: 'row', gap: 10 },
+  formatCard: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderRadius: 16,
+    padding: 14,
+    gap: 6,
+  },
+  formatIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  formatTitle: { fontSize: 16, fontWeight: '800' },
+  formatSub: { fontSize: 12, fontWeight: '600' },
+  downloadBtn: {
+    minHeight: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  downloadText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   card: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
@@ -301,7 +394,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 14,
   },
-  hint: { fontSize: 12, marginTop: 4 },
+  summary: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 14,
+    gap: 10,
+    marginTop: 4,
+  },
+  summaryTitle: { fontSize: 14, fontWeight: '800' },
+  summaryRow: { flexDirection: 'row', gap: 12 },
+  summaryItem: { flex: 1, gap: 2 },
+  summaryLabel: { fontSize: 12, fontWeight: '700' },
+  summaryValue: { fontSize: 16, fontWeight: '800' },
+  hint: { fontSize: 12, fontWeight: '600' },
   footer: {
     paddingHorizontal: 18,
     paddingTop: 12,
@@ -309,10 +414,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   exportButton: {
-    minHeight: 52,
-    borderRadius: 14,
+    minHeight: 54,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
-  exportText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  exportText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
 });

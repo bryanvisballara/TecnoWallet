@@ -2,6 +2,7 @@ import { Redirect, Tabs } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
+import { VoiceExpenseFab } from '@/components/voice-expense-fab';
 import { AppIcon, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
 import { FEATURE_RECAUDOS_ENABLED } from '@/lib/feature-flags';
@@ -64,47 +65,51 @@ export default function TabsLayout() {
   }
 
   return (
-    <Tabs
-      initialRouteName="inicio"
-      tabBar={(props) => (
-        <FloatingTabBar
-          state={props.state}
-          descriptors={props.descriptors}
-          navigation={props.navigation}
-        />
-      )}
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.muted,
-        tabBarStyle: styles.hiddenNativeBar,
-        sceneStyle: { backgroundColor: theme.background },
-      }}>
-      {tabDefs.map((tab) => {
-        const title = copy.tabs[tab.key];
-        return (
-          <Tabs.Screen
-            key={tab.name}
-            name={tab.name}
-            options={{
-              title,
-              tabBarAccessibilityLabel: title,
-              tabBarIcon: ({ color, focused }) => (
-                <AppIcon name={tab.icon} color={color} size={focused ? 22 : 20} />
-              ),
-            }}
+    <View style={styles.shell}>
+      <Tabs
+        initialRouteName="inicio"
+        tabBar={(props) => (
+          <FloatingTabBar
+            state={props.state}
+            descriptors={props.descriptors}
+            navigation={props.navigation}
           />
-        );
-      })}
-      {hiddenTabs.map((name) => (
-        <Tabs.Screen key={name} name={name} options={{ href: null }} />
-      ))}
-    </Tabs>
+        )}
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: theme.primary,
+          tabBarInactiveTintColor: theme.muted,
+          tabBarStyle: styles.hiddenNativeBar,
+          sceneStyle: { backgroundColor: theme.background },
+        }}>
+        {tabDefs.map((tab) => {
+          const title = copy.tabs[tab.key];
+          return (
+            <Tabs.Screen
+              key={tab.name}
+              name={tab.name}
+              options={{
+                title,
+                tabBarAccessibilityLabel: title,
+                tabBarIcon: ({ color, focused }) => (
+                  <AppIcon name={tab.icon} color={color} size={focused ? 22 : 20} />
+                ),
+              }}
+            />
+          );
+        })}
+        {hiddenTabs.map((name) => (
+          <Tabs.Screen key={name} name={name} options={{ href: null }} />
+        ))}
+      </Tabs>
+      <VoiceExpenseFab />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   boot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  shell: { flex: 1 },
   hiddenNativeBar: {
     position: 'absolute',
     backgroundColor: 'transparent',

@@ -1,11 +1,13 @@
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -68,6 +70,7 @@ export default function MoreScreen() {
   const [deleteInfo, setDeleteInfo] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteKeyboardHeight, setDeleteKeyboardHeight] = useState(0);
   const language = languages.find((item) => item.code === locale) ?? languages[0];
   const avatarSource = profile.avatarUri
     ? { uri: profile.avatarUri }
@@ -263,12 +266,31 @@ export default function MoreScreen() {
 
   const closeDeleteModal = () => {
     if (deleting) return;
+    Keyboard.dismiss();
     setDeleteOpen(false);
     setDeleteStep('confirm');
     setDeleteCode('');
     setDeleteError(null);
     setDeleteInfo(null);
+    setDeleteKeyboardHeight(0);
   };
+
+  useEffect(() => {
+    if (!deleteOpen) {
+      setDeleteKeyboardHeight(0);
+      return;
+    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvent, (event) => {
+      setDeleteKeyboardHeight(Math.max(0, event.endCoordinates.height));
+    });
+    const onHide = Keyboard.addListener(hideEvent, () => setDeleteKeyboardHeight(0));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, [deleteOpen]);
 
   const sendDeleteCode = async () => {
     if (demo) {
@@ -697,7 +719,12 @@ export default function MoreScreen() {
         transparent
         animationType="fade"
         onRequestClose={closeDeleteModal}>
-        <Pressable style={styles.backdrop} onPress={closeDeleteModal}>
+        <Pressable
+          style={[
+            styles.backdrop,
+            deleteKeyboardHeight > 0 ? { paddingBottom: deleteKeyboardHeight + 8 } : null,
+          ]}
+          onPress={closeDeleteModal}>
           <Pressable
             style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={(event) => event.stopPropagation()}>
@@ -720,6 +747,9 @@ export default function MoreScreen() {
                   onChangeText={(value) => setDeleteCode(value.replace(/\D/g, '').slice(0, 6))}
                   keyboardType="number-pad"
                   maxLength={6}
+                  autoFocus
+                  textContentType="oneTimeCode"
+                  autoComplete="one-time-code"
                   placeholder="000000"
                   placeholderTextColor={theme.muted}
                   style={[

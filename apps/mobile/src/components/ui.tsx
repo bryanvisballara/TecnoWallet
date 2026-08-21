@@ -136,6 +136,7 @@ export function Screen({
       <ScrollComponent
         contentContainerStyle={[
           styles.screen,
+          Platform.OS === 'web' ? { maxWidth: MaxContentWidth, alignSelf: 'center' } : null,
           { paddingBottom: withTabBar ? tabsBottom : stackBottom },
         ]}
         showsVerticalScrollIndicator={false}
@@ -342,7 +343,7 @@ export const uiStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  screen: { width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center', paddingHorizontal: Spacing.lg, gap: Spacing.lg },
+  screen: { width: '100%', paddingHorizontal: Spacing.lg, gap: Spacing.lg },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import {
+  emptyLedger,
   emptySnapshot,
   type LedgerMeta,
   type LedgerSnapshot,
@@ -465,9 +466,8 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     const account = slice.accounts.find((item) => item.name === value.account);
     if (!account) throw new Error('Selecciona una cuenta válida.');
     if (!clearingId) {
-      // Ensure clearing exists after fresh hydrate races.
       await ensureWorkspaceDefaults(ledgerId, currency);
-      await get().hydrate();
+      await get().refreshLedger(ledgerId);
       clearingId = get().clearingIds[ledgerId];
     }
     if (!clearingId) throw new Error('El libro aún no está listo. Recarga e intenta de nuevo.');
@@ -493,52 +493,81 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       idempotencyKey,
     });
 
-    // Keep account balance in Mongo resource in sync with the UI model.
-    const nextBalanceMinor = toMinor(account.balance + value.amount);
-    await updateResource('account', account.id, {
-      balanceMinor: nextBalanceMinor,
-      currency,
-      kind: account.kind,
-      icon: account.icon,
-      color: account.color,
-      lastFour: account.lastFour,
+    const result: Transaction = {
+      ...value,
+      id: objectId(created) || idempotencyKey,
+      date: value.date ?? 'Ahora',
+      icon: value.icon ?? (value.amount > 0 ? 'arrow.down.circle.fill' : 'banknote.fill'),
+      envelopeId: envelope?.id,
+      occurredAt,
+    };
+
+    const nextBalance = account.balance + value.amount;
+    const nextSpent = envelope
+      ? Math.max(0, envelope.spent + Math.abs(value.amount))
+      : 0;
+
+    set((state) => {
+      const snap = state.snapshots[ledgerId];
+      if (!snap) return { activeLedgerId: ledgerId };
+      const accounts = snap.accounts.map((item) =>
+        item.id === account.id ? { ...item, balance: nextBalance } : item,
+      );
+      const envelopes = envelope
+        ? snap.envelopes.map((item) =>
+            item.id === envelope.id ? { ...item, spent: nextSpent } : item,
+          )
+        : snap.envelopes;
+      const transactions = [
+        result,
+        ...snap.transactions.filter((item) => item.id !== result.id),
+      ];
+      return {
+        activeLedgerId: ledgerId,
+        snapshots: {
+          ...state.snapshots,
+          [ledgerId]: {
+            ...snap,
+            accounts,
+            envelopes,
+            transactions,
+            summary: buildSummary(accounts, envelopes, transactions),
+          },
+        },
+      };
     });
 
-    if (envelope) {
-      const nextSpent = Math.max(0, envelope.spent + Math.abs(value.amount));
-      await updateResource(
-        'envelope',
-        envelope.id,
-        {
-          kind: envelope.kind,
-          budgetMinor: toMinor(Math.max(0, envelope.budget)),
-          spentMinor: toMinor(nextSpent),
-          balanceMinor: toMinor(nextSpent),
-          currency,
-          icon: envelope.icon,
-          color: envelope.color,
-          rollover: envelope.rollover,
-          rule: envelope.rule,
-          ...(envelope.goalId ? { goalId: envelope.goalId } : {}),
-        },
-        envelope.name,
-      );
-    }
-
-    await get().hydrate();
-    set({ activeLedgerId: ledgerId });
-    const mapped = get().snapshots[ledgerId]?.transactions.find(
-      (item) => item.id === objectId(created),
-    );
-    const result =
-      mapped ?? {
-        ...value,
-        id: objectId(created),
-        date: value.date ?? 'Ahora',
-        icon: value.icon ?? (value.amount > 0 ? 'arrow.down.circle.fill' : 'banknote.fill'),
-        envelopeId: envelope?.id,
-        occurredAt: occurredAt,
-      };
+    void Promise.all([
+      updateResource('account', account.id, {
+        balanceMinor: toMinor(nextBalance),
+        currency,
+        kind: account.kind,
+        icon: account.icon,
+        color: account.color,
+        lastFour: account.lastFour,
+      }),
+      envelope
+        ? updateResource(
+            'envelope',
+            envelope.id,
+            {
+              kind: envelope.kind,
+              budgetMinor: toMinor(Math.max(0, envelope.budget)),
+              spentMinor: toMinor(nextSpent),
+              balanceMinor: toMinor(nextSpent),
+              currency,
+              icon: envelope.icon,
+              color: envelope.color,
+              rollover: envelope.rollover,
+              rule: envelope.rule,
+              ...(envelope.goalId ? { goalId: envelope.goalId } : {}),
+            },
+            envelope.name,
+          )
+        : Promise.resolve(),
+    ])
+      .catch(() => undefined)
+      .then(() => get().refreshLedger(ledgerId));
     const isIncome = value.amount >= 0;
     void recordActivity({
       kind: isIncome ? 'income' : 'expense',
@@ -585,7 +614,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       });
     }
 
-    await get().hydrate();
+    void get().refreshLedger(ledgerId);
     set({ activeLedgerId: ledgerId });
   },
 
@@ -984,7 +1013,8 @@ export function useActiveLedger() {
   const activeLedgerId = useLedgerStore((state) => state.activeLedgerId);
   const ledgers = useLedgerStore((state) => state.ledgers);
   const snapshots = useLedgerStore((state) => state.snapshots);
-  const ledger = ledgers.find((item) => item.id === activeLedgerId) ?? ledgers[0];
+  const ledger =
+    ledgers.find((item) => item.id === activeLedgerId) ?? ledgers[0] ?? emptyLedger;
   const data = snapshots[activeLedgerId] ?? emptySnapshot();
   return { ledger, ...data, activeLedgerId };
 }
