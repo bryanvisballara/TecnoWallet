@@ -1,7 +1,7 @@
-import {
-  ExpoSpeechRecognitionModule,
-  type ExpoSpeechRecognitionErrorEvent,
-  type ExpoSpeechRecognitionResultEvent,
+import { requireOptionalNativeModule } from 'expo';
+import type {
+  ExpoSpeechRecognitionErrorEvent,
+  ExpoSpeechRecognitionResultEvent,
 } from 'expo-speech-recognition';
 import { AppState, Platform } from 'react-native';
 
@@ -20,6 +20,30 @@ export type VoiceDictationHandlers = {
 export type VoiceDictationSession = {
   stop: () => void;
 };
+
+type SpeechNative = {
+  start: (options: object) => void;
+  stop: () => void;
+  abort: () => void;
+  requestMicrophonePermissionsAsync: () => Promise<{ granted: boolean }>;
+  requestSpeechRecognizerPermissionsAsync: () => Promise<{ granted: boolean }>;
+  setCategoryIOS: (options: object) => void;
+  setAudioSessionActiveIOS: (
+    active: boolean,
+    options?: { notifyOthersOnDeactivation?: boolean },
+  ) => void;
+  isRecognitionAvailable: () => boolean;
+  supportsOnDeviceRecognition: () => boolean;
+  addListener: (
+    event: string,
+    cb: (event?: ExpoSpeechRecognitionResultEvent &
+      ExpoSpeechRecognitionErrorEvent & { value?: number }) => void,
+  ) => { remove: () => void };
+};
+
+const Speech = requireOptionalNativeModule(
+  'ExpoSpeechRecognition',
+) as SpeechNative | null;
 
 type SpeechRecognitionCtor = new () => {
   lang: string;
@@ -95,7 +119,7 @@ function startAnalyser(
 export function isVoiceDictationSupported() {
   if (Platform.OS === 'web') return Boolean(speechCtor());
   try {
-    return typeof ExpoSpeechRecognitionModule.start === 'function';
+    return typeof Speech?.start === 'function';
   } catch {
     return false;
   }
@@ -254,22 +278,25 @@ function startWebDictation(handlers: VoiceDictationHandlers, lang: string): Voic
 }
 
 async function ensureNativePermissions() {
+  if (!Speech) {
+    throw new Error(voiceDictationUnavailableMessage());
+  }
   const copy = getVoiceCopy(useLanguageStore.getState().locale);
-  const mic = await ExpoSpeechRecognitionModule.requestMicrophonePermissionsAsync();
+  const mic = await Speech.requestMicrophonePermissionsAsync();
   if (!mic.granted) {
     throw new Error(copy.micPermission);
   }
   // Prefer mic-only when possible; speech permission is still needed for cloud STT on iOS.
-  const speech = await ExpoSpeechRecognitionModule.requestSpeechRecognizerPermissionsAsync();
+  const speech = await Speech.requestSpeechRecognizerPermissionsAsync();
   if (!speech.granted) {
     // Continue: on-device may still work with mic alone.
   }
 }
 
 function prepareIosAudioSession() {
-  if (Platform.OS !== 'ios') return;
+  if (Platform.OS !== 'ios' || !Speech) return;
   try {
-    ExpoSpeechRecognitionModule.setCategoryIOS({
+    Speech.setCategoryIOS({
       category: 'playAndRecord',
       categoryOptions: ['defaultToSpeaker', 'allowBluetooth', 'mixWithOthers'],
       mode: 'measurement',
@@ -278,7 +305,7 @@ function prepareIosAudioSession() {
     // ignore
   }
   try {
-    ExpoSpeechRecognitionModule.setAudioSessionActiveIOS(true, {
+    Speech.setAudioSessionActiveIOS(true, {
       notifyOthersOnDeactivation: false,
     });
   } catch {
@@ -287,9 +314,9 @@ function prepareIosAudioSession() {
 }
 
 function releaseIosAudioSession() {
-  if (Platform.OS !== 'ios') return;
+  if (Platform.OS !== 'ios' || !Speech) return;
   try {
-    ExpoSpeechRecognitionModule.setAudioSessionActiveIOS(false, {
+    Speech.setAudioSessionActiveIOS(false, {
       notifyOthersOnDeactivation: true,
     });
   } catch {
@@ -338,14 +365,14 @@ async function startNativeDictation(
   handlers: VoiceDictationHandlers,
   lang: string,
 ): Promise<VoiceDictationSession> {
-  if (!isVoiceDictationSupported()) {
+  if (!Speech || !isVoiceDictationSupported()) {
     throw new Error(voiceDictationUnavailableMessage());
   }
 
   const copy = getVoiceCopy(useLanguageStore.getState().locale);
   await ensureNativePermissions();
 
-  if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
+  if (!Speech.isRecognitionAvailable()) {
     throw new Error(copy.recognitionUnavailable);
   }
 
@@ -354,7 +381,7 @@ async function startNativeDictation(
 
   // Make sure nothing else owns the mic (prior TTS / previous session).
   try {
-    ExpoSpeechRecognitionModule.abort();
+    Speech.abort();
   } catch {
     // ignore
   }
@@ -378,20 +405,20 @@ async function startNativeDictation(
     if (stopped) return;
     prepareIosAudioSession();
     try {
-      ExpoSpeechRecognitionModule.start(buildStartOptions(currentLang, preferOnDevice));
+      Speech.start(buildStartOptions(currentLang, preferOnDevice));
     } catch {
       // Already started.
     }
   };
 
   const subs = [
-    ExpoSpeechRecognitionModule.addListener('start', () => {
+    Speech.addListener('start', () => {
       if (stopped || startedNotified) return;
       startedNotified = true;
       retries = 0;
       handlers.onStarted?.();
     }),
-    ExpoSpeechRecognitionModule.addListener(
+    Speech.addListener(
       'result',
       (event: ExpoSpeechRecognitionResultEvent) => {
         if (stopped) return;
@@ -410,7 +437,7 @@ async function startNativeDictation(
         }
       },
     ),
-    ExpoSpeechRecognitionModule.addListener(
+    Speech.addListener(
       'error',
       (event: ExpoSpeechRecognitionErrorEvent) => {
         if (stopped) return;
@@ -443,7 +470,7 @@ async function startNativeDictation(
           return;
         }
         if (!preferOnDevice && event.error === 'network') {
-          if (ExpoSpeechRecognitionModule.supportsOnDeviceRecognition()) {
+          if (Speech.supportsOnDeviceRecognition()) {
             preferOnDevice = true;
             void delay(300).then(() => {
               if (!stopped) startEngine();
@@ -456,7 +483,7 @@ async function startNativeDictation(
           void delay(400 + retries * 300).then(() => {
             if (stopped) return;
             try {
-              ExpoSpeechRecognitionModule.abort();
+              Speech.abort();
             } catch {
               // ignore
             }
@@ -469,14 +496,14 @@ async function startNativeDictation(
         handlers.onError?.(friendlySpeechError(event.error, event.message));
       },
     ),
-    ExpoSpeechRecognitionModule.addListener('end', () => {
+    Speech.addListener('end', () => {
       if (stopped) return;
       // Keep the session alive so live transcription continues.
       void delay(350).then(() => {
         if (!stopped) startEngine();
       });
     }),
-    ExpoSpeechRecognitionModule.addListener('volumechange', (event) => {
+    Speech.addListener('volumechange', (event) => {
       handlers.onLevel?.(Math.min(1, Math.max(0, ((event.value ?? -2) + 2) / 12)));
     }),
   ];
@@ -488,10 +515,10 @@ async function startNativeDictation(
       stopped = true;
       subs.forEach((item) => item.remove());
       try {
-        ExpoSpeechRecognitionModule.stop();
+        Speech.stop();
       } catch {
         try {
-          ExpoSpeechRecognitionModule.abort();
+          Speech.abort();
         } catch {
           // ignore
         }

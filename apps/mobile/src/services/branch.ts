@@ -60,9 +60,6 @@ export async function storeManualAffiliateCode(code: string) {
     source: 'manual',
   };
   await localStorage.set(PENDING_KEY, pending);
-  if (await tokenStorage.get()) {
-    return claimPendingAffiliate();
-  }
 }
 
 export async function storeWebAffiliateReferral(code: string, clickId?: string) {
@@ -84,15 +81,18 @@ export async function peekPendingAffiliateCode() {
   return code || null;
 }
 
-export async function claimPendingAffiliate() {
+export async function claimPendingAffiliate(options?: { allowManual?: boolean }) {
   if (!(await tokenStorage.get())) return null;
   const pending = await localStorage.get<PendingReferral | null>(
     PENDING_KEY,
     null,
   );
   if (!pending?.code) return null;
+  if (pending.source === 'manual' && !options?.allowManual) return null;
   const affiliate = await claimAffiliate(pending);
   await localStorage.remove(PENDING_KEY);
-  useAffiliateStore.getState().showWelcome(affiliate);
+  if (pending.source !== 'manual') {
+    useAffiliateStore.getState().showWelcome(affiliate);
+  }
   return affiliate;
 }

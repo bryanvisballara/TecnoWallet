@@ -53,11 +53,17 @@ export class PushService {
       token = normalizeApnsDeviceToken(token);
     }
     if (!token) return { registered: false };
+    const userOid = new Types.ObjectId(userId);
+    await this.tokens.deleteMany({
+      userId: userOid,
+      platform,
+      token: { $ne: token },
+    });
     await this.tokens.findOneAndUpdate(
       { token },
       {
         $set: {
-          userId: new Types.ObjectId(userId),
+          userId: userOid,
           platform,
         },
       },
@@ -326,6 +332,7 @@ export class PushService {
         sound: payload.sound || 'default',
         badge: payload.badge,
         data: payload.data ?? {},
+        collapseId: payload.data?.notificationId,
         priority: 'high',
       }),
     });
@@ -434,7 +441,14 @@ export class PushService {
         ? 'api.push.apple.com'
         : 'api.sandbox.push.apple.com';
       try {
-        await this.postApns(host, token, jwt, bundleId, body);
+        await this.postApns(
+          host,
+          token,
+          jwt,
+          bundleId,
+          body,
+          payload.data?.notificationId,
+        );
         this.logger.log(
           `APNS ok env=${production ? 'production' : 'sandbox'} token=${token.slice(0, 8)}…`,
         );
@@ -466,6 +480,7 @@ export class PushService {
     jwt: string,
     bundleId: string,
     body: string,
+    collapseId?: string,
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let client: ClientHttp2Session | undefined;
@@ -480,6 +495,9 @@ export class PushService {
           'apns-push-type': 'alert',
           'apns-priority': '10',
           'content-type': 'application/json',
+          ...(collapseId
+            ? { 'apns-collapse-id': collapseId.slice(0, 64) }
+            : {}),
         });
         let status = 0;
         let responseBody = '';

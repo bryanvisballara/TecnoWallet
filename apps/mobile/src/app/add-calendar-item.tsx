@@ -19,8 +19,10 @@ import {
 } from 'react-native';
 import { AppTimeField, formatHhmmAmPm, normalizeHhmm } from '@/components/app-time-field';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
+import { AttachmentPreview } from '@/components/attachment-preview';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
+import { shareAttachment } from '@/lib/open-attachment';
 import {
   CALENDAR_REMINDER_CUSTOM,
   CALENDAR_REMINDER_NONE,
@@ -159,6 +161,7 @@ export default function AddCalendarItemScreen() {
   const [attachments, setAttachments] = useState<CalendarAttachment[]>(
     existing?.attachments ?? [],
   );
+  const [preview, setPreview] = useState<CalendarAttachment | null>(null);
   const [saving, setSaving] = useState(false);
   const [hydratedEdit, setHydratedEdit] = useState(!editId);
 
@@ -705,16 +708,28 @@ export default function AddCalendarItemScreen() {
                     <View
                       key={item.id}
                       style={[styles.attachItem, { backgroundColor: theme.surfaceSecondary }]}>
-                      {item.kind === 'image' ? (
-                        <Image source={{ uri: item.uri }} style={styles.attachThumb} />
-                      ) : (
-                        <View style={[styles.attachFileIcon, { backgroundColor: theme.primarySoft }]}>
-                          <AppIcon name="doc.fill" color={theme.primary} size={16} />
-                        </View>
-                      )}
-                      <Text numberOfLines={1} style={[styles.attachName, { color: theme.text }]}>
-                        {item.name}
-                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Abrir ${item.name}`}
+                        onPress={() => {
+                          if (item.kind === 'image') {
+                            setPreview(item);
+                            return;
+                          }
+                          void shareAttachment(item);
+                        }}
+                        style={styles.attachOpen}>
+                        {item.kind === 'image' ? (
+                          <Image source={{ uri: item.uri }} style={styles.attachThumb} />
+                        ) : (
+                          <View style={[styles.attachFileIcon, { backgroundColor: theme.primarySoft }]}>
+                            <AppIcon name="doc.fill" color={theme.primary} size={16} />
+                          </View>
+                        )}
+                        <Text numberOfLines={1} style={[styles.attachName, { color: theme.text }]}>
+                          {item.name}
+                        </Text>
+                      </Pressable>
                       <Pressable
                         accessibilityLabel={`Quitar ${item.name}`}
                         onPress={() => removeAttachment(item.id)}
@@ -739,6 +754,7 @@ export default function AddCalendarItemScreen() {
           ) : null}
         </FormScrollView>
       </View>
+      <AttachmentPreview item={preview} onClose={() => setPreview(null)} />
     </SheetScreen>
   );
 }
@@ -877,6 +893,13 @@ const styles = StyleSheet.create({
     minHeight: 48,
     borderRadius: 12,
     paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  attachOpen: {
+    flex: 1,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,

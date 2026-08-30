@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -16,7 +16,6 @@ import { CollaborationInvitesList } from '@/components/collaboration-invites-lis
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import {
   acceptAccessRequest,
-  listAccessRequests,
   listCollaborationInvites,
   rejectAccessRequest,
   revokeCollaborationInvite,
@@ -25,6 +24,10 @@ import {
 } from '@/services/collaboration-api';
 import { isSelfOwner } from '@/lib/collaboration-roles';
 import { fetchWorkspaceShareCode } from '@/services/ledgers-api';
+import {
+  useAccessRequestsStore,
+  workspaceAccessRequests,
+} from '@/store/access-requests';
 import { useLedgerStore } from '@/store/ledger';
 import {
   isPlusRequiredError,
@@ -127,13 +130,18 @@ export default function LedgersScreen() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [invites, setInvites] = useState<CollaborationResourceInvite[]>([]);
-  const [accessRequests, setAccessRequests] = useState<CollaborationAccessRequest[]>([]);
+  const inbox = useAccessRequestsStore((state) => state.requests);
+  const refreshInbox = useAccessRequestsStore((state) => state.refresh);
   const [shareCode, setShareCode] = useState('');
   const [shareCodeLoading, setShareCodeLoading] = useState(false);
 
   const selected = useMemo(
     () => ledgers.find((item) => item.id === selectedId) ?? ledgers[0],
     [ledgers, selectedId],
+  );
+  const accessRequests = useMemo(
+    () => workspaceAccessRequests(inbox, selected?.id),
+    [inbox, selected?.id],
   );
 
   const loadInvites = useCallback(async (resourceId?: string) => {
@@ -152,18 +160,9 @@ export default function LedgersScreen() {
     }
   }, []);
 
-  const loadAccessRequests = useCallback(async (resourceId?: string) => {
-    if (!resourceId) {
-      setAccessRequests([]);
-      return;
-    }
-    try {
-      const rows = await listAccessRequests({ workspaceId: resourceId });
-      setAccessRequests(rows);
-    } catch {
-      setAccessRequests([]);
-    }
-  }, []);
+  const loadAccessRequests = useCallback(async () => {
+    await refreshInbox();
+  }, [refreshInbox]);
 
   useEffect(() => {
     if (!selected) return;
@@ -180,8 +179,14 @@ export default function LedgersScreen() {
 
   useEffect(() => {
     void loadInvites(selected?.id);
-    void loadAccessRequests(selected?.id);
+    void loadAccessRequests();
   }, [selected?.id, loadInvites, loadAccessRequests]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadAccessRequests();
+    }, [loadAccessRequests]),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -280,7 +285,7 @@ export default function LedgersScreen() {
   const onAcceptRequest = async (request: CollaborationAccessRequest) => {
     try {
       await acceptAccessRequest(request.id);
-      await Promise.all([hydrateLedgers(), loadAccessRequests(selected.id), loadInvites(selected.id)]);
+      await Promise.all([hydrateLedgers(), loadAccessRequests(), loadInvites(selected.id)]);
       setSelectedId(selected.id);
     } catch (error) {
       if (isPlusRequiredError(error)) {
@@ -299,7 +304,7 @@ export default function LedgersScreen() {
   const onRejectRequest = async (request: CollaborationAccessRequest) => {
     try {
       await rejectAccessRequest(request.id);
-      await loadAccessRequests(selected.id);
+      await loadAccessRequests();
     } catch (error) {
       Alert.alert(
         'No se pudo rechazar',

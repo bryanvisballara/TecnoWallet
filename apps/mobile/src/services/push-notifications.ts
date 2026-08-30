@@ -136,6 +136,15 @@ export async function configureActivityNotifications(): Promise<boolean> {
       const content = notification.request.content;
       const data = (content.data ?? {}) as Record<string, string>;
       const notificationId = data.notificationId?.trim();
+      const isAccessInvite =
+        data.kind === "invite" ||
+        Boolean(data.accessRequestId?.trim()) ||
+        Boolean(notificationId?.startsWith("access-"));
+      if (isAccessInvite) {
+        void import("@/store/access-requests").then(({ useAccessRequestsStore }) =>
+          useAccessRequestsStore.getState().refresh().catch(() => undefined),
+        );
+      }
       if (notificationId) {
         void markSharedNotificationSeen(notificationId);
         // Remote collaborator pushes (not local recordActivity ids).
@@ -145,6 +154,9 @@ export async function configureActivityNotifications(): Promise<boolean> {
             notificationId.startsWith("tx-") ||
             notificationId.startsWith("env-")
           ) {
+            void import("@/store/ledger").then(({ useLedgerStore }) =>
+              useLedgerStore.getState().hydrate().catch(() => undefined),
+            );
             return;
           }
           const rawKind = data.kind as ActivityKind | undefined;
@@ -236,6 +248,21 @@ export async function configureActivityNotifications(): Promise<boolean> {
           push: false,
         }),
       );
+    });
+    Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = (response.notification.request.content.data ??
+        {}) as Record<string, string>;
+      const notificationId = data.notificationId?.trim();
+      if (!notificationId) return;
+      void markSharedNotificationSeen(notificationId);
+      if (
+        notificationId.startsWith("tx-") ||
+        notificationId.startsWith("env-")
+      ) {
+        void import("@/store/ledger").then(({ useLedgerStore }) =>
+          useLedgerStore.getState().hydrate().catch(() => undefined),
+        );
+      }
     });
   }
 

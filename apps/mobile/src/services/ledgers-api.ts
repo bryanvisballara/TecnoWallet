@@ -238,11 +238,11 @@ export function mapTransaction(
   envelopesById?: Map<string, Envelope>,
   authorByUserId?: Map<string, string>,
 ): Transaction {
-  const userFacing = tx.entries.find((entry) => {
-    const account = accountsById.get(String(entry.accountId));
-    return Boolean(account);
-  });
-  const amountMinor = userFacing?.amountMinor ?? tx.entries[0]?.amountMinor ?? 0;
+  const userFacing =
+    tx.entries.find((entry) => accountsById.has(String(entry.accountId))) ??
+    tx.entries.find((entry) => entry.amountMinor !== 0) ??
+    tx.entries[0];
+  const amountMinor = userFacing?.amountMinor ?? 0;
   const account = userFacing
     ? accountsById.get(String(userFacing.accountId))
     : undefined;
@@ -269,7 +269,7 @@ export function mapTransaction(
     title: tx.description,
     // Sobres UI matches spent by envelope name — never use tx.kind here.
     category: envelope?.name ?? (tx.kind === 'income' || tx.kind === 'expense' ? tx.kind : 'Movimiento'),
-    account: account?.name ?? 'Cuenta',
+    account: account?.name ?? 'Cuenta del equipo',
     amount: fromMinor(amountMinor),
     date: dateLabel,
     icon: amountMinor >= 0 ? 'arrow.down.circle.fill' : 'banknote.fill',
@@ -636,12 +636,10 @@ export async function loadWorkspaceSnapshot(
       if (tx.entries.every((entry) => String(entry.accountId) === clearingId)) {
         return false;
       }
-      // Drop orphans from deleted accounts (user-facing entry no longer exists).
-      const hasLiveUserAccount = tx.entries.some((entry) => {
-        const accountId = String(entry.accountId);
-        return accountId !== clearingId && accountsById.has(accountId);
-      });
-      return hasLiveUserAccount;
+      // Keep teammate movements even if this viewer cannot see that account
+      // (private-to-them or not yet in the local snapshot). Only skip
+      // clearing-only rows and true empty entries.
+      return tx.entries.some((entry) => String(entry.accountId) !== clearingId);
     })
     .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors));
 

@@ -65,7 +65,7 @@ const en: VoiceCopy = {
   createEnvelopeFailed: 'Couldn’t create the envelope. Try again.',
   dictationUnavailableWeb: 'Use Chrome or Safari to log expenses by voice.',
   dictationUnavailableNative:
-    'Reinstall TecnoWallet on the iPhone to enable the microphone.',
+    'Voice dictation isn’t available on this device right now. Try again in a moment.',
   recognitionUnavailable: 'Speech recognition isn’t available right now. Try again in a few seconds.',
   micPermission: 'Turn on the microphone and speech recognition in Settings → TecnoWallet.',
   network: 'I need an internet connection to hear you. Check Wi‑Fi and try again.',
@@ -104,7 +104,7 @@ const es: VoiceCopy = {
   createEnvelopeFailed: 'No se pudo crear el sobre. Inténtalo de nuevo.',
   dictationUnavailableWeb: 'Usa Chrome o Safari para registrar gastos por voz.',
   dictationUnavailableNative:
-    'Hay que reinstalar TecnoWallet en el iPhone para activar el micrófono. El botón ya está; falta el módulo nativo en este build.',
+    'El dictado por voz no está disponible en este dispositivo ahora mismo. Inténtalo en un momento.',
   recognitionUnavailable:
     'El reconocimiento de voz no está disponible ahora mismo. Inténtalo en unos segundos.',
   micPermission: 'Activa el micrófono y el reconocimiento de voz en Ajustes → TecnoWallet.',

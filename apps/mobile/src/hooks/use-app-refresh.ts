@@ -24,6 +24,9 @@ export async function refreshAppData() {
     usePlusStore.getState().hydrate().catch(() => undefined),
     useNotificationsStore.getState().hydrate().catch(() => undefined),
     useAuthStore.getState().hydrate().catch(() => undefined),
+    import('@/store/access-requests').then(({ useAccessRequestsStore }) =>
+      useAccessRequestsStore.getState().refresh(),
+    ).catch(() => undefined),
   ]);
 
   try {

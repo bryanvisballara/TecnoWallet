@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
   Modal,
   Platform,
   Pressable,
@@ -19,13 +20,9 @@ import {
 } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
 import { ApiError } from '@/services/api';
+import { getAffiliateCode } from '@/services/affiliate-api';
 import {
-  claimAffiliate,
-  getAffiliateCode,
-  getMyAffiliate,
-} from '@/services/affiliate-api';
-import {
-  peekPendingAffiliateCode,
+  claimPendingAffiliate,
   storeManualAffiliateCode,
 } from '@/services/branch';
 import {
@@ -34,6 +31,7 @@ import {
   purchasePlus,
   restorePlusPurchases,
 } from '@/services/purchases';
+import { useAffiliateStore } from '@/store/affiliate';
 import {
   type PaywallPlan,
   usePlusStore,
@@ -99,33 +97,11 @@ export function PlusPaywallModal() {
   useEffect(() => {
     if (!visible) return;
     setError(null);
-    let cancelled = false;
-    void (async () => {
-      try {
-        const mine = await getMyAffiliate().catch(() => null);
-        if (cancelled) return;
-        if (mine?.code) {
-          setCoupon(mine.code, mine.name);
-          setCouponDraft(mine.code);
-          await loadOfferings();
-          return;
-        }
-        const pending = await peekPendingAffiliateCode();
-        if (cancelled) return;
-        if (pending) {
-          setCouponDraft(pending);
-          await applyCoupon(pending, { silent: true });
-        } else {
-          await loadOfferings();
-        }
-      } catch {
-        await loadOfferings().catch(() => undefined);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate coupon once per open
+    useAffiliateStore.getState().dismissWelcome();
+    if (usePlusStore.getState().couponCode) {
+      setCouponDraft(usePlusStore.getState().couponCode ?? '');
+    }
+    void loadOfferings().catch(() => undefined);
   }, [visible]);
 
   const applyCoupon = async (raw: string, options?: { silent?: boolean }) => {
@@ -137,11 +113,7 @@ export function PlusPaywallModal() {
     }
     try {
       const affiliate = await getAffiliateCode(code);
-      try {
-        await claimAffiliate({ code: affiliate.code, source: 'manual' });
-      } catch {
-        await storeManualAffiliateCode(affiliate.code);
-      }
+      await storeManualAffiliateCode(affiliate.code);
       setCoupon(affiliate.code, affiliate.name);
       setCouponDraft(affiliate.code);
       await loadOfferings();
@@ -162,14 +134,28 @@ export function PlusPaywallModal() {
   const runPurchase = async (target: PaywallPlan = plan) => {
     setError(null);
     setWorking('buy');
+    const paywallReason = usePlusStore.getState().paywallReason;
+    const appliedCode = usePlusStore.getState().couponCode;
+    close();
+    await new Promise<void>((resolve) => {
+      InteractionManager.runAfterInteractions(() => {
+        setTimeout(resolve, 400);
+      });
+    });
     try {
       const billing =
         target === 'business'
           ? await purchaseBusiness()
           : await purchasePlus();
       setBilling(billing);
-      close();
+      if (appliedCode) {
+        void claimPendingAffiliate({ allowManual: true }).catch(() =>
+          storeManualAffiliateCode(appliedCode),
+        );
+      }
     } catch (purchaseError) {
+      usePlusStore.getState().openPaywall(paywallReason, { plan: target });
+      if (appliedCode) setCoupon(appliedCode);
       const message =
         purchaseError instanceof Error
           ? purchaseError.message
@@ -317,9 +303,6 @@ export function PlusPaywallModal() {
                   )}
                 </ScalePressable>
               </View>
-              <Text style={[styles.couponHint, { color: theme.muted }]}>
-                {copy.paywall.couponHint}
-              </Text>
             </View>
           )}
 
@@ -477,7 +460,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   couponButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-  couponHint: { fontSize: 12, lineHeight: 16 },
   couponApplied: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { safeGoBack } from '@/lib/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -17,15 +17,17 @@ import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, uiStyles, u
 import { fetchCalendarShareCode } from '@/services/calendar-api';
 import {
   acceptAccessRequest,
-  listAccessRequests,
   listCollaborationInvites,
-  listOwnedAccessRequests,
   rejectAccessRequest,
   revokeCollaborationInvite,
   type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
 import { isSelfOwner } from '@/lib/collaboration-roles';
+import {
+  calendarAccessRequests,
+  useAccessRequestsStore,
+} from '@/store/access-requests';
 import {
   useCalendarStore,
   type CalendarMemberRole,
@@ -113,7 +115,9 @@ export default function CalendarsScreen() {
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor');
   const [newCalendarName, setNewCalendarName] = useState('');
   const [invites, setInvites] = useState<CollaborationResourceInvite[]>([]);
-  const [accessRequests, setAccessRequests] = useState<CollaborationAccessRequest[]>([]);
+  const inbox = useAccessRequestsStore((state) => state.requests);
+  const refreshInbox = useAccessRequestsStore((state) => state.refresh);
+  const accessRequests = useMemo(() => calendarAccessRequests(inbox), [inbox]);
   const [shareCode, setShareCode] = useState('');
   const [shareCodeLoading, setShareCodeLoading] = useState(false);
 
@@ -138,38 +142,9 @@ export default function CalendarsScreen() {
     }
   }, []);
 
-  const loadAccessRequests = useCallback(async (resourceId?: string) => {
-    try {
-      // Inbox is keyed by ownerUserId — more reliable than per-calendar list
-      // (avoids empty UI when another calendar is selected or legacy rows
-      // have a mismatched resourceType).
-      const inbox = await listOwnedAccessRequests();
-      const calendarRows = inbox.filter(
-        (row) => row.resourceType === 'calendar' || Boolean(row.calendarId),
-      );
-      if (calendarRows.length) {
-        setAccessRequests(calendarRows);
-        return;
-      }
-      if (!resourceId) {
-        setAccessRequests([]);
-        return;
-      }
-      const rows = await listAccessRequests({ calendarId: resourceId });
-      setAccessRequests(rows);
-    } catch {
-      if (!resourceId) {
-        setAccessRequests([]);
-        return;
-      }
-      try {
-        const rows = await listAccessRequests({ calendarId: resourceId });
-        setAccessRequests(rows);
-      } catch {
-        setAccessRequests([]);
-      }
-    }
-  }, []);
+  const loadAccessRequests = useCallback(async () => {
+    await refreshInbox();
+  }, [refreshInbox]);
 
   useEffect(() => {
     if (selected) setName(selected.name);
@@ -183,16 +158,20 @@ export default function CalendarsScreen() {
 
   useEffect(() => {
     void loadInvites(selected?.id);
-    void loadAccessRequests(selected?.id);
+    void loadAccessRequests();
   }, [selected?.id, loadInvites, loadAccessRequests]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadAccessRequests();
+    }, [loadAccessRequests]),
+  );
+
   useEffect(() => {
-    // When opening from a push/deep link, re-fetch solicitudes even if the
-    // selected calendar id did not change.
     if (params.tab === 'share' || params.focus) {
-      void loadAccessRequests(params.focus || selected?.id);
+      void loadAccessRequests();
     }
-  }, [params.tab, params.focus, loadAccessRequests, selected?.id]);
+  }, [params.tab, params.focus, loadAccessRequests]);
 
   useEffect(() => {
     let cancelled = false;
@@ -273,7 +252,7 @@ export default function CalendarsScreen() {
       }
       await Promise.all([
         hydrateCalendars(),
-        loadAccessRequests(request.calendarId || selected.id),
+        loadAccessRequests(),
         loadInvites(request.calendarId || selected.id),
       ]);
     } catch (error) {
@@ -293,7 +272,7 @@ export default function CalendarsScreen() {
   const onRejectRequest = async (request: CollaborationAccessRequest) => {
     try {
       await rejectAccessRequest(request.id);
-      await loadAccessRequests(selected.id);
+      await loadAccessRequests();
     } catch (error) {
       Alert.alert(
         'No se pudo rechazar',

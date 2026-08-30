@@ -7,6 +7,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import {
+  getBillingStatus,
   syncBillingStatus,
   type BillingStatus,
 } from './plus-api';
@@ -104,7 +105,23 @@ export async function resetPurchases() {
   }
 }
 
+let offeringsInFlight: Promise<{
+  plus: PurchasesPackage | null;
+  business: PurchasesPackage | null;
+}> | null = null;
+
 export async function loadOfferings(): Promise<{
+  plus: PurchasesPackage | null;
+  business: PurchasesPackage | null;
+}> {
+  if (offeringsInFlight) return offeringsInFlight;
+  offeringsInFlight = loadOfferingsNow().finally(() => {
+    offeringsInFlight = null;
+  });
+  return offeringsInFlight;
+}
+
+async function loadOfferingsNow(): Promise<{
   plus: PurchasesPackage | null;
   business: PurchasesPackage | null;
 }> {
@@ -163,6 +180,22 @@ export async function loadPlusOffering(): Promise<PurchasesPackage | null> {
   return (await loadOfferings()).plus;
 }
 
+async function billingAfterPurchase(): Promise<BillingStatus> {
+  try {
+    return await syncBillingStatus();
+  } catch {
+    try {
+      return await getBillingStatus();
+    } catch {
+      return {
+        access: 'plus',
+        isPlus: true,
+        status: 'active',
+      };
+    }
+  }
+}
+
 async function purchasePackage(
   selected: PurchasesPackage | null,
   missingMessage: string,
@@ -171,7 +204,7 @@ async function purchasePackage(
   if (!selected) throw new Error(missingMessage);
   try {
     await Purchases.purchasePackage(selected);
-    return await syncBillingStatus();
+    return await billingAfterPurchase();
   } catch (error) {
     const value = error as { code?: string; userCancelled?: boolean };
     if (
@@ -203,5 +236,5 @@ export async function purchaseBusiness(): Promise<BillingStatus> {
 export async function restorePlusPurchases(): Promise<BillingStatus> {
   assertNativeIos();
   await Purchases.restorePurchases();
-  return await syncBillingStatus();
+  return await billingAfterPurchase();
 }

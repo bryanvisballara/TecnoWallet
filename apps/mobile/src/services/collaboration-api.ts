@@ -50,37 +50,30 @@ async function notifyFreshSharedPushes(
   // Cap OS/in-app noise so a large backlog never freezes the JS thread.
   const toNotify = fresh.slice(0, 3);
 
-  const { notifyActivity } = await import('@/services/push-notifications');
   const { recordActivity } = await import('@/store/notifications');
   for (const item of toNotify) {
     if (item.kind === 'income' || item.kind === 'expense' || item.kind === 'envelope') {
-      // In-app row comes from buildNotificationFeed; only fire OS push here.
-      await notifyActivity({
-        kind: item.kind,
-        title: item.title,
-        body: item.body,
-        sound: item.sound,
-        data: { route: item.route, notificationId: item.key },
-      });
-    } else {
-      await recordActivity({
-        kind: item.kind,
-        title: item.title,
-        body: item.body,
-        icon:
-          item.kind === 'calendar'
-            ? 'calendar'
-            : item.kind === 'goal'
-              ? 'flag.fill'
-              : item.kind === 'account'
-                ? 'creditcard.fill'
-                : item.kind === 'planning'
-                  ? 'heart.fill'
-                  : 'person.3.fill',
-        sound: item.sound,
-        route: item.route,
-      });
+      // Remote APNS already shows the OS banner. A local copy here is what
+      // duplicated "Gasto del equipo" when the app came to the foreground.
+      continue;
     }
+    await recordActivity({
+      kind: item.kind,
+      title: item.title,
+      body: item.body,
+      icon:
+        item.kind === 'calendar'
+          ? 'calendar'
+          : item.kind === 'goal'
+            ? 'flag.fill'
+            : item.kind === 'account'
+              ? 'creditcard.fill'
+              : item.kind === 'planning'
+                ? 'heart.fill'
+                : 'person.3.fill',
+      sound: item.sound,
+      route: item.route,
+    });
   }
 
   await localStorage.set(
@@ -269,9 +262,8 @@ export async function notifyNewAccessRequests(
 }
 
 /**
- * Local OS push for collaborators when someone else registers a movement
- * on a shared book. Uses the same pattern as access-request polling
- * (device must open / foreground the app to pick up new activity until remote APNS exists).
+ * Seed seen-ids for teammate movements so we don't replay old activity.
+ * The OS banner comes from remote APNS — this no longer schedules a local copy.
  */
 export async function notifyNewTeamTransactions() {
   const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';

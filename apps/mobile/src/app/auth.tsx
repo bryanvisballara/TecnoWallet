@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +15,7 @@ import {
   View,
   type ImageStyle,
 } from 'react-native';
+import Animated, { FadeIn, FadeInLeft, FadeInRight, FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
@@ -62,7 +63,7 @@ export default function AuthScreen() {
   const signInWithGoogle = useAuthStore((state) => state.signInWithGoogle);
   const signInWithApple = useAuthStore((state) => state.signInWithApple);
   const requestPasswordReset = useAuthStore((state) => state.requestPasswordReset);
-  const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot'>('register');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -71,6 +72,25 @@ export default function AuthScreen() {
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  const enterFrom = useRef<'up' | 'left' | 'right'>('up');
+
+  const goMode = (next: 'login' | 'register' | 'verify' | 'forgot') => {
+    if (next === mode) return;
+    if (mode === 'register' && next === 'login') enterFrom.current = 'right';
+    else if (mode === 'login' && next === 'register') enterFrom.current = 'left';
+    else enterFrom.current = 'up';
+    setError('');
+    setInfo('');
+    if (next === 'login' || next === 'register') setCode('');
+    setMode(next);
+  };
+
+  const paneEntering =
+    enterFrom.current === 'right'
+      ? FadeInRight.duration(320)
+      : enterFrom.current === 'left'
+        ? FadeInLeft.duration(320)
+        : FadeInUp.duration(380);
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
@@ -326,12 +346,15 @@ export default function AuthScreen() {
           <LanguagePicker label={copy.language} />
         </View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <Image
-            source={require('../../assets/images/tecnowallet-brand.png')}
-            style={styles.logo as ImageStyle}
-            contentFit="contain"
-            accessibilityLabel="TecnoWallet"
-          />
+          <Animated.View entering={FadeIn.duration(420)}>
+            <Image
+              source={require('../../assets/images/tecnowallet-brand.png')}
+              style={styles.logo as ImageStyle}
+              contentFit="contain"
+              accessibilityLabel="TecnoWallet"
+            />
+          </Animated.View>
+          <Animated.View key={mode} entering={paneEntering} style={styles.pane}>
           <View style={styles.heading}>
             <Text style={[styles.title, { color: theme.text }]}>
               {mode === 'register'
@@ -399,9 +422,7 @@ export default function AuthScreen() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
-                    setError('');
-                    setInfo('');
-                    setMode('login');
+                    goMode('login');
                   }}>
                   <Text style={[styles.forgot, { color: theme.primary }]}>{copy.forgotBack}</Text>
                 </Pressable>
@@ -456,9 +477,7 @@ export default function AuthScreen() {
                   <Pressable
                     accessibilityRole="button"
                     onPress={() => {
-                      setError('');
-                      setInfo('');
-                      setMode('forgot');
+                      goMode('forgot');
                     }}>
                     <Text style={[styles.forgot, { color: theme.primary }]}>{copy.forgot}</Text>
                   </Pressable>
@@ -497,24 +516,20 @@ export default function AuthScreen() {
             </>
           ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            style={styles.switchMode}
-            onPress={() => {
-              setError('');
-              setInfo('');
-              setCode('');
-              setMode((current) =>
-                current === 'login' ? 'register' : 'login',
-              );
-            }}>
-            <Text style={[styles.switchText, { color: theme.muted }]}>
-              {mode === 'login' ? copy.noAccount : copy.hasAccount}{' '}
-              <Text style={{ color: theme.primary, fontWeight: '700' }}>
-                {mode === 'login' ? copy.registerLink : copy.signInLink}
+          {mode !== 'forgot' ? (
+            <Pressable
+              accessibilityRole="button"
+              style={styles.switchMode}
+              onPress={() => goMode(mode === 'login' ? 'register' : 'login')}>
+              <Text style={[styles.switchText, { color: theme.muted }]}>
+                {mode === 'login' ? copy.noAccount : copy.hasAccount}{' '}
+                <Text style={{ color: theme.primary, fontWeight: '700' }}>
+                  {mode === 'login' ? copy.registerLink : copy.signInLink}
+                </Text>
               </Text>
-            </Text>
-          </Pressable>
+            </Pressable>
+          ) : null}
+          </Animated.View>
 
           <Text style={[styles.legal, { color: theme.muted }]}>{copy.legal}</Text>
         </ScrollView>
@@ -545,6 +560,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   logo: { width: '100%', maxWidth: 320, height: 110, alignSelf: 'center' },
+  pane: { gap: 16 },
   heading: { alignItems: 'center', gap: 6 },
   title: { fontSize: 28, fontWeight: '700', letterSpacing: -0.8, textAlign: 'center' },
   form: { gap: 10 },

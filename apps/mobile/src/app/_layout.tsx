@@ -180,11 +180,17 @@ export default function RootLayout() {
 
     const pollAccessRequests = () => {
       if (!authenticated) return;
-      void import('@/services/collaboration-api').then(
-        ({ listOwnedAccessRequests, notifyNewAccessRequests }) =>
-          listOwnedAccessRequests()
-            .then((requests) => notifyNewAccessRequests(requests))
-            .catch(() => undefined),
+      void import('@/store/access-requests').then(({ useAccessRequestsStore }) =>
+        useAccessRequestsStore
+          .getState()
+          .refresh()
+          .then(() =>
+            import('@/services/collaboration-api').then(
+              ({ notifyNewAccessRequests }) =>
+                notifyNewAccessRequests(useAccessRequestsStore.getState().requests),
+            ),
+          )
+          .catch(() => undefined),
       );
     };
 
@@ -233,8 +239,12 @@ export default function RootLayout() {
           );
         }
         pollAccessRequests();
-        // Debounced — returning from background must not freeze the UI.
-        pollSharedCollaborators(false);
+        const hasShared = useLedgerStore
+          .getState()
+          .ledgers.some((item) => item.type === 'shared');
+        // Shared books must refetch when the app comes back — otherwise a
+        // teammate's expense stays invisible until a manual refresh.
+        pollSharedCollaborators(hasShared);
       }
       if (state === 'background' || state === 'inactive') {
         void useNotificationsStore.getState().syncBadge();
