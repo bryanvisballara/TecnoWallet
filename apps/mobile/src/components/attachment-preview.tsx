@@ -1,8 +1,29 @@
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { createElement } from 'react';
+import { Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, useAppTheme } from '@/components/ui';
 import type { CalendarAttachment } from '@/data/calendar';
-import { downloadAttachment, shareAttachment } from '@/lib/open-attachment';
+import {
+  downloadAttachment,
+  isImageAttachment,
+  isPdfAttachment,
+  openAttachment,
+  shareAttachment,
+} from '@/lib/open-attachment';
+
+function WebEmbed({ uri, title }: { uri: string; title: string }) {
+  return createElement('iframe', {
+    src: uri,
+    title,
+    style: {
+      width: '100%',
+      height: '100%',
+      border: 'none',
+      borderRadius: 16,
+      backgroundColor: '#FFFFFF',
+    },
+  });
+}
 
 export function AttachmentPreview({
   item,
@@ -13,6 +34,9 @@ export function AttachmentPreview({
 }) {
   const theme = useAppTheme();
   if (!item) return null;
+
+  const asImage = isImageAttachment(item);
+  const asPdf = !asImage && Platform.OS === 'web' && isPdfAttachment(item);
 
   return (
     <Modal
@@ -37,17 +61,27 @@ export function AttachmentPreview({
           <View style={styles.iconBtn} />
         </View>
         <View style={styles.stage} pointerEvents="box-none">
-          {item.kind === 'image' ? (
+          {asImage ? (
             <Image
               source={{ uri: item.uri }}
               style={styles.image}
               resizeMode="contain"
               accessibilityLabel={item.name}
             />
+          ) : asPdf ? (
+            <View style={styles.embed}>
+              <WebEmbed uri={item.uri} title={item.name} />
+            </View>
           ) : (
             <View style={[styles.fileCard, { backgroundColor: theme.surface }]}>
               <AppIcon name="doc.fill" color={theme.primary} size={36} />
               <Text style={[styles.fileName, { color: theme.text }]}>{item.name}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void openAttachment(item)}
+                style={[styles.openBtn, { backgroundColor: theme.primary }]}>
+                <Text style={styles.actionText}>Abrir</Text>
+              </Pressable>
             </View>
           )}
         </View>
@@ -110,6 +144,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  embed: {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    borderRadius: 16,
+  },
   fileCard: {
     alignItems: 'center',
     gap: 12,
@@ -122,6 +162,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  openBtn: {
+    minHeight: 40,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
   },
   actions: {
     flexDirection: 'row',

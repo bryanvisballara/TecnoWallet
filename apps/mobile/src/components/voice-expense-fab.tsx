@@ -31,9 +31,10 @@ import {
   isVoiceDictationSupported,
   startVoiceDictation,
   voiceDictationUnavailableMessage,
+  warmupVoiceDictation,
   type VoiceDictationSession,
 } from '@/lib/voice-dictation';
-import { playListenCue, speakVoice, spokenMoney, stopVoiceSpeech } from '@/lib/voice-speak';
+import { speakVoice, spokenMoney, stopVoiceSpeech } from '@/lib/voice-speak';
 import { useVoiceCopy } from '@/i18n/voice-copy';
 import { useAuthStore } from '@/store/auth';
 import { useFinanceStore } from '@/store/finance';
@@ -140,9 +141,12 @@ export function VoiceExpenseFab() {
     sheet.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic) });
   };
 
-  useEffect(() => () => {
-    stopSession();
-    stopVoiceSpeech();
+  useEffect(() => {
+    warmupVoiceDictation();
+    return () => {
+      stopSession();
+      stopVoiceSpeech();
+    };
   }, []);
 
   useEffect(() => {
@@ -165,28 +169,14 @@ export function VoiceExpenseFab() {
     stopVoiceSpeech();
     if (sessionRef.current) {
       stopSession();
-      await new Promise((resolve) => setTimeout(resolve, 280));
     }
     setOpen(true);
     setFinalText('');
     setInterimText('');
-    setListening(false);
-    setStatusLine(voice.listeningShort);
-    sheet.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) });
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
-
-    // Siri-style: say the prompt, then a ready chirp, then open the mic.
-    try {
-      await announce(voice.listening);
-      setStatusLine(voice.speakAfterBeep);
-      await playListenCue();
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-    } catch {
-      // Continue listening even if TTS / cue fail.
-    }
-
     setListening(true);
     setStatusLine(voice.speakNow);
+    sheet.value = withTiming(1, { duration: 140, easing: Easing.out(Easing.cubic) });
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
 
     try {
       sessionRef.current = await startVoiceDictation({

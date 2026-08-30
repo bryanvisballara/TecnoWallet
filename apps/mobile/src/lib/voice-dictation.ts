@@ -137,7 +137,7 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function waitForAppActive(timeoutMs = 4000) {
+function waitForAppActive(timeoutMs = 800) {
   if (Platform.OS === 'web' || AppState.currentState === 'active') {
     return Promise.resolve();
   }
@@ -277,20 +277,28 @@ function startWebDictation(handlers: VoiceDictationHandlers, lang: string): Voic
   };
 }
 
+let nativePermissionsReady = false;
+
 async function ensureNativePermissions() {
   if (!Speech) {
     throw new Error(voiceDictationUnavailableMessage());
   }
+  if (nativePermissionsReady) return;
   const copy = getVoiceCopy(useLanguageStore.getState().locale);
-  const mic = await Speech.requestMicrophonePermissionsAsync();
+  const [mic] = await Promise.all([
+    Speech.requestMicrophonePermissionsAsync(),
+    Speech.requestSpeechRecognizerPermissionsAsync().catch(() => ({ granted: false })),
+  ]);
   if (!mic.granted) {
     throw new Error(copy.micPermission);
   }
-  // Prefer mic-only when possible; speech permission is still needed for cloud STT on iOS.
-  const speech = await Speech.requestSpeechRecognizerPermissionsAsync();
-  if (!speech.granted) {
-    // Continue: on-device may still work with mic alone.
-  }
+  nativePermissionsReady = true;
+}
+
+/** Ask for mic/speech access as soon as the FAB mounts so the first tap is instant. */
+export function warmupVoiceDictation() {
+  if (Platform.OS === 'web' || !Speech || nativePermissionsReady) return;
+  void ensureNativePermissions().catch(() => undefined);
 }
 
 function prepareIosAudioSession() {
@@ -377,18 +385,12 @@ async function startNativeDictation(
   }
 
   await waitForAppActive();
-  await delay(AppState.currentState !== 'active' ? 800 : 200);
-
-  // Make sure nothing else owns the mic (prior TTS / previous session).
   try {
     Speech.abort();
   } catch {
     // ignore
   }
-  releaseIosAudioSession();
-  await delay(250);
   prepareIosAudioSession();
-  await delay(150);
 
   let stopped = false;
   let finalText = '';

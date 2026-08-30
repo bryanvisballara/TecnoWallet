@@ -22,7 +22,7 @@ import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view'
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
-import { shareAttachment } from '@/lib/open-attachment';
+import { attachmentKind, isImageAttachment } from '@/lib/open-attachment';
 import {
   CALENDAR_REMINDER_CUSTOM,
   CALENDAR_REMINDER_NONE,
@@ -275,7 +275,7 @@ export default function AddCalendarItemScreen() {
         name: asset.name,
         uri: asset.uri,
         mimeType: asset.mimeType ?? undefined,
-        kind: asset.mimeType?.startsWith('image/') ? ('image' as const) : ('file' as const),
+        kind: attachmentKind(asset.name, asset.mimeType ?? undefined),
       })),
     );
   };
@@ -711,15 +711,9 @@ export default function AddCalendarItemScreen() {
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={`Abrir ${item.name}`}
-                        onPress={() => {
-                          if (item.kind === 'image') {
-                            setPreview(item);
-                            return;
-                          }
-                          void shareAttachment(item);
-                        }}
+                        onPress={() => setPreview(item)}
                         style={styles.attachOpen}>
-                        {item.kind === 'image' ? (
+                        {isImageAttachment(item) ? (
                           <Image source={{ uri: item.uri }} style={styles.attachThumb} />
                         ) : (
                           <View style={[styles.attachFileIcon, { backgroundColor: theme.primarySoft }]}>
