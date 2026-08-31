@@ -293,6 +293,8 @@ export class AffiliateService implements OnModuleInit {
       return { enrolled: false as const };
     }
 
+    await this.retireLegacyPercentageCommissions();
+
     const affiliateId = affiliate.affiliateId;
     const [clickCount, installCount, attributions, commissionRows] =
       await Promise.all([
@@ -547,7 +549,12 @@ export class AffiliateService implements OnModuleInit {
     const result = await this.commissions.updateMany(
       {
         status: { $in: ['pending', 'approved', 'paid'] },
-        commissionRate: { $gt: 0 },
+        $nor: [
+          {
+            commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+            commissionRate: 0,
+          },
+        ],
       },
       {
         $set: {

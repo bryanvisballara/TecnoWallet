@@ -65,8 +65,8 @@ function AffiliateRewardGuide() {
       </Text>
       <Text style={[styles.body, { color: theme.muted, marginTop: 4 }]}>
         {locale === 'es'
-          ? 'Cuando alguien usa tu cupón o enlace y compra TecnoWallet+ o Business, ganas US$ 5 una sola vez. No hay niveles ni comisión mensual: un referido que paga, un pago de US$ 5. Si está en prueba y aún no se le cobró, no cuenta.'
-          : 'When someone uses your coupon or link and buys TecnoWallet+ or Business, you earn US$ 5 once. No tiers and no monthly commission: one paying referral, one US$ 5 payout. A trial that has not been charged yet does not count.'}
+          ? 'Cuando alguien usa tu cupón o enlace y compra TecnoWallet+ o Business, ganas US$ 5.'
+          : 'When someone uses your coupon or link and buys TecnoWallet+ or Business, you earn US$ 5.'}
       </Text>
     </Card>
   );
@@ -327,8 +327,8 @@ export default function AffiliatesScreen() {
           </Text>
           <Text style={[styles.body, { color: theme.muted }]}>
             {locale === 'es'
-              ? 'Comparte tu enlace o cupón. Cuando alguien compre TecnoWallet+ o Business, ganas US$ 5 una sola vez. No hay comisión mensual ni niveles.'
-              : 'Share your link or coupon. When someone buys TecnoWallet+ or Business, you earn US$ 5 once. No monthly commission and no tiers.'}
+              ? 'Comparte tu enlace o cupón. Cuando alguien compre TecnoWallet+ o Business, ganas US$ 5.'
+              : 'Share your link or coupon. When someone buys TecnoWallet+ or Business, you earn US$ 5.'}
           </Text>
         </Card>
 
