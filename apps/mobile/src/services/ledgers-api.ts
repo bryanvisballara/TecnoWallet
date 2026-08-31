@@ -9,6 +9,8 @@ import {
   type PlanningBucket,
   type PlanningItem,
 } from '@/data/ledgers';
+import { applyLedgerAccountBalances } from '@/lib/accounts';
+import { applyLedgerEnvelopeSpent, resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 
 type ResourceKind = 'account' | 'envelope' | 'bill' | 'subscription';
 
@@ -59,10 +61,19 @@ export type ApiTransaction = {
 
 const CLEARING_NAME = '__clearing__';
 
-export function objectId(value: { _id?: string; id?: string } | string | null | undefined) {
+export function objectId(value: { _id?: string; id?: string; $oid?: string } | string | null | undefined) {
   if (!value) return '';
-  if (typeof value === 'string') return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed === '[object Object]' ? '' : trimmed;
+  }
+  if (typeof value !== 'object') return '';
+  const directOid = value.$oid;
+  if (typeof directOid === 'string' && directOid.trim()) return directOid.trim();
   const nested = value._id ?? value.id;
+  if (typeof nested === 'string' && nested.trim() && nested !== '[object Object]') {
+    return nested.trim();
+  }
   if (nested && typeof nested === 'object') {
     const oid = nested as { toString?: () => string; $oid?: string };
     if (typeof oid.$oid === 'string' && oid.$oid) return oid.$oid;
@@ -71,7 +82,7 @@ export function objectId(value: { _id?: string; id?: string } | string | null | 
       if (text && text !== '[object Object]') return text;
     }
   }
-  return String(nested ?? '');
+  return '';
 }
 
 export function toMinor(amount: number) {
@@ -251,6 +262,7 @@ export function mapTransaction(
   envelopesById?: Map<string, Envelope>,
   authorByUserId?: Map<string, string>,
   clearingId?: string,
+  envelopes?: Envelope[],
 ): Transaction {
   const nonClearing = tx.entries.filter(
     (entry) => !clearingId || entryId(entry.accountId) !== clearingId,
@@ -273,9 +285,22 @@ export function mapTransaction(
     userFacing?.envelopeId ??
     tx.entries.find((entry) => entry.envelopeId)?.envelopeId;
   const envelopeId = envelopeIdRaw ? entryId(envelopeIdRaw) || undefined : undefined;
-  const envelope = envelopeId
-    ? envelopesById?.get(envelopeId) ?? envelopesById?.get(envelopeId.toLowerCase())
-    : undefined;
+  const envelopeList =
+    envelopes ??
+    (envelopesById ? [...new Map([...envelopesById.values()].map((item) => [item.id, item])).values()] : []);
+  const envelope =
+    resolveEnvelopeForTransaction(
+      {
+        envelopeId,
+        category: '',
+        title: tx.description,
+        amount: fromMinor(amountMinor),
+      },
+      envelopeList,
+    ) ??
+    (envelopeId
+      ? envelopesById?.get(envelopeId) ?? envelopesById?.get(envelopeId.toLowerCase())
+      : undefined);
   const occurred = new Date(tx.occurredAt);
   const dateLabel = Number.isNaN(occurred.getTime())
     ? tx.occurredAt
@@ -297,7 +322,7 @@ export function mapTransaction(
     amount: fromMinor(amountMinor),
     date: dateLabel,
     icon: amountMinor >= 0 ? 'arrow.down.circle.fill' : 'banknote.fill',
-    envelopeId,
+    envelopeId: envelope?.id ?? envelopeId,
     occurredAt: Number.isNaN(occurred.getTime()) ? undefined : occurred.toISOString(),
     createdBy,
     createdByUserId,
@@ -329,6 +354,20 @@ export function buildSummary(
     goal: 0,
     goalCurrent: 0,
     comparison: 0,
+  };
+}
+
+export function rebuildLedgerMoney(
+  accounts: Account[],
+  envelopes: Envelope[],
+  transactions: Transaction[],
+) {
+  const accountsNext = applyLedgerAccountBalances(accounts, transactions);
+  const envelopesNext = applyLedgerEnvelopeSpent(envelopes, transactions);
+  return {
+    accounts: accountsNext,
+    envelopes: envelopesNext,
+    summary: buildSummary(accountsNext, envelopesNext, transactions),
   };
 }
 
@@ -515,7 +554,21 @@ export async function createLedgerTransaction(input: {
   });
 }
 
-/** Ledger rows are immutable — corrections create an opposite refund entry. */
+/** Ledger rows are immutable for money — date/description/envelope can be amended. */
+export async function amendLedgerTransaction(
+  transactionId: string,
+  patch: { occurredAt?: string; description?: string; envelopeId?: string },
+) {
+  return apiRequest<ApiTransaction>(
+    `/transactions/${encodeURIComponent(transactionId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    },
+  );
+}
+
+/** Ledger rows are immutable — amount/account corrections create an opposite refund entry. */
 export async function reverseLedgerTransaction(
   transactionId: string,
   description?: string,
@@ -682,31 +735,16 @@ export async function loadWorkspaceSnapshot(
       }
       return tx.entries.some((entry) => entryId(entry.accountId) !== clearingId);
     })
-    .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors, clearingId));
+    .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors, clearingId, envelopes));
 
-  // Derive envelope spent from ledger entries so UI stays correct even if
-  // spentMinor on the resource was never incremented.
-  const spentByEnvelopeId = new Map<string, number>();
-  for (const tx of mappedTx) {
-    if (!tx.envelopeId) continue;
-    spentByEnvelopeId.set(
-      tx.envelopeId,
-      (spentByEnvelopeId.get(tx.envelopeId) ?? 0) + Math.abs(tx.amount),
-    );
-  }
-  const envelopesWithSpent = envelopes.map((item) => ({
-    ...item,
-    spent: spentByEnvelopeId.has(item.id)
-      ? spentByEnvelopeId.get(item.id)!
-      : item.spent,
-  }));
+  const money = rebuildLedgerMoney(accounts, envelopes, mappedTx);
 
   const snapshot: LedgerSnapshot = {
     ...emptySnapshot(),
-    accounts,
-    envelopes: envelopesWithSpent,
+    accounts: money.accounts,
+    envelopes: money.envelopes,
     transactions: mappedTx,
-    summary: buildSummary(accounts, envelopesWithSpent, mappedTx),
+    summary: money.summary,
     upcoming: [],
     planning,
   };

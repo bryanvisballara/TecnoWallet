@@ -7,12 +7,13 @@ import * as Haptics from 'expo-haptics';
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
 import { isWealthAsset, isWealthDebt } from '@/lib/accounts';
+import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 
 export default function AccountDetailScreen() {
   const theme = useAppTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { accounts, transactions, ledger } = useActiveLedger();
+  const { accounts, transactions, ledger, envelopes } = useActiveLedger();
   const removeAccount = useLedgerStore((state) => state.removeAccount);
   const account = accounts.find((item) => item.id === id) ?? accounts[0];
   const accountTx = transactions.filter((item) => item.account === account.name);
@@ -166,33 +167,49 @@ export default function AccountDetailScreen() {
           </SectionTitle>
           <Card style={styles.list}>
             {accountTx.length > 0 ? (
-              accountTx.map((item, index) => (
-                <View
-                  key={item.id}
-                  style={[
-                    styles.transaction,
-                    index > 0 && {
-                      borderTopColor: theme.border,
-                      borderTopWidth: StyleSheet.hairlineWidth,
-                    },
-                  ]}>
-                  <View style={[styles.transactionIcon, { backgroundColor: theme.surfaceSecondary }]}>
-                    <AppIcon name={item.icon} color={account.color} />
-                  </View>
-                  <View style={styles.copy}>
-                    <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
-                    <Text style={[styles.small, { color: theme.muted }]}>{item.date}</Text>
-                  </View>
-                  <Text
+              accountTx.map((item, index) => {
+                const envelope = resolveEnvelopeForTransaction(item, envelopes);
+                const envelopeLabel = envelope?.name.trim() || item.category.trim();
+                return (
+                  <ScalePressable
+                    key={item.id}
+                    haptic={false}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Ver ${item.title}${envelopeLabel ? `, sobre ${envelopeLabel}` : ', sin sobre'}`}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/add-transaction',
+                        params: { id: item.id },
+                      })
+                    }
                     style={[
-                      styles.amount,
-                      { color: item.amount > 0 ? theme.success : theme.text },
+                      styles.transaction,
+                      index > 0 && {
+                        borderTopColor: theme.border,
+                        borderTopWidth: StyleSheet.hairlineWidth,
+                      },
                     ]}>
-                    {item.amount > 0 ? '+' : ''}
-                    {money(item.amount)}
-                  </Text>
-                </View>
-              ))
+                    <View style={[styles.transactionIcon, { backgroundColor: theme.surfaceSecondary }]}>
+                      <AppIcon name={item.icon} color={account.color} />
+                    </View>
+                    <View style={styles.copy}>
+                      <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
+                      <Text style={[styles.small, { color: theme.muted }]}>
+                        {envelopeLabel ? `Sobre ${envelopeLabel}` : 'Sin sobre'} · {item.date}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.amount,
+                        { color: item.amount > 0 ? theme.success : theme.text },
+                      ]}>
+                      {item.amount > 0 ? '+' : ''}
+                      {money(item.amount)}
+                    </Text>
+                    <AppIcon name="chevron.right" color={theme.muted} size={14} />
+                  </ScalePressable>
+                );
+              })
             ) : (
               <Text style={[styles.small, { color: theme.muted, paddingVertical: 12 }]}>
                 Aún no hay movimientos en esta cuenta.
@@ -200,7 +217,11 @@ export default function AccountDetailScreen() {
             )}
           </Card>
 
-          <PrimaryButton icon="plus" onPress={() => router.push('/add-transaction')}>
+          <PrimaryButton
+            icon="plus"
+            onPress={() =>
+              router.push({ pathname: '/add-transaction', params: { accountId: account.id } })
+            }>
             Registrar movimiento
           </PrimaryButton>
         </>
@@ -249,7 +270,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 14, fontWeight: '600' },
   small: { fontSize: 11, lineHeight: 16 },
   list: { paddingVertical: 2 },
-  transaction: { minHeight: 70, flexDirection: 'row', alignItems: 'center' },
+  transaction: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: 8 },
   transactionIcon: {
     width: 40,
     height: 40,

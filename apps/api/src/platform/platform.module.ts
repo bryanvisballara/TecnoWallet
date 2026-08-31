@@ -54,6 +54,7 @@ import {
 import { CollaborationModule } from '../collaboration/collaboration.module';
 import { CollaborationService } from '../collaboration/collaboration.service';
 import {
+  AmendTransactionDto,
   CreateTransactionDto,
   LedgerService,
   LedgerTransaction,
@@ -594,7 +595,7 @@ class ResourceService {
         { privacy: 'private', ownerId: principal.userId },
       ],
     };
-    return this.resources
+    const rows = await this.resources
       .find({
         workspaceId,
         kind,
@@ -604,6 +605,21 @@ class ResourceService {
       })
       .sort({ updatedAt: -1 })
       .limit(Math.min(Math.max(limit, 1), 100));
+    if (kind !== 'account' || !rows.length) return rows;
+    const balances = await this.ledger.accountBalancesMinor(
+      workspaceId,
+      principal.userId,
+    );
+    if (!balances.size) return rows;
+    return rows.map((row) => {
+      const data = (row.data ?? {}) as Record<string, unknown>;
+      if (data.system === true || row.name === '__clearing__') return row;
+      const id = String(row._id);
+      if (!balances.has(id)) return row;
+      const json = row.toObject();
+      json.data = { ...(json.data ?? {}), balanceMinor: balances.get(id) };
+      return json;
+    });
   }
 
   async update(
@@ -1156,6 +1172,27 @@ class TransactionController {
       .limit(limit);
   }
 
+  @Patch(':id')
+  async amend(
+    @Param('id') id: string,
+    @Body() dto: AmendTransactionDto,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    const transaction = await this.transactions.findById(id);
+    if (!transaction) throw new NotFoundException('Transaction not found');
+    await this.access.assertMember(
+      transaction.workspaceId.toString(),
+      user.userId,
+    );
+    if (
+      transaction.privacy === 'private' &&
+      transaction.ownerId.toString() !== user.userId
+    ) {
+      throw new ForbiddenException('Private transaction access denied');
+    }
+    return this.ledger.amendMetadata(id, dto);
+  }
+
   @Post(':id/reverse')
   async reverse(
     @Param('id') id: string,
@@ -1241,6 +1278,7 @@ class AnalyticsService {
     private readonly resources: Model<FinanceResource>,
     private readonly access: WorkspaceAccessService,
     private readonly insights: AiInsightsProvider,
+    private readonly ledger: LedgerService,
   ) {}
 
   async summary(workspaceId: string, userId: string) {
@@ -1288,14 +1326,16 @@ class AnalyticsService {
       kind: 'account',
       deletedAt: { $exists: false },
     });
-    const netWorthMinor = accounts.reduce(
-      (sum, account) =>
-        sum +
-        (Number.isSafeInteger(account.data.balanceMinor)
-          ? Number(account.data.balanceMinor)
-          : 0),
-      0,
-    );
+    const balances = await this.ledger.accountBalancesMinor(workspaceId, userId);
+    const netWorthMinor = accounts.reduce((sum, account) => {
+      const data = (account.data ?? {}) as Record<string, unknown>;
+      if (data.system === true || account.name === '__clearing__') return sum;
+      const derived = balances.get(String(account._id));
+      const stored = Number.isSafeInteger(data.balanceMinor)
+        ? Number(data.balanceMinor)
+        : 0;
+      return sum + (derived !== undefined ? derived : stored);
+    }, 0);
     return {
       incomeMinor: ledger?.incomeMinor ?? 0,
       expenseMinor: ledger?.expenseMinor ?? 0,

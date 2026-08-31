@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
 import { filterTransactionsByMonth } from '@/lib/dates';
+import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { usePeriodStore } from '@/store/period';
 
@@ -25,12 +26,11 @@ export default function EnvelopeDetailScreen() {
   );
   const envelopeTransactions = useMemo(
     () =>
-      monthTransactions.filter(
-        (tx) =>
-          tx.envelopeId === envelope.id ||
-          tx.category.trim().toLowerCase() === envelope.name.trim().toLowerCase(),
-      ),
-    [monthTransactions, envelope.id, envelope.name],
+      monthTransactions.filter((tx) => {
+        const matched = resolveEnvelopeForTransaction(tx, envelopes);
+        return matched?.id === envelope.id;
+      }),
+    [monthTransactions, envelopes, envelope.id],
   );
   const monthSpent = useMemo(
     () => envelopeTransactions.reduce((sum, tx) => sum + Math.abs(tx.amount), 0),

@@ -1,3 +1,4 @@
+import { ApiError } from '@/services/api';
 import { create } from 'zustand';
 
 import {
@@ -15,9 +16,10 @@ import {
   type Envelope,
   type Transaction,
 } from '@/data/demo';
-import { isWealthAsset, isWealthDebt } from '@/lib/accounts';
+import { isLiquidAccount, isWealthAsset, isWealthDebt } from '@/lib/accounts';
 import {
   addWorkspaceMember,
+  amendLedgerTransaction,
   removeWorkspaceMember,
   buildSummary,
   createLedgerTransaction,
@@ -32,6 +34,7 @@ import {
   mapEnvelopeResource,
   mapWorkspaceToLedger,
   objectId,
+  rebuildLedgerMoney,
   reverseLedgerTransaction,
   toMinor,
   deleteResource,
@@ -98,7 +101,7 @@ type LedgerState = {
   ) => Promise<void>;
   setLedgerCurrency: (currency: string) => Promise<void>;
   addTransaction: (value: NewTransaction) => Promise<Transaction>;
-  /** Correct a movement: reverse the ledger row and create the replacement. */
+  /** Change date/sobre in place. Amount or account changes reverse + replace. */
   updateTransaction: (
     transactionId: string,
     value: NewTransaction,
@@ -155,6 +158,30 @@ const colors = ['#F5C518', '#F04438', '#06AED4', '#0878F9', '#12B76A', '#7F56D9'
 
 function activeSlice(state: Pick<LedgerState, 'snapshots' | 'activeLedgerId'>) {
   return state.snapshots[state.activeLedgerId] ?? emptySnapshot();
+}
+
+function projectSnapshot(
+  snap: LedgerSnapshot,
+  patch: Partial<Pick<LedgerSnapshot, 'accounts' | 'envelopes' | 'transactions'>>,
+): LedgerSnapshot {
+  const accounts = patch.accounts ?? snap.accounts;
+  const envelopes = patch.envelopes ?? snap.envelopes;
+  const transactions = patch.transactions ?? snap.transactions;
+  return {
+    ...snap,
+    transactions,
+    ...rebuildLedgerMoney(accounts, envelopes, transactions),
+  };
+}
+
+function moneyEquals(left: number, right: number) {
+  return Math.round(left * 100) === Math.round(right * 100);
+}
+
+function occurredAtFromDate(date?: string) {
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? new Date(`${date}T12:00:00`).toISOString()
+    : new Date().toISOString();
 }
 
 async function currentUserId() {
@@ -481,10 +508,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       slice.envelopes.find((item) => item.name.trim().toLowerCase() === wantedName);
     const idempotencyKey =
       globalThis.crypto?.randomUUID?.() ?? `tx-${Date.now()}-${Math.random()}`;
-    const occurredAt =
-      value.date && /^\d{4}-\d{2}-\d{2}$/.test(value.date)
-        ? new Date(`${value.date}T12:00:00`).toISOString()
-        : new Date().toISOString();
+    const occurredAt = occurredAtFromDate(value.date);
     const created = await createLedgerTransaction({
       workspaceId: ledgerId,
       kind,
@@ -507,22 +531,9 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       occurredAt,
     };
 
-    const nextBalance = account.balance + value.amount;
-    const nextSpent = envelope
-      ? Math.max(0, envelope.spent + Math.abs(value.amount))
-      : 0;
-
     set((state) => {
       const snap = state.snapshots[ledgerId];
       if (!snap) return { activeLedgerId: ledgerId };
-      const accounts = snap.accounts.map((item) =>
-        item.id === account.id ? { ...item, balance: nextBalance } : item,
-      );
-      const envelopes = envelope
-        ? snap.envelopes.map((item) =>
-            item.id === envelope.id ? { ...item, spent: nextSpent } : item,
-          )
-        : snap.envelopes;
       const transactions = [
         result,
         ...snap.transactions.filter((item) => item.id !== result.id),
@@ -531,48 +542,12 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         activeLedgerId: ledgerId,
         snapshots: {
           ...state.snapshots,
-          [ledgerId]: {
-            ...snap,
-            accounts,
-            envelopes,
-            transactions,
-            summary: buildSummary(accounts, envelopes, transactions),
-          },
+          [ledgerId]: projectSnapshot(snap, { transactions }),
         },
       };
     });
 
-    void Promise.all([
-      updateResource('account', account.id, {
-        balanceMinor: toMinor(nextBalance),
-        currency,
-        kind: account.kind,
-        icon: account.icon,
-        color: account.color,
-        lastFour: account.lastFour,
-      }),
-      envelope
-        ? updateResource(
-            'envelope',
-            envelope.id,
-            {
-              kind: envelope.kind,
-              budgetMinor: toMinor(Math.max(0, envelope.budget)),
-              spentMinor: toMinor(nextSpent),
-              balanceMinor: toMinor(nextSpent),
-              currency,
-              icon: envelope.icon,
-              color: envelope.color,
-              rollover: envelope.rollover,
-              rule: envelope.rule,
-              ...(envelope.goalId ? { goalId: envelope.goalId } : {}),
-            },
-            envelope.name,
-          )
-        : Promise.resolve(),
-    ])
-      .catch(() => undefined)
-      .then(() => get().refreshLedger(ledgerId));
+    await get().refreshLedger(ledgerId);
     const isIncome = value.amount >= 0;
     void recordActivity({
       kind: isIncome ? 'income' : 'expense',
@@ -587,6 +562,75 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   updateTransaction: async (transactionId, value) => {
     const id = transactionId.trim();
     if (!id) throw new Error('Movimiento no válido.');
+    const ledgerId = get().activeLedgerId;
+    const slice = activeSlice(get());
+    const existing = slice.transactions.find((item) => item.id === id);
+    if (!existing) throw new Error('No encontramos ese movimiento.');
+
+    const sameAccount =
+      existing.account.trim().toLowerCase() === value.account.trim().toLowerCase();
+    if (sameAccount && moneyEquals(existing.amount, value.amount)) {
+      const occurredAt = occurredAtFromDate(value.date);
+      const wantedName = value.category.trim().toLowerCase();
+      const envelope =
+        (value.envelopeId
+          ? slice.envelopes.find((item) => item.id === value.envelopeId)
+          : undefined) ??
+        slice.envelopes.find((item) => item.name.trim().toLowerCase() === wantedName);
+      try {
+        await amendLedgerTransaction(id, {
+          occurredAt,
+          description: value.title.trim() || existing.title,
+          envelopeId: envelope?.id ?? value.envelopeId ?? '',
+        });
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 404 || error.status === 405)
+        ) {
+          await get().voidTransaction(id);
+          return get().addTransaction(value);
+        }
+        throw error;
+      }
+      set((state) => {
+        const snap = state.snapshots[ledgerId];
+        if (!snap) return { activeLedgerId: ledgerId };
+        const transactions = snap.transactions.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                ...value,
+                id,
+                date: value.date ?? item.date,
+                icon: value.icon ?? item.icon,
+                envelopeId: envelope?.id ?? item.envelopeId,
+                occurredAt,
+              }
+            : item,
+        );
+        return {
+          activeLedgerId: ledgerId,
+          snapshots: {
+            ...state.snapshots,
+            [ledgerId]: projectSnapshot(snap, { transactions }),
+          },
+        };
+      });
+      await get().refreshLedger(ledgerId);
+      return (
+        get().snapshots[ledgerId]?.transactions.find((item) => item.id === id) ?? {
+          ...existing,
+          ...value,
+          id,
+          date: value.date ?? existing.date,
+          icon: value.icon ?? existing.icon,
+          envelopeId: envelope?.id ?? existing.envelopeId,
+          occurredAt,
+        }
+      );
+    }
+
     await get().voidTransaction(id);
     return get().addTransaction(value);
   },
@@ -596,8 +640,6 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     if (!id) throw new Error('Movimiento no válido.');
     const ledgerId = get().activeLedgerId;
     const slice = activeSlice(get());
-    const ledger = get().ledgers.find((item) => item.id === ledgerId);
-    const currency = await currencyFor(ledger);
     const existing = slice.transactions.find((item) => item.id === id);
     if (!existing) throw new Error('No encontramos ese movimiento.');
 
@@ -606,21 +648,19 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       `Anulación: ${existing.title.trim() || 'Movimiento'}`,
     );
 
-    // Account balances live on resources (not derived from the ledger).
-    const account = slice.accounts.find((item) => item.name === existing.account);
-    if (account) {
-      await updateResource('account', account.id, {
-        balanceMinor: toMinor(account.balance - existing.amount),
-        currency,
-        kind: account.kind,
-        icon: account.icon,
-        color: account.color,
-        lastFour: account.lastFour,
-      });
-    }
-
-    void get().refreshLedger(ledgerId);
-    set({ activeLedgerId: ledgerId });
+    set((state) => {
+      const snap = state.snapshots[ledgerId];
+      if (!snap) return { activeLedgerId: ledgerId };
+      const transactions = snap.transactions.filter((item) => item.id !== id);
+      return {
+        activeLedgerId: ledgerId,
+        snapshots: {
+          ...state.snapshots,
+          [ledgerId]: projectSnapshot(snap, { transactions }),
+        },
+      };
+    });
+    await get().refreshLedger(ledgerId);
   },
 
   addAccount: async (value) => {
@@ -644,20 +684,32 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       (item) => item.id === objectId(created),
     );
     if (!mapped) throw new Error('No se pudo crear la cuenta.');
-    const label = isWealthDebt(mapped)
+    if (isLiquidAccount(mapped.kind) && balance !== 0) {
+      await get().addTransaction({
+        title: 'Saldo inicial',
+        category: '',
+        account: mapped.name,
+        amount: balance,
+        date: new Date().toISOString().slice(0, 10),
+      });
+    }
+    const withOpening =
+      get().snapshots[ledgerId]?.accounts.find((item) => item.id === mapped.id) ??
+      mapped;
+    const label = isWealthDebt(withOpening)
       ? 'Deuda'
-      : isWealthAsset(mapped)
+      : isWealthAsset(withOpening)
         ? 'Activo'
         : 'Cuenta';
     void recordActivity({
       kind: 'account',
       title: `${label} agregada`,
-      body: `${mapped.name} · ${ledger?.name ?? 'Libro'}`,
-      icon: mapped.icon || 'creditcard.fill',
+      body: `${withOpening.name} · ${ledger?.name ?? 'Libro'}`,
+      icon: withOpening.icon || 'creditcard.fill',
       sound: 'sobres',
-      route: `/(tabs)/account/${mapped.id}`,
+      route: `/(tabs)/account/${withOpening.id}`,
     });
-    return mapped;
+    return withOpening;
   },
 
   updateAccount: async (accountId, patch) => {
@@ -680,11 +732,18 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         ? patch.balance
         : current.balance;
 
+    const hasMovements = slice.transactions.some(
+      (item) => item.account === current.name,
+    );
+    const liquid = isLiquidAccount(patch.kind?.trim() || current.kind);
+    const moneyChanged =
+      patch.balance !== undefined && !moneyEquals(balance, current.balance);
+
     await updateResource(
       'account',
       accountId,
       {
-        balanceMinor: toMinor(balance),
+        balanceMinor: toMinor(hasMovements && liquid ? current.balance : balance),
         currency,
         kind: patch.kind?.trim() || current.kind,
         icon: patch.icon ?? current.icon,
@@ -695,6 +754,20 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     );
     await get().hydrate();
     set({ activeLedgerId: ledgerId });
+    if (liquid && hasMovements && moneyChanged) {
+      const after = get().snapshots[ledgerId]?.accounts.find(
+        (item) => item.id === accountId,
+      );
+      if (after && !moneyEquals(balance, after.balance)) {
+        await get().addTransaction({
+          title: 'Ajuste de saldo',
+          category: '',
+          account: after.name,
+          amount: balance - after.balance,
+          date: new Date().toISOString().slice(0, 10),
+        });
+      }
+    }
     const updated = get().snapshots[ledgerId]?.accounts.find((item) => item.id === accountId);
     if (!updated) throw new Error('No se pudo actualizar la cuenta.');
     return updated;
@@ -712,7 +785,6 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         ? 'Activo'
         : 'Cuenta';
     await deleteResource('account', accountId);
-    // Optimistic: drop the account and its movements so Inicio totals match immediately.
     const accounts = slice.accounts.filter((item) => item.id !== accountId);
     const transactions = slice.transactions.filter(
       (item) => item.account !== current.name,
@@ -721,15 +793,10 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       activeLedgerId: ledgerId,
       snapshots: {
         ...state.snapshots,
-        [ledgerId]: {
-          ...slice,
-          accounts,
-          transactions,
-          summary: buildSummary(accounts, slice.envelopes, transactions),
-        },
+        [ledgerId]: projectSnapshot(slice, { accounts, transactions }),
       },
     }));
-    void get().refreshLedger(ledgerId);
+    await get().refreshLedger(ledgerId);
     void recordActivity({
       kind: 'account',
       title: `${label} eliminada`,

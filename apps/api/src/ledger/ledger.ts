@@ -68,6 +68,21 @@ export class CreateTransactionDto {
   entries!: LedgerEntryDto[];
 }
 
+/** Date, description or envelope — not amounts. Amounts stay immutable. */
+export class AmendTransactionDto {
+  @IsOptional()
+  @IsDateString()
+  occurredAt?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  envelopeId?: string;
+}
+
 @Schema({ _id: false })
 export class LedgerEntry {
   @Prop({ required: true })
@@ -228,6 +243,63 @@ export class LedgerService {
     return reversal;
   }
 
+  /**
+   * Change date / description / envelope without touching money.
+   * Uses document.save() so the query-immutability hook does not fire.
+   */
+  async amendMetadata(transactionId: string, patch: AmendTransactionDto) {
+    const original = await this.transactions.findById(transactionId);
+    if (!original) {
+      throw new BadRequestException('Transaction not found');
+    }
+    if (original.reversedById) {
+      throw new BadRequestException('Transaction was already reversed');
+    }
+    if (original.kind === 'refund') {
+      throw new BadRequestException('Refunds cannot be amended');
+    }
+    const hasDate = Boolean(patch.occurredAt);
+    const hasDescription = patch.description !== undefined;
+    const hasEnvelope = patch.envelopeId !== undefined;
+    if (!hasDate && !hasDescription && !hasEnvelope) {
+      throw new BadRequestException('Nothing to amend');
+    }
+    if (hasDate) {
+      const occurredAt = new Date(patch.occurredAt as string);
+      if (Number.isNaN(occurredAt.getTime())) {
+        throw new BadRequestException('occurredAt must be a valid date');
+      }
+      original.occurredAt = occurredAt;
+    }
+    if (hasDescription) {
+      const description = (patch.description ?? '').trim();
+      if (!description) {
+        throw new BadRequestException('description cannot be empty');
+      }
+      original.description = description;
+    }
+    if (hasEnvelope) {
+      const raw = (patch.envelopeId ?? '').trim();
+      const envelopeObjectId = raw
+        ? Types.ObjectId.isValid(raw)
+          ? new Types.ObjectId(raw)
+          : null
+        : null;
+      if (raw && !envelopeObjectId) {
+        throw new BadRequestException('envelopeId is not valid');
+      }
+      for (const entry of original.entries) {
+        const userFacing =
+          (original.kind === 'income' && entry.amountMinor > 0) ||
+          (original.kind === 'expense' && entry.amountMinor < 0);
+        if (!userFacing) continue;
+        entry.envelopeId = envelopeObjectId ?? undefined;
+      }
+      original.markModified('entries');
+    }
+    return original.save();
+  }
+
   /** Void every open movement that touches this account (cascade on account delete). */
   async reverseAllForAccount(accountId: string, userDescription?: string) {
     if (!Types.ObjectId.isValid(accountId)) return 0;
@@ -255,5 +327,51 @@ export class LedgerService {
       }
     }
     return reversed;
+  }
+
+  /**
+   * Current cash per account from the ledger (not the cached resource balanceMinor).
+   * Accounts that never appear in a movement are omitted so callers keep the opening balance.
+   */
+  async accountBalancesMinor(workspaceId: string, userId?: string) {
+    const balances = new Map<string, number>();
+    if (!Types.ObjectId.isValid(workspaceId)) return balances;
+    const privacy =
+      userId && Types.ObjectId.isValid(userId)
+        ? {
+            $or: [
+              { privacy: { $ne: 'private' } },
+              {
+                privacy: 'private',
+                ownerId: new Types.ObjectId(userId),
+              },
+            ],
+          }
+        : { privacy: { $ne: 'private' } };
+    const rows = await this.transactions.aggregate<{
+      _id: Types.ObjectId;
+      balanceMinor: number;
+    }>([
+      {
+        $match: {
+          workspaceId: new Types.ObjectId(workspaceId),
+          reversedById: { $exists: false },
+          kind: { $ne: 'refund' },
+          ...privacy,
+        },
+      },
+      { $unwind: '$entries' },
+      {
+        $group: {
+          _id: '$entries.accountId',
+          balanceMinor: { $sum: '$entries.amountMinor' },
+        },
+      },
+    ]);
+    for (const row of rows) {
+      if (!row?._id) continue;
+      balances.set(String(row._id), Number(row.balanceMinor) || 0);
+    }
+    return balances;
   }
 }

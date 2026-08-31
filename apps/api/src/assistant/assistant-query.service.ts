@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Workspace } from '../auth/auth.module';
-import { LedgerTransaction } from '../ledger/ledger';
+import { LedgerService, LedgerTransaction } from '../ledger/ledger';
 import { FinanceResource } from '../platform/platform.module';
 import type { AssistantIntent } from './assistant.types';
 
@@ -79,6 +79,7 @@ export class AssistantQueryService {
     private readonly resources: Model<FinanceResource>,
     @InjectModel(Workspace.name)
     private readonly workspaces: Model<Workspace>,
+    private readonly ledger: LedgerService,
   ) {}
 
   async currencyFor(workspaceId: string) {
@@ -330,10 +331,16 @@ export class AssistantQueryService {
             facts: 'No hay cuentas registradas en este libro.',
           };
         }
+        const balances = await this.ledger.accountBalancesMinor(
+          input.workspaceId,
+          input.userId,
+        );
         const lines = accounts.map((account) => {
-          const balance = Number.isSafeInteger(account.data?.balanceMinor)
+          const derived = balances.get(String(account._id));
+          const stored = Number.isSafeInteger(account.data?.balanceMinor)
             ? Number(account.data.balanceMinor)
             : 0;
+          const balance = derived !== undefined ? derived : stored;
           return `• ${account.name}: ${formatMoney(balance, currency)}`;
         });
         return {

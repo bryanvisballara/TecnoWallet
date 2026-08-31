@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule, Workspace, WorkspaceSchema } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
-import { LedgerTransaction, LedgerTransactionSchema } from '../ledger/ledger';
+import { LedgerService, LedgerTransaction, LedgerTransactionSchema } from '../ledger/ledger';
 import {
   FinanceResource,
   FinanceResourceSchema,
@@ -23,6 +23,6 @@ import { OpenAiClient } from './openai.client';
     ]),
   ],
   controllers: [AssistantController],
-  providers: [OpenAiClient, AssistantQueryService, AssistantService],
+  providers: [OpenAiClient, AssistantQueryService, AssistantService, LedgerService],
 })
 export class AssistantModule {}

@@ -226,7 +226,7 @@ export default function DashboardScreen() {
                 <AppIcon name="arrow.down.circle.fill" color={theme.success} />
               </View>
               <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={2}>
-                {copy.home.registerIncome} ({moneyCurrency})
+                {copy.home.income} · {monthLabel}
               </Text>
               <Text
                 style={[styles.metricValue, { color: theme.text }]}
@@ -254,7 +254,7 @@ export default function DashboardScreen() {
                 <AppIcon name="arrow.up.circle.fill" color={theme.danger} />
               </View>
               <Text style={[styles.metricLabel, { color: theme.muted }]} numberOfLines={2}>
-                {copy.home.registerExpense} ({moneyCurrency})
+                {copy.home.expenses} · {monthLabel}
               </Text>
               <Text
                 style={[styles.metricValue, { color: theme.text }]}
@@ -267,6 +267,10 @@ export default function DashboardScreen() {
           </ScalePressable>
         </View>
       </View>
+
+      <Text style={[styles.leftoverHint, { color: theme.muted }]}>
+        {copy.home.leftoverMonth(amountOnly(cashflow.remaining, true), monthLabel)}
+      </Text>
 
       <ActivityOverview
         transactions={transactions}
@@ -422,6 +426,13 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   metrics: { flexDirection: 'row', justifyContent: 'center', gap: 10 },
+  leftoverHint: {
+    marginTop: 8,
+    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   metricSlot: { flex: 1, minWidth: 0 },
   metricPress: { flex: 1, width: '100%' },
   metric: {

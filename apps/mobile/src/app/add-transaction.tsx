@@ -45,7 +45,7 @@ function initialTransactionType(raw: string | string[] | undefined): 'expense' |
 export default function AddTransactionScreen() {
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
-  const params = useLocalSearchParams<{ type?: string; id?: string }>();
+  const params = useLocalSearchParams<{ type?: string; id?: string; accountId?: string }>();
   const editId = Array.isArray(params.id) ? params.id[0] : params.id;
   const isEditing = Boolean(editId?.trim());
   const locale = useLanguageStore((state) => state.locale);
@@ -87,6 +87,8 @@ export default function AddTransactionScreen() {
       const match = liquidAccounts.find((item) => item.name === existing.account);
       if (match) return match.id;
     }
+    const fromParam = Array.isArray(params.accountId) ? params.accountId[0] : params.accountId;
+    if (fromParam && liquidAccounts.some((item) => item.id === fromParam)) return fromParam;
     return liquidAccounts[0]?.id ?? '';
   });
   const [dateKey, setDateKey] = useState(() => {

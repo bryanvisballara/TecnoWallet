@@ -56,6 +56,7 @@ export type AppCopy = {
     totalLiquidity: string;
     incomeMinusExpenses: string;
     liquidityFromAccounts: (count: number) => string;
+    leftoverMonth: (amount: string, month: string) => string;
     toggleBalances: string;
     income: string;
     expenses: string;
@@ -534,7 +535,8 @@ const es: AppCopy = {
     totalLiquidity: 'Liquidez total',
     incomeMinusExpenses: 'Ingresos − gastos',
     liquidityFromAccounts: (count) =>
-      count === 1 ? '1 cuenta líquida' : `${count} cuentas líquidas`,
+      count === 1 ? 'Saldo actual · 1 cuenta' : `Saldo actual · ${count} cuentas`,
+    leftoverMonth: (amount, month) => `Quedan ${amount} en ${month}`,
     toggleBalances: 'Mostrar u ocultar saldos',
     income: 'Ingresos',
     expenses: 'Gastos',
@@ -1115,7 +1117,10 @@ const en: AppCopy = {
     totalLiquidity: 'Total liquidity',
     incomeMinusExpenses: 'Income − expenses',
     liquidityFromAccounts: (count) =>
-      count === 1 ? '1 liquid account' : `${count} liquid accounts`,
+      count === 1
+        ? 'Current balance · 1 account'
+        : `Current balance · ${count} accounts`,
+    leftoverMonth: (amount, month) => `${amount} left in ${month}`,
     toggleBalances: 'Show or hide balances',
     income: 'Income',
     expenses: 'Expenses',

@@ -7,6 +7,7 @@ import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, use
 import { money, type Envelope } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { filterTransactionsByMonth } from '@/lib/dates';
+import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
@@ -32,27 +33,21 @@ export default function EnvelopesScreen() {
   );
   const spentByEnvelope = useMemo(() => {
     const byId = new Map<string, number>();
-    const byName = new Map<string, number>();
     monthTransactions.forEach((tx) => {
       const amount = Math.abs(tx.amount);
       if (!amount) return;
-      const id = tx.envelopeId?.trim().toLowerCase();
-      const name = tx.category.trim().toLowerCase();
-      if (id) byId.set(id, (byId.get(id) ?? 0) + amount);
-      if (name && name !== 'expense' && name !== 'income' && name !== 'movimiento') {
-        byName.set(name, (byName.get(name) ?? 0) + amount);
-      }
+      const envelope = resolveEnvelopeForTransaction(tx, envelopes);
+      if (!envelope) return;
+      const key = envelope.id.toLowerCase();
+      byId.set(key, (byId.get(key) ?? 0) + amount);
     });
-    return { byId, byName };
-  }, [monthTransactions]);
+    return byId;
+  }, [monthTransactions, envelopes]);
 
   const withMonthSpent = (items: Envelope[]) =>
     items.map((item) => ({
       ...item,
-      spent:
-        spentByEnvelope.byId.get(item.id.toLowerCase()) ??
-        spentByEnvelope.byName.get(item.name.trim().toLowerCase()) ??
-        0,
+      spent: spentByEnvelope.get(item.id.toLowerCase()) ?? 0,
     }));
 
   const incomeEnvelopes = withMonthSpent(envelopes.filter((item) => item.kind === 'income'));
