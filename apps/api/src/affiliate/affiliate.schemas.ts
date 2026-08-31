@@ -104,6 +104,16 @@ export class Affiliate {
   @Prop({ type: AffiliatePayoutMethodSchema })
   payoutMethod?: AffiliatePayoutMethod;
 
+  @Prop({
+    type: String,
+    enum: ['none', 'requested', 'paid'],
+    default: 'none',
+  })
+  payoutRequestStatus?: 'none' | 'requested' | 'paid';
+
+  @Prop()
+  payoutRequestedAt?: Date;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

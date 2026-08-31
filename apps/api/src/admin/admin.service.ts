@@ -26,10 +26,11 @@ import { affiliatePayoutEmailHtml } from './payout-email';
 import {
   AFFILIATE_FLAT_BOUNTY_CURRENCY,
   AFFILIATE_FLAT_BOUNTY_MINOR,
+  AFFILIATE_PAYOUT_MIN_MINOR,
 } from '../affiliate/affiliate.constants';
 
-export const AFFILIATE_PAYOUT_MIN_MINOR = 10_000;
-export const AFFILIATE_PAYOUT_DAY = 15;
+export { AFFILIATE_PAYOUT_MIN_MINOR };
+export const AFFILIATE_PAYOUT_DAY = 0;
 const PLUS_PRICE_MINOR = 999;
 const BUSINESS_PRICE_MINOR = 1499;
 
@@ -126,7 +127,7 @@ export class AdminService {
       paydayDay: AFFILIATE_PAYOUT_DAY,
       minimumUsd: AFFILIATE_PAYOUT_MIN_MINOR / 100,
       minimumMinor: AFFILIATE_PAYOUT_MIN_MINOR,
-      rule: 'Un solo día de pago al mes (día 15). Se desembolsa el saldo acumulado no pagado hasta el mes anterior, solo si es ≥ USD 100 y el afiliado ya registró wallet USDT. Ellos no eligen la fecha.',
+      rule: 'El afiliado solicita el pago desde la app cuando acumuló al menos USD 100 y ya guardó su wallet USDT. No hay fecha fija al mes: se paga cuando lo pide.',
     };
   }
 
@@ -232,6 +233,7 @@ export class AdminService {
       currency: string;
       status: CommissionEventStatus;
       simulated: boolean;
+      payoutRequested: boolean;
       payoutMethod: {
         type: string;
         asset: string;
@@ -276,6 +278,7 @@ export class AdminService {
           currency: row.currency || 'USD',
           status: row.status,
           simulated: row.eventType === 'admin_simulate',
+          payoutRequested: affiliate?.payoutRequestStatus === 'requested',
           payoutMethod:
             payout?.address && payout.network
               ? {
@@ -289,10 +292,16 @@ export class AdminService {
         };
         byAffiliate.set(row.affiliateId, bucket);
       }
-      if (row.status !== 'reversed') {
+      const isBounty =
+        row.commissionAmountMinor === AFFILIATE_FLAT_BOUNTY_MINOR &&
+        (row.commissionRate ?? 0) === 0;
+      if (row.status !== 'reversed' && isBounty) {
         bucket.commissionTotalMinor += row.commissionAmountMinor;
       }
-      if (row.status === 'pending' || row.status === 'approved') {
+      if (
+        isBounty &&
+        (row.status === 'pending' || row.status === 'approved')
+      ) {
         bucket.pendingMinor += row.commissionAmountMinor;
       }
       if (row.eventType === 'admin_simulate') bucket.simulated = true;
@@ -320,12 +329,18 @@ export class AdminService {
     const affiliatesOut = [...byAffiliate.values()].map((bucket) => {
       const status = this.dominantStatus(bucket.commissions.map((c) => c.status));
       const hasWallet = Boolean(bucket.payoutMethod?.address);
-      let blockReason: 'no_wallet' | 'below_minimum' | 'already_paid' | null =
-        null;
+      let blockReason:
+        | 'no_wallet'
+        | 'below_minimum'
+        | 'already_paid'
+        | 'not_requested'
+        | null = null;
       if (bucket.pendingMinor <= 0) blockReason = 'already_paid';
       else if (!hasWallet) blockReason = 'no_wallet';
       else if (bucket.pendingMinor < AFFILIATE_PAYOUT_MIN_MINOR) {
         blockReason = 'below_minimum';
+      } else if (!bucket.payoutRequested) {
+        blockReason = 'not_requested';
       }
       const paidReferrals = new Set(
         bucket.commissions
@@ -899,10 +914,17 @@ export class AdminService {
         'NO_WALLET: Este afiliado no ha registrado wallet USDT. No se puede pagar. Pídele que la cargue en Afiliados.',
       );
     }
+    if (affiliate.payoutRequestStatus !== 'requested') {
+      throw new BadRequestException(
+        'El afiliado aún no ha solicitado el pago desde la app.',
+      );
+    }
 
     const filter: Record<string, unknown> = {
       affiliateId,
       status: { $in: ['pending', 'approved'] },
+      commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+      commissionRate: 0,
     };
     const occurredAt: { $gte?: Date; $lte?: Date } = {};
     if (dto.from) {
@@ -918,11 +940,6 @@ export class AdminService {
         throw new BadRequestException('Invalid to date');
       }
       occurredAt.$lte = to;
-    } else {
-      const now = new Date();
-      occurredAt.$lte = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59),
-      );
     }
     if (Object.keys(occurredAt).length) filter.occurredAt = occurredAt;
 
@@ -936,7 +953,7 @@ export class AdminService {
     }
     if (pendingMinor < AFFILIATE_PAYOUT_MIN_MINOR) {
       throw new BadRequestException(
-        `BELOW_MINIMUM: El saldo es USD ${(pendingMinor / 100).toFixed(2)}. Mínimo de desembolso: USD 100. Se acumula al próximo día 15.`,
+        `BELOW_MINIMUM: El saldo es USD ${(pendingMinor / 100).toFixed(2)}. Mínimo de desembolso: USD 100.`,
       );
     }
 
@@ -948,9 +965,17 @@ export class AdminService {
         $set: {
           status: 'paid',
           paidAt,
-          payoutNote: dto.note?.trim() || 'Pago USDT día 15',
+          payoutNote: dto.note?.trim() || 'Pago USDT a solicitud del afiliado',
           payoutProofName: dto.proofName?.trim() || undefined,
         },
+      },
+    );
+
+    await this.affiliates.updateOne(
+      { affiliateId },
+      {
+        $set: { payoutRequestStatus: 'none' },
+        $unset: { payoutRequestedAt: 1 },
       },
     );
 
@@ -965,11 +990,11 @@ export class AdminService {
       style: 'currency',
       currency: 'USD',
     }).format(pendingMinor / 100);
-    const period = `${dto.from || 'acumulado'} → ${dto.to || 'mes anterior'}`;
+    const period = `${dto.from || 'acumulado'} → ${dto.to || 'hoy'}`;
     const proof = dto.proofBase64?.replace(/^data:[^;]+;base64,/, '').trim();
     const delivery = await this.mailer.sendHtml({
       to,
-      subject: `TecnoWallet · Comisión pagada ${amount}`,
+      subject: `TecnoWallet · Remuneración pagada ${amount}`,
       htmlContent: affiliatePayoutEmailHtml({
         name: affiliate.name,
         amount,

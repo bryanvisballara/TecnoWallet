@@ -224,6 +224,7 @@ export function ScalePressable({ children, onPress, style, haptic = true, ...pro
         props.onPressOut?.(event);
       }}
       onPress={(event) => {
+        if (props.disabled) return;
         if (haptic && usePreferencesStore.getState().hapticsEnabled) {
           void Haptics.selectionAsync();
         }
@@ -317,13 +318,23 @@ export function Pill({ children, tone = 'blue' }: PropsWithChildren<{ tone?: 'bl
   return <View style={[styles.pill, { backgroundColor: colors[tone][0] }]}><Text style={[styles.pillText, { color: colors[tone][1] }]}>{children}</Text></View>;
 }
 
-export function PrimaryButton({ children, onPress, icon }: PropsWithChildren<{ onPress?: () => void; icon?: string }>) {
+export function PrimaryButton({
+  children,
+  onPress,
+  icon,
+  disabled,
+}: PropsWithChildren<{ onPress?: () => void; icon?: string; disabled?: boolean }>) {
   const theme = useAppTheme();
   return (
     <ScalePressable
       accessibilityRole="button"
-      onPress={onPress}
-      style={[styles.primaryButton, { backgroundColor: theme.primary }]}>
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={disabled ? undefined : onPress}
+      style={[
+        styles.primaryButton,
+        { backgroundColor: theme.primary, opacity: disabled ? 0.45 : 1 },
+      ]}>
       <View style={styles.primaryButtonContent}>
         {icon ? <AppIcon name={icon} size={18} color="#FFFFFF" /> : null}
         <Text style={styles.primaryButtonText}>{children}</Text>

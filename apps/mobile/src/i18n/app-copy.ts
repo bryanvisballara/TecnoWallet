@@ -360,6 +360,12 @@ export type AppCopy = {
     commissionAccrued: string;
     commissionPaid: string;
     pendingPayout: string;
+    requestPayout: string;
+    requestingPayout: string;
+    payoutRequested: string;
+    payoutRequestHint: string;
+    payoutNeedWallet: string;
+    payoutNeedMinimum: (amount: string) => string;
     payoutMethod: string;
     payoutHint: string;
     pending: string;
@@ -870,17 +876,25 @@ const es: AppCopy = {
   },
   affiliates: {
     title: 'Afiliados',
-    subtitle: 'Tu enlace y comisiones',
+    subtitle: 'Tu enlace y remuneración',
     shareLink: 'Compartir enlace',
     downloads: 'Descargas',
     registrations: 'Registros',
     conversion: 'Conversión',
-    commissionAccrued: 'Comisión acumulada',
-    commissionPaid: 'Comisión pagada',
+    commissionAccrued: 'Remuneración acumulada',
+    commissionPaid: 'Remuneración pagada',
     pendingPayout: 'Pendiente de pago',
+    requestPayout: 'Solicitar pago',
+    requestingPayout: 'Solicitando…',
+    payoutRequested: 'Solicitud enviada',
+    payoutRequestHint:
+      'Puedes pedir el pago cuando acumules US$ 100 y hayas guardado tu wallet. No hay fecha fija al mes.',
+    payoutNeedWallet: 'Guarda tu wallet USDT para poder solicitar el pago.',
+    payoutNeedMinimum: (amount) =>
+      `Acumula ${amount} para solicitar el pago.`,
     payoutMethod: 'Método de pago',
     payoutHint:
-      'Wallet (cripto) USDT. Elige la red e indica la dirección donde recibirás tus comisiones.',
+      'Wallet (cripto) USDT. Elige la red e indica la dirección donde recibirás tu remuneración.',
     pending: 'Pendiente',
     configured: 'Configurado',
     walletAddress: 'DIRECCIÓN DE WALLET',
@@ -1448,17 +1462,24 @@ const en: AppCopy = {
   },
   affiliates: {
     title: 'Affiliates',
-    subtitle: 'Your link and commissions',
+    subtitle: 'Your link and earnings',
     shareLink: 'Share link',
     downloads: 'Downloads',
     registrations: 'Sign-ups',
     conversion: 'Conversion',
-    commissionAccrued: 'Accrued commission',
-    commissionPaid: 'Paid commission',
+    commissionAccrued: 'Accrued earnings',
+    commissionPaid: 'Paid earnings',
     pendingPayout: 'Pending payout',
+    requestPayout: 'Request payout',
+    requestingPayout: 'Requesting…',
+    payoutRequested: 'Request sent',
+    payoutRequestHint:
+      'You can request payout when you reach US$ 100 and have saved your wallet. There is no fixed monthly date.',
+    payoutNeedWallet: 'Save your USDT wallet before requesting a payout.',
+    payoutNeedMinimum: (amount) => `Reach ${amount} to request a payout.`,
     payoutMethod: 'Payment method',
     payoutHint:
-      'Crypto wallet USDT. Choose the network and enter the address where you’ll receive commissions.',
+      'Crypto wallet USDT. Choose the network and enter the address where you’ll receive earnings.',
     pending: 'Pending',
     configured: 'Configured',
     walletAddress: 'WALLET ADDRESS',

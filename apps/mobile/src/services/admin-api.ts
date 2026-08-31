@@ -31,7 +31,7 @@ export type AdminCommissionRow = {
   paidAt: string | null;
 };
 
-export type AdminPayoutBlock = 'no_wallet' | 'below_minimum' | 'already_paid' | null;
+export type AdminPayoutBlock = 'no_wallet' | 'below_minimum' | 'already_paid' | 'not_requested' | null;
 
 export type AdminAffiliatePayout = {
   affiliateId: string;
@@ -43,6 +43,7 @@ export type AdminAffiliatePayout = {
   currency: string;
   status: 'pending' | 'approved' | 'paid' | 'reversed';
   simulated?: boolean;
+  payoutRequested?: boolean;
   ready: boolean;
   blockReason: AdminPayoutBlock;
   referralCount?: number;

@@ -145,10 +145,13 @@ function blockCopy(reason: AdminAffiliatePayout['blockReason']) {
     return 'Sin wallet USDT. No se puede pagar. Pídele que la registre en Afiliados.';
   }
   if (reason === 'below_minimum') {
-    return 'Bajo el mínimo de USD 100. Se acumula al próximo día 15.';
+    return 'Bajo el mínimo de USD 100. El afiliado debe acumular más para solicitar el pago.';
   }
   if (reason === 'already_paid') {
-    return 'Sin saldo pendiente. Ya quedó en 0 para el próximo periodo.';
+    return 'Sin saldo pendiente.';
+  }
+  if (reason === 'not_requested') {
+    return 'Todavía no ha solicitado el pago desde la app.';
   }
   return '';
 }
@@ -353,7 +356,7 @@ export default function AdminPortalScreen() {
             <Text style={[styles.section, { color: theme.text }]}>Cómo se paga</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
               {payoutPolicy?.rule ??
-                'Un solo día al mes: el 15. Se paga el saldo acumulado hasta el mes anterior, mínimo USD 100, solo si ya hay wallet USDT. El afiliado no elige la fecha.'}
+                'El afiliado solicita el pago desde la app al acumular USD 100 y tener wallet USDT. No hay fecha fija al mes.'}
             </Text>
             <View style={styles.statGrid}>
               <StatCard
@@ -554,7 +557,9 @@ export default function AdminPortalScreen() {
                             ? 'Sin wallet'
                             : row.blockReason === 'below_minimum'
                               ? 'Acumula'
-                              : statusLabel[row.status] ?? row.status}
+                              : row.blockReason === 'not_requested'
+                                ? 'Sin solicitud'
+                                : statusLabel[row.status] ?? row.status}
                       </Pill>
                     </View>
                   </Pressable>

@@ -22,8 +22,6 @@ export type AffiliatePublic = {
 };
 
 export type AffiliatePartnerStats = {
-  clicks: number;
-  downloads: number;
   signups: number;
   plusConversions: number;
   conversionRate: number;
@@ -31,6 +29,14 @@ export type AffiliatePartnerStats = {
   commissionPaidMinor: number;
   commissionPendingMinor: number;
   currency: string;
+};
+
+export type AffiliatePayoutRequest = {
+  status: 'none' | 'requested' | 'paid';
+  requestedAt: string | null;
+  canRequest: boolean;
+  blockReason: 'no_wallet' | 'below_minimum' | 'already_requested' | null;
+  minimumMinor: number;
 };
 
 export type AffiliateReferredUser = {
@@ -55,6 +61,7 @@ export type AffiliatePartnerDashboard =
         once: true;
       };
       stats: AffiliatePartnerStats;
+      payoutRequest: AffiliatePayoutRequest;
       referred: AffiliateReferredUser[];
     };
 
@@ -150,5 +157,12 @@ export async function updateAffiliatePayout(input: {
       network: input.network,
       address: input.address,
     }),
+  });
+}
+
+export async function requestAffiliatePayout() {
+  return apiRequest<AffiliatePartnerDashboard>('/affiliate/partner/payout-request', {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }

@@ -84,6 +84,12 @@ export class AffiliateController {
   ) {
     return this.affiliate.updatePartnerPayout(user.userId, body);
   }
+
+  @ApiBearerAuth()
+  @Post('partner/payout-request')
+  requestPayout(@CurrentUser() user: AuthPrincipal) {
+    return this.affiliate.requestPartnerPayout(user.userId);
+  }
 }
 
 @ApiTags('webhooks')

@@ -28,6 +28,7 @@ import type { UpdateAffiliatePayoutDto } from './affiliate.dto';
 import {
   AFFILIATE_FLAT_BOUNTY_CURRENCY,
   AFFILIATE_FLAT_BOUNTY_MINOR,
+  AFFILIATE_PAYOUT_MIN_MINOR,
 } from './affiliate.constants';
 
 export interface RecordCommissionFromRevenueEventInput {
@@ -294,15 +295,13 @@ export class AffiliateService implements OnModuleInit {
     }
 
     await this.retireLegacyPercentageCommissions();
+    await this.grantFlatBountiesForAffiliate(affiliate.affiliateId);
 
     const affiliateId = affiliate.affiliateId;
-    const [clickCount, installCount, attributions, commissionRows] =
-      await Promise.all([
-        this.clicks.countDocuments({ affiliateId }),
-        this.installs.countDocuments({ affiliateId }),
-        this.attributions.find({ affiliateId }).lean(),
-        this.commissions.find({ affiliateId }).lean(),
-      ]);
+    const [attributions, commissionRows] = await Promise.all([
+      this.attributions.find({ affiliateId }).lean(),
+      this.commissions.find({ affiliateId }).lean(),
+    ]);
 
     const referredUserIds = attributions.map((row) => row.userId);
     const [users, subscriptions] = await Promise.all([
@@ -329,6 +328,7 @@ export class AffiliateService implements OnModuleInit {
 
     for (const event of commissionRows) {
       if (event.status === 'reversed') continue;
+      if (!this.isFlatBounty(event)) continue;
       commissionTotalMinor += event.commissionAmountMinor;
       if (event.status === 'paid') {
         commissionPaidMinor += event.commissionAmountMinor;
@@ -356,11 +356,9 @@ export class AffiliateService implements OnModuleInit {
             : '—';
         const status = !user?.active
           ? 'Inactivo'
-          : earned
-            ? 'Pagó'
-            : paidActive
-              ? 'En prueba'
-              : sub && ['cancelled', 'expired', 'refunded'].includes(sub.status)
+          : earned || paidActive
+            ? 'Activo'
+            : sub && ['cancelled', 'expired', 'refunded'].includes(sub.status)
                 ? 'Cancelado'
                 : 'Sin compra';
         return {
@@ -394,8 +392,6 @@ export class AffiliateService implements OnModuleInit {
         once: true as const,
       },
       stats: {
-        clicks: clickCount,
-        downloads: installCount,
         signups,
         plusConversions,
         conversionRate,
@@ -404,6 +400,10 @@ export class AffiliateService implements OnModuleInit {
         commissionPendingMinor,
         currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
       },
+      payoutRequest: this.payoutRequestState(
+        affiliate,
+        commissionPendingMinor,
+      ),
       referred,
     };
   }
@@ -438,6 +438,45 @@ export class AffiliateService implements OnModuleInit {
       payoutMethod: this.displayPayoutMethod(affiliate),
       affiliate: this.displayAffiliate(affiliate, { includePayout: true }),
     };
+  }
+
+  async requestPartnerPayout(userId: string) {
+    this.assertUserId(userId);
+    await this.entitlements.assertBusiness(userId, {
+      feature: 'affiliate',
+      action: 'payout-request',
+      upgradeTo: 'business',
+    });
+    const dashboard = await this.getPartnerDashboard(userId);
+    if (!dashboard.enrolled) {
+      throw new NotFoundException('Aún no estás inscrito en el programa.');
+    }
+    const request = dashboard.payoutRequest;
+    if (request.blockReason === 'no_wallet') {
+      throw new BadRequestException(
+        'Guarda tu wallet USDT antes de solicitar el pago.',
+      );
+    }
+    if (request.blockReason === 'below_minimum') {
+      throw new BadRequestException(
+        `Acumula al menos US$ ${AFFILIATE_PAYOUT_MIN_MINOR / 100} para solicitar el pago.`,
+      );
+    }
+    if (request.blockReason === 'already_requested') {
+      throw new BadRequestException('Ya tienes una solicitud de pago en curso.');
+    }
+
+    await this.affiliates.updateOne(
+      { ownerUserId: userId, active: true },
+      {
+        $set: {
+          payoutRequestStatus: 'requested',
+          payoutRequestedAt: new Date(),
+        },
+      },
+    );
+
+    return this.getPartnerDashboard(userId);
   }
 
   async recordCommissionFromRevenueEvent(
@@ -490,15 +529,13 @@ export class AffiliateService implements OnModuleInit {
       return null;
     }
 
-    // Intro / trial is $0 — pay only when Apple actually charges Plus or Business.
-    if (input.grossAmountMinor <= 0 && input.netAmountMinor <= 0) {
-      return null;
-    }
-
+    // Conversion counts even during the 3-day trial: the referred user chose Plus/Business.
     const alreadyPaidOut = await this.commissions.findOne({
       userId: input.userId,
       affiliateId: affiliate.affiliateId,
       status: { $in: ['pending', 'approved', 'paid'] },
+      commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+      commissionRate: 0,
     });
     if (alreadyPaidOut) return alreadyPaidOut;
 
@@ -569,6 +606,102 @@ export class AffiliateService implements OnModuleInit {
         `Reversed ${result.modifiedCount} legacy percentage commission event(s)`,
       );
     }
+  }
+
+  private isFlatBounty(event: {
+    commissionAmountMinor: number;
+    commissionRate?: number;
+  }) {
+    return (
+      event.commissionAmountMinor === AFFILIATE_FLAT_BOUNTY_MINOR &&
+      (event.commissionRate ?? 0) === 0
+    );
+  }
+
+  private async grantFlatBountiesForAffiliate(affiliateId: string) {
+    const attributions = await this.attributions
+      .find({ affiliateId })
+      .select('userId')
+      .lean();
+    if (!attributions.length) return;
+
+    const userIds = attributions.map((row) => row.userId);
+    const [subscriptions, existing] = await Promise.all([
+      this.subscriptions.find({ userId: { $in: userIds } }).lean(),
+      this.commissions
+        .find({
+          affiliateId,
+          userId: { $in: userIds },
+          status: { $in: ['pending', 'approved', 'paid'] },
+          commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+          commissionRate: 0,
+        })
+        .select('userId')
+        .lean(),
+    ]);
+    const subByUser = new Map(
+      subscriptions.map((row) => [row.userId.toString(), row]),
+    );
+    const granted = new Set(existing.map((row) => row.userId.toString()));
+
+    for (const attr of attributions) {
+      const uid = attr.userId.toString();
+      if (granted.has(uid)) continue;
+      const sub = subByUser.get(uid);
+      if (!sub || !this.subscriptionIsActivePaid(sub)) continue;
+      try {
+        await this.commissions.create({
+          providerEventId: `flat-bounty-${affiliateId}-${uid}`,
+          userId: attr.userId,
+          affiliateId,
+          product: sub.productId || sub.entitlementId || 'plus',
+          eventType: 'flat_bounty',
+          grossAmountMinor: 0,
+          netAmountMinor: 0,
+          storeFeeAmountMinor: 0,
+          commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+          commissionRate: 0,
+          currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
+          status: 'pending',
+          occurredAt: sub.purchasedAt ?? new Date(),
+          monthsSinceAttribution: 0,
+        });
+      } catch (error) {
+        if (!this.isDuplicateKey(error)) throw error;
+      }
+    }
+  }
+
+  private payoutRequestState(
+    affiliate: Affiliate,
+    pendingMinor: number,
+  ): {
+    status: 'none' | 'requested' | 'paid';
+    requestedAt: Date | null;
+    canRequest: boolean;
+    blockReason: 'no_wallet' | 'below_minimum' | 'already_requested' | null;
+    minimumMinor: number;
+  } {
+    const hasWallet = Boolean(affiliate.payoutMethod?.address);
+    const status =
+      affiliate.payoutRequestStatus === 'requested' ||
+      affiliate.payoutRequestStatus === 'paid'
+        ? affiliate.payoutRequestStatus
+        : 'none';
+    let blockReason: 'no_wallet' | 'below_minimum' | 'already_requested' | null =
+      null;
+    if (status === 'requested') blockReason = 'already_requested';
+    else if (!hasWallet) blockReason = 'no_wallet';
+    else if (pendingMinor < AFFILIATE_PAYOUT_MIN_MINOR) {
+      blockReason = 'below_minimum';
+    }
+    return {
+      status,
+      requestedAt: affiliate.payoutRequestedAt ?? null,
+      canRequest: blockReason == null,
+      blockReason,
+      minimumMinor: AFFILIATE_PAYOUT_MIN_MINOR,
+    };
   }
 
   private subscriptionIsActivePaid(sub: Subscription) {

@@ -20,6 +20,7 @@ import { safeGoBack } from '@/lib/navigation';
 import {
   enrollAffiliatePartner,
   getAffiliatePartnerDashboard,
+  requestAffiliatePayout,
   updateAffiliatePayout,
   type AffiliatePartnerDashboard,
   type AffiliateUsdtNetwork,
@@ -88,6 +89,7 @@ export default function AffiliatesScreen() {
   const [payoutAddress, setPayoutAddress] = useState('');
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [payoutSaved, setPayoutSaved] = useState(false);
+  const [requestBusy, setRequestBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!isBusiness) {
@@ -245,6 +247,42 @@ export default function AffiliatesScreen() {
     }
   };
 
+  const requestPayout = async () => {
+    if (!dashboard || !dashboard.enrolled) return;
+    const request = dashboard.payoutRequest;
+    if (!request?.canRequest) {
+      const reason = request?.blockReason;
+      Alert.alert(
+        copy.affiliates.requestPayout,
+        reason === 'no_wallet'
+          ? copy.affiliates.payoutNeedWallet
+          : reason === 'already_requested'
+            ? copy.affiliates.payoutRequested
+            : copy.affiliates.payoutNeedMinimum(
+                moneyMinor(request?.minimumMinor ?? 10_000, 'USD', locale),
+              ),
+      );
+      return;
+    }
+    setRequestBusy(true);
+    setError(null);
+    try {
+      const data = await requestAffiliatePayout();
+      setDashboard(data);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : locale === 'es'
+            ? 'No pudimos solicitar el pago.'
+            : 'We couldn’t request the payout.',
+      );
+    } finally {
+      setRequestBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <Screen
@@ -287,8 +325,8 @@ export default function AffiliatesScreen() {
           </Text>
           <Text style={[styles.body, { color: theme.muted }]}>
             {locale === 'es'
-              ? 'Primero necesitas TecnoWallet Business. Con Business se te habilita el programa de afiliados para compartir tu enlace y ganar comisiones.'
-              : 'You need TecnoWallet Business first. Business unlocks the affiliate program so you can share your link and earn commissions.'}
+              ? 'Primero necesitas TecnoWallet Business. Con Business se te habilita el programa de afiliados para compartir tu enlace y ganar US$ 5 por cada Plus o Business.'
+              : 'You need TecnoWallet Business first. Business unlocks the affiliate program so you can share your link and earn US$ 5 for each Plus or Business.'}
           </Text>
         </Card>
 
@@ -308,8 +346,8 @@ export default function AffiliatesScreen() {
         title={copy.affiliates.title}
         subtitle={
           locale === 'es'
-            ? 'Gana comisiones recomendando TecnoWallet'
-            : 'Earn commissions by recommending TecnoWallet'
+            ? 'Gana US$ 5 recomendando TecnoWallet'
+            : 'Earn US$ 5 by recommending TecnoWallet'
         }
         right={
           <Pressable
@@ -376,7 +414,7 @@ export default function AffiliatesScreen() {
     );
   }
 
-  const { affiliate, shareUrl, stats, referred } = dashboard;
+  const { affiliate, shareUrl, stats, referred, payoutRequest } = dashboard;
 
   return (
     <Screen
@@ -449,8 +487,6 @@ export default function AffiliatesScreen() {
       </Card>
 
       <Card style={styles.statsCard}>
-        <StatRow label="Clicks" value={String(stats.clicks)} />
-        <StatRow label={copy.affiliates.downloads} value={String(stats.downloads)} />
         <StatRow label={copy.affiliates.registrations} value={String(stats.signups)} />
         <StatRow
           label={locale === 'es' ? 'Compras Plus/Business' : 'Plus/Business purchases'}
@@ -617,6 +653,33 @@ export default function AffiliatesScreen() {
               ? copy.affiliates.saved
               : copy.affiliates.saveMethod}
         </PrimaryButton>
+
+        <Text style={[styles.body, { color: theme.muted, marginTop: 8 }]}>
+          {copy.affiliates.payoutRequestHint}
+        </Text>
+        <PrimaryButton
+          icon="banknote.fill"
+          disabled={!payoutRequest?.canRequest || requestBusy}
+          onPress={() => {
+            void requestPayout();
+          }}>
+          {requestBusy
+            ? copy.affiliates.requestingPayout
+            : payoutRequest?.status === 'requested'
+              ? copy.affiliates.payoutRequested
+              : copy.affiliates.requestPayout}
+        </PrimaryButton>
+        {payoutRequest?.blockReason === 'no_wallet' ? (
+          <Text style={[styles.hint, { color: theme.muted }]}>
+            {copy.affiliates.payoutNeedWallet}
+          </Text>
+        ) : payoutRequest?.blockReason === 'below_minimum' ? (
+          <Text style={[styles.hint, { color: theme.muted }]}>
+            {copy.affiliates.payoutNeedMinimum(
+              moneyMinor(payoutRequest.minimumMinor, stats.currency, locale),
+            )}
+          </Text>
+        ) : null}
       </Card>
 
       <AffiliateRewardGuide />
