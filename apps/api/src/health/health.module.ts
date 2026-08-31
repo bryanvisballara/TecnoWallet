@@ -27,6 +27,7 @@ class HealthController {
       status: 'ok',
       database: 'connected',
       timestamp: new Date().toISOString(),
+      affiliateFlatBountyUsd: 5,
     };
   }
 }

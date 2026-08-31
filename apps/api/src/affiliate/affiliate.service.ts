@@ -586,18 +586,13 @@ export class AffiliateService implements OnModuleInit {
     const result = await this.commissions.updateMany(
       {
         status: { $in: ['pending', 'approved', 'paid'] },
-        $nor: [
-          {
-            commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
-            commissionRate: 0,
-          },
-        ],
+        commissionAmountMinor: { $ne: AFFILIATE_FLAT_BOUNTY_MINOR },
       },
       {
         $set: {
           status: 'reversed',
           payoutNote:
-            'Modelo anterior (porcentaje / mensual) retirado. Comisión vigente: US$ 5 una vez.',
+            'Saldos de prueba / porcentaje anulados. Remuneración vigente: US$ 5 una vez.',
         },
       },
     );
@@ -612,10 +607,7 @@ export class AffiliateService implements OnModuleInit {
     commissionAmountMinor: number;
     commissionRate?: number;
   }) {
-    return (
-      event.commissionAmountMinor === AFFILIATE_FLAT_BOUNTY_MINOR &&
-      (event.commissionRate ?? 0) === 0
-    );
+    return event.commissionAmountMinor === AFFILIATE_FLAT_BOUNTY_MINOR;
   }
 
   private async grantFlatBountiesForAffiliate(affiliateId: string) {
@@ -634,7 +626,6 @@ export class AffiliateService implements OnModuleInit {
           userId: { $in: userIds },
           status: { $in: ['pending', 'approved', 'paid'] },
           commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
-          commissionRate: 0,
         })
         .select('userId')
         .lean(),
