@@ -48,6 +48,8 @@ export default function RootLayout() {
   const hydrateLanguage = useLanguageStore((state) => state.hydrate);
   const hydratePreferences = usePreferencesStore((state) => state.hydrate);
   const hydratePlus = usePlusStore((state) => state.hydrate);
+  const plusHydrated = usePlusStore((state) => state.hydrated);
+  const plusAccess = usePlusStore((state) => state.access);
   const hydrateNotifications = useNotificationsStore((state) => state.hydrate);
   const hydrateGoals = useGoalsStore((state) => state.hydrate);
   const hydrateRecaudos = useRecaudosStore((state) => state.hydrate);
@@ -115,6 +117,12 @@ export default function RootLayout() {
     hydrateGoals,
     hydrateRecaudos,
   ]);
+
+  useEffect(() => {
+    if (!authenticated || !plusHydrated) return;
+    if (plusAccess !== 'free') return;
+    usePlusStore.getState().maybePromptTrialPaywall();
+  }, [authenticated, plusHydrated, plusAccess]);
 
   useEffect(() => {
     // Never hide the native splash before the branded overlay can paint.

@@ -203,6 +203,7 @@ async function purchasePackage(
   assertNativeIos();
   if (!selected) throw new Error(missingMessage);
   try {
+    // 3-day intro must be configured on the Plus/Business products in App Store Connect / RevenueCat.
     await Purchases.purchasePackage(selected);
     return await billingAfterPurchase();
   } catch (error) {

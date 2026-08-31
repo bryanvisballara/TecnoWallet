@@ -38,7 +38,7 @@ export function planDisplayLabel(
       return es ? 'Colaborador' : 'Collaborator';
     case 'free':
     default:
-      return 'Free';
+      return es ? 'Sin plan' : 'No plan';
   }
 }
 
@@ -59,7 +59,9 @@ export function planDisplaySubtitle(
         : 'Shared access via a sponsor';
     case 'free':
     default:
-      return es ? 'Plan Free actual' : 'Current Free plan';
+      return es
+        ? '3 días de prueba, luego se cobra'
+        : '3-day trial, then billed';
   }
 }
 

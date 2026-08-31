@@ -54,182 +54,19 @@ function formatDate(value: string, locale: string) {
   }).format(date);
 }
 
-function tierTone(id: string): 'green' | 'blue' | 'neutral' {
-  if (id === 'ambassador') return 'blue';
-  if (id === 'creator') return 'green';
-  return 'neutral';
-}
-
-function affiliateTierGuide(locale: string) {
-  if (locale === 'es') {
-    return [
-      {
-        id: 'partner' as const,
-        label: 'Partner',
-        percent: 20,
-        range: '1–100',
-        how: 'Con 1 a 100 referidos con Plus o Business activos',
-        until: 'Mientras te mantengas en ese rango',
-      },
-      {
-        id: 'creator' as const,
-        label: 'Creator',
-        percent: 30,
-        range: '101–500',
-        how: 'Con 101 a 500 referidos de pago activos',
-        until: 'Mientras te mantengas en ese rango',
-      },
-      {
-        id: 'ambassador' as const,
-        label: 'Ambassador',
-        percent: 40,
-        range: '501+',
-        how: 'Con 501 o más referidos de pago activos',
-        until: 'Mientras mantengas 501+ activos',
-      },
-    ] as const;
-  }
-  return [
-    {
-      id: 'partner' as const,
-      label: 'Partner',
-      percent: 20,
-      range: '1–100',
-      how: 'With 1 to 100 referrals on active Plus or Business',
-      until: 'While you stay in that range',
-    },
-    {
-      id: 'creator' as const,
-      label: 'Creator',
-      percent: 30,
-      range: '101–500',
-      how: 'With 101 to 500 active paid referrals',
-      until: 'While you stay in that range',
-    },
-    {
-      id: 'ambassador' as const,
-      label: 'Ambassador',
-      percent: 40,
-      range: '501+',
-      how: 'With 501 or more active paid referrals',
-      until: 'While you keep 501+ active',
-    },
-  ] as const;
-}
-
-function nextTierHint(activePaidCount: number, locale: string) {
-  if (locale === 'es') {
-    if (activePaidCount >= 501) return 'Ya estás en el nivel máximo.';
-    if (activePaidCount >= 101) {
-      const left = 501 - activePaidCount;
-      return `Te faltan ${left} referidos activos para Ambassador (40%).`;
-    }
-    if (activePaidCount >= 1) {
-      const left = 101 - activePaidCount;
-      return `Te faltan ${left} referidos activos para Creator (30%).`;
-    }
-    return 'Empiezas como Partner (20%). Tu primer referido de pago activa el conteo.';
-  }
-  if (activePaidCount >= 501) return 'You’re already at the top tier.';
-  if (activePaidCount >= 101) {
-    const left = 501 - activePaidCount;
-    return `You need ${left} more active referrals for Ambassador (40%).`;
-  }
-  if (activePaidCount >= 1) {
-    const left = 101 - activePaidCount;
-    return `You need ${left} more active referrals for Creator (30%).`;
-  }
-  return 'You start as Partner (20%). Your first paid referral starts the count.';
-}
-
-function AffiliateTiersGuide({
-  activeId,
-  activePaidCount,
-  revenueShareMonths,
-}: {
-  activeId?: 'partner' | 'creator' | 'ambassador';
-  activePaidCount?: number;
-  revenueShareMonths: number;
-}) {
+function AffiliateRewardGuide() {
   const theme = useAppTheme();
-  const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
-  const tiers = affiliateTierGuide(locale);
-  const showProgress = typeof activePaidCount === 'number';
 
   return (
     <Card style={styles.tiersCard}>
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>{copy.affiliates.tiers}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>
+        {locale === 'es' ? 'Cómo ganas' : 'How you earn'}
+      </Text>
       <Text style={[styles.body, { color: theme.muted, marginTop: 4 }]}>
         {locale === 'es'
-          ? 'Tu nivel depende de cuántos referidos tienen hoy Plus o Business activos. Si dejan de pagar, el conteo baja y puedes cambiar de nivel.'
-          : 'Your tier depends on how many referrals currently have active Plus or Business. If they stop paying, the count drops and your tier can change.'}
-      </Text>
-
-      <View style={styles.tierList}>
-        {tiers.map((tier) => {
-          const active = activeId === tier.id;
-          const tone = tierTone(tier.id);
-          const soft =
-            tone === 'blue'
-              ? theme.primarySoft
-              : tone === 'green'
-                ? theme.successSoft
-                : theme.surfaceSecondary;
-          const accent =
-            tone === 'blue'
-              ? theme.primary
-              : tone === 'green'
-                ? theme.success
-                : theme.muted;
-          return (
-            <View
-              key={tier.id}
-              style={[
-                styles.tierRow,
-                {
-                  backgroundColor: active ? soft : theme.surfaceSecondary,
-                  borderColor: active ? accent : theme.border,
-                },
-              ]}>
-              <View style={styles.tierHeader}>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[styles.tierLabel, { color: theme.text }]}>
-                    {tier.label}
-                    {active ? ` · ${copy.affiliates.yourLevel}` : ''}
-                  </Text>
-                  <Text style={[styles.tierRange, { color: accent }]}>
-                    {tier.percent}%{' '}
-                    {locale === 'es' ? 'comisión' : 'commission'} · {tier.range}{' '}
-                    {locale === 'es' ? 'activos' : 'active'}
-                  </Text>
-                </View>
-                <Pill tone={tone}>{tier.percent}%</Pill>
-              </View>
-              <Text style={[styles.tierMeta, { color: theme.muted }]}>
-                {copy.affiliates.how} {tier.how}
-              </Text>
-              <Text style={[styles.tierMeta, { color: theme.muted }]}>
-                {copy.affiliates.until} {tier.until}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-
-      {showProgress ? (
-        <Text style={[styles.tierFoot, { color: theme.text }]}>
-          {locale === 'es'
-            ? `Hoy: ${activePaidCount} referido${activePaidCount === 1 ? '' : 's'} de pago activo${activePaidCount === 1 ? '' : 's'}. `
-            : `Today: ${activePaidCount} active paid referral${activePaidCount === 1 ? '' : 's'}. `}
-          {nextTierHint(activePaidCount, locale)}
-        </Text>
-      ) : null}
-
-      <Text style={[styles.tierFoot, { color: theme.muted }]}>
-        {locale === 'es'
-          ? `Por cada referido, comisionas durante ${revenueShareMonths} meses desde que se registra con tu enlace o código.`
-          : `For each referral, you earn commission for ${revenueShareMonths} months from when they sign up with your link or code.`}
+          ? 'Cuando alguien usa tu cupón o enlace y compra TecnoWallet+ o Business, ganas US$ 5 una sola vez. No hay niveles ni comisión mensual: un referido que paga, un pago de US$ 5. Si está en prueba y aún no se le cobró, no cuenta.'
+          : 'When someone uses your coupon or link and buys TecnoWallet+ or Business, you earn US$ 5 once. No tiers and no monthly commission: one paying referral, one US$ 5 payout. A trial that has not been charged yet does not count.'}
       </Text>
     </Card>
   );
@@ -490,12 +327,12 @@ export default function AffiliatesScreen() {
           </Text>
           <Text style={[styles.body, { color: theme.muted }]}>
             {locale === 'es'
-              ? 'Comparte tu enlace. Cuando alguien se registre y pase a TecnoWallet+ o Business, ganas comisión según tu nivel.'
-              : 'Share your link. When someone signs up and upgrades to TecnoWallet+ or Business, you earn commission based on your tier.'}
+              ? 'Comparte tu enlace o cupón. Cuando alguien compre TecnoWallet+ o Business, ganas US$ 5 una sola vez. No hay comisión mensual ni niveles.'
+              : 'Share your link or coupon. When someone buys TecnoWallet+ or Business, you earn US$ 5 once. No monthly commission and no tiers.'}
           </Text>
         </Card>
 
-        <AffiliateTiersGuide revenueShareMonths={12} />
+        <AffiliateRewardGuide />
 
         <Card style={styles.list}>
           <Text style={[styles.sectionLabel, { color: theme.muted }]}>
@@ -539,7 +376,7 @@ export default function AffiliatesScreen() {
     );
   }
 
-  const { affiliate, shareUrl, tier, stats, referred } = dashboard;
+  const { affiliate, shareUrl, stats, referred } = dashboard;
 
   return (
     <Screen
@@ -564,9 +401,7 @@ export default function AffiliatesScreen() {
               {shareUrl}
             </Text>
           </View>
-          <Pill tone={tierTone(tier.id)}>
-            {tier.label} · {tier.commissionPercent}%
-          </Pill>
+          <Pill tone="green">US$ 5</Pill>
         </View>
         <View style={[styles.actions, { marginTop: 14 }]}>
           <PrimaryButton
@@ -617,15 +452,14 @@ export default function AffiliatesScreen() {
         <StatRow label="Clicks" value={String(stats.clicks)} />
         <StatRow label={copy.affiliates.downloads} value={String(stats.downloads)} />
         <StatRow label={copy.affiliates.registrations} value={String(stats.signups)} />
-        <StatRow label="TecnoWallet+" value={String(stats.plusConversions)} />
+        <StatRow
+          label={locale === 'es' ? 'Compras Plus/Business' : 'Plus/Business purchases'}
+          value={String(stats.plusConversions)}
+        />
         <StatRow label={copy.affiliates.conversion} value={`${stats.conversionRate}%`} last />
       </Card>
 
       <Card style={styles.statsCard}>
-        <StatRow
-          label={copy.affiliates.revenueGenerated}
-          value={moneyMinor(stats.revenueGeneratedMinor, stats.currency, locale)}
-        />
         <StatRow
           label={copy.affiliates.commissionAccrued}
           value={moneyMinor(stats.commissionTotalMinor, stats.currency, locale)}
@@ -785,11 +619,7 @@ export default function AffiliatesScreen() {
         </PrimaryButton>
       </Card>
 
-      <AffiliateTiersGuide
-        activeId={tier.id}
-        activePaidCount={tier.activePaidCount}
-        revenueShareMonths={affiliate.revenueShareMonths ?? 12}
-      />
+      <AffiliateRewardGuide />
 
       <Card style={styles.list}>
         <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 8 }]}>

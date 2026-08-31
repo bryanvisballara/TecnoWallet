@@ -14,19 +14,11 @@ export type AffiliatePublic = {
   affiliateId: string;
   code: string;
   name: string;
-  commissionPercent?: number;
-  revenueShareMonths?: number;
+  bountyAmountMinor?: number;
+  bountyCurrency?: string;
   branchUrl?: string;
   clickId?: string;
   payoutMethod?: AffiliatePayoutMethod | null;
-};
-
-export type AffiliateTier = {
-  id: 'partner' | 'creator' | 'ambassador';
-  label: string;
-  commissionPercent: number;
-  rangeLabel: string;
-  activePaidCount: number;
 };
 
 export type AffiliatePartnerStats = {
@@ -35,7 +27,6 @@ export type AffiliatePartnerStats = {
   signups: number;
   plusConversions: number;
   conversionRate: number;
-  revenueGeneratedMinor: number;
   commissionTotalMinor: number;
   commissionPaidMinor: number;
   commissionPendingMinor: number;
@@ -58,7 +49,11 @@ export type AffiliatePartnerDashboard =
       enrolled: true;
       affiliate: AffiliatePublic;
       shareUrl: string;
-      tier: AffiliateTier;
+      reward: {
+        amountMinor: number;
+        currency: string;
+        once: true;
+      };
       stats: AffiliatePartnerStats;
       referred: AffiliateReferredUser[];
     };

@@ -22,7 +22,10 @@
         "UIBackgroundModes": ["remote-notification"],
         "CFBundleAllowMixedLocalizations": true,
         "NSMicrophoneUsageDescription": "TecnoWallet usa el micrófono para registrar gastos e ingresos por voz.",
-        "NSSpeechRecognitionUsageDescription": "TecnoWallet transcribe lo que dices para crear el movimiento."
+        "NSSpeechRecognitionUsageDescription": "TecnoWallet transcribe lo que dices para crear el movimiento.",
+        "NSCameraUsageDescription": "TecnoWallet necesita la cámara para fotografiar recibos y adjuntar fotos al calendario.",
+        "NSPhotoLibraryUsageDescription": "TecnoWallet necesita acceso a tus fotos para adjuntar recibos y archivos al calendario.",
+        "NSPhotoLibraryAddUsageDescription": "TecnoWallet guarda en tus fotos las imágenes que descargas o compartes desde una tarea."
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -33,6 +36,7 @@
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
         "android.permission.VIBRATE"
       ],
       "adaptiveIcon": {

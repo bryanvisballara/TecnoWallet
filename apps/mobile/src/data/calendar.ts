@@ -38,6 +38,8 @@ export type CalendarItem = {
   createdByUserId?: string;
   /** Display name of who created the item. */
   createdBy?: string;
+  /** Optional SF Symbol / AppIcon name (same set as Sobres). */
+  icon?: string;
 };
 
 export const calendarColors = {
@@ -269,6 +271,11 @@ export const typeIcons: Record<CalendarItemType, string> = {
   birthday: 'gift.fill',
 };
 
+export function calendarItemIcon(item: Pick<CalendarItem, 'type' | 'icon'>) {
+  const chosen = item.icon?.trim();
+  return chosen || typeIcons[item.type];
+}
+
 export function toDateKey(date: Date) {
   const y = date.getFullYear();
   const m = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -358,7 +365,7 @@ export function expandCalendarItemsForDates(
         ...item,
         date: dateKey,
         // Completion is only tracked on the stored anchor for now.
-        completed: item.type === 'task' ? false : item.completed,
+        completed: item.completed,
       });
     }
   }

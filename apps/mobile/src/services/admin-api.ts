@@ -45,15 +45,8 @@ export type AdminAffiliatePayout = {
   simulated?: boolean;
   ready: boolean;
   blockReason: AdminPayoutBlock;
-  tier?: {
-    id: 'partner' | 'creator' | 'ambassador';
-    label: string;
-    commissionPercent: number;
-    rangeLabel: string;
-    activePaidCount: number;
-  };
   referralCount?: number;
-  netMinor?: number;
+  bountyAmountMinor?: number;
   payoutMethod: AdminPayoutMethod | null;
   commissions: AdminCommissionRow[];
 };

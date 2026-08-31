@@ -16,6 +16,7 @@ import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view'
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
 import { shouldEnforceFreeEnvelopeLimit } from '@/lib/collaboration-roles';
+import { categoryIcons } from '@/lib/category-icons';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import {
   isPlusRequiredError,
@@ -52,33 +53,6 @@ const expenseColors = [
   '#B93815',
   '#344054',
 ];
-
-const envelopeIcons = [
-  { name: 'house.fill', label: 'Casa' },
-  { name: 'car.fill', label: 'Carro' },
-  { name: 'fuelpump.fill', label: 'Gasolina' },
-  { name: 'fork.knife', label: 'Comida' },
-  { name: 'cart.fill', label: 'Compras' },
-  { name: 'bag.fill', label: 'Tienda' },
-  { name: 'cross.case.fill', label: 'Salud' },
-  { name: 'figure.run', label: 'Deporte' },
-  { name: 'gamecontroller.fill', label: 'Ocio' },
-  { name: 'ticket.fill', label: 'Entradas' },
-  { name: 'person.2.fill', label: 'Familia' },
-  { name: 'heart.fill', label: 'Pareja' },
-  { name: 'bolt.fill', label: 'Servicios' },
-  { name: 'wifi', label: 'Internet' },
-  { name: 'drop.fill', label: 'Agua' },
-  { name: 'phone.fill', label: 'Móvil' },
-  { name: 'book.fill', label: 'Estudios' },
-  { name: 'briefcase.fill', label: 'Trabajo' },
-  { name: 'bus.fill', label: 'Transporte' },
-  { name: 'airplane', label: 'Viajes' },
-  { name: 'pawprint.fill', label: 'Mascotas' },
-  { name: 'gift.fill', label: 'Regalos' },
-  { name: 'banknote.fill', label: 'Efectivo' },
-  { name: 'creditcard.fill', label: 'Tarjeta' },
-] as const;
 
 export default function AddEnvelopeScreen() {
   const theme = useAppTheme();
@@ -343,7 +317,7 @@ export default function AddEnvelopeScreen() {
 
           <Text style={[styles.label, { color: theme.muted }]}>Icono</Text>
           <View style={styles.icons}>
-            {envelopeIcons.map((item) => {
+            {categoryIcons.map((item) => {
               const selected = icon === item.name;
               return (
                 <Pressable

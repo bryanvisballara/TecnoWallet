@@ -115,31 +115,27 @@ async function copyValue(value: string, okMessage: string) {
 }
 
 function payoutOrigin(row: AdminAffiliatePayout) {
-  const rate =
-    row.tier?.commissionPercent ??
-    row.commissions[0]?.commissionRate ??
-    20;
+  const bounty = row.bountyAmountMinor ?? 500;
   const refs = row.referralCount ?? new Set(row.commissions.map((c) => c.userId)).size;
   const groups = new Map<
     string,
     { count: number; unitMinor: number; commissionMinor: number }
   >();
   for (const item of row.commissions) {
+    if (item.status === 'reversed') continue;
     const key = item.planLabel || item.product || 'Plan';
     const cur = groups.get(key) ?? {
       count: 0,
-      unitMinor: item.netAmountMinor ?? 0,
+      unitMinor: bounty,
       commissionMinor: 0,
     };
     cur.count += 1;
     cur.commissionMinor += item.commissionAmountMinor;
-    if (item.netAmountMinor) cur.unitMinor = item.netAmountMinor;
     groups.set(key, cur);
   }
   return {
-    rate,
+    bounty,
     refs,
-    tierLabel: row.tier?.label ?? 'Partner',
     groups: [...groups.entries()].map(([label, value]) => ({ label, ...value })),
   };
 }
@@ -334,7 +330,7 @@ export default function AdminPortalScreen() {
         <Card style={styles.block}>
           <Text style={[styles.section, { color: theme.text }]}>Usuarios</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
-            Conteos por suscripción real en Mongo. Sin compra = Free. Solo el
+            Conteos por suscripción real en Mongo. Sin compra = sin plan. Solo el
             owner (`mercancias.visbal@gmail.com`) arranca como Business.
           </Text>
           {statsLoading || !stats ? (
@@ -573,30 +569,23 @@ export default function AdminPortalScreen() {
                     ]}>
                     <View style={styles.between}>
                       <Text style={[styles.label, { color: theme.text }]}>
-                        {origin.tierLabel} · {origin.rate}%
+                        US$ 5 una vez por conversión
                       </Text>
-                      <Pill
-                        tone={
-                          origin.tierLabel === 'Ambassador'
-                            ? 'blue'
-                            : origin.tierLabel === 'Creator'
-                              ? 'green'
-                              : 'neutral'
-                        }>
-                        {origin.refs} suscrip.
+                      <Pill tone="blue">
+                        {origin.refs} compra{origin.refs === 1 ? '' : 's'}
                       </Pill>
                     </View>
                     <Text style={[styles.hint, { color: theme.muted }]}>
-                      {origin.refs} suscripción{origin.refs === 1 ? '' : 'es'} bajo su
-                      recomendación. Plus US$ 9,99 · Business US$ 14,99. Comisión ={' '}
-                      {origin.rate}% de cada cobro.
+                      {origin.refs} referido{origin.refs === 1 ? '' : 's'} que compró
+                      Plus o Business. US$ 5 una sola vez, sin niveles ni comisión
+                      mensual.
                     </Text>
                     {origin.groups.map((group) => (
                       <Text
                         key={group.label}
                         style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
-                        {group.count} × {group.label} {moneyMinor(group.unitMinor, row.currency)}{' '}
-                        × {origin.rate}% = {moneyMinor(group.commissionMinor, row.currency)}
+                        {group.count} × {group.label} ={' '}
+                        {moneyMinor(group.commissionMinor, row.currency)}
                       </Text>
                     ))}
                     <Text style={[styles.hint, { color: theme.text, fontWeight: '700' }]}>

@@ -37,6 +37,7 @@ type PlusState = {
   listBusinessPriceLabel: string | null;
   couponCode: string | null;
   couponName: string | null;
+  trialPaywallPrompted: boolean;
   hydrate: () => Promise<void>;
   reset: () => void;
   openPaywall: (
@@ -44,6 +45,7 @@ type PlusState = {
     options?: { plan?: PaywallPlan },
   ) => void;
   closePaywall: () => void;
+  maybePromptTrialPaywall: () => void;
   setPriceLabel: (price: string | null) => void;
   setBusinessPriceLabel: (price: string | null) => void;
   setListPriceLabel: (price: string | null) => void;
@@ -66,6 +68,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   listBusinessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
   couponCode: null,
   couponName: null,
+  trialPaywallPrompted: false,
   hydrate: async () => {
     set({ loading: true });
     try {
@@ -95,6 +98,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
       listBusinessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
       couponCode: null,
       couponName: null,
+      trialPaywallPrompted: false,
     }),
   openPaywall: (paywallReason = 'UPGRADE', options) => {
     const access = get().access;
@@ -106,6 +110,17 @@ export const usePlusStore = create<PlusState>((set, get) => ({
     set({ paywallOpen: true, paywallReason, paywallPlan: plan });
   },
   closePaywall: () => set({ paywallOpen: false }),
+  maybePromptTrialPaywall: () => {
+    const state = get();
+    if (state.trialPaywallPrompted || state.paywallOpen) return;
+    if (state.access !== 'free') return;
+    set({
+      trialPaywallPrompted: true,
+      paywallOpen: true,
+      paywallReason: 'UPGRADE',
+      paywallPlan: 'plus',
+    });
+  },
   setPriceLabel: (priceLabel) => set({ priceLabel }),
   setBusinessPriceLabel: (businessPriceLabel) => set({ businessPriceLabel }),
   setListPriceLabel: (listPriceLabel) => set({ listPriceLabel }),

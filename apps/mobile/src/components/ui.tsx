@@ -69,6 +69,7 @@ const fallback: Record<string, keyof typeof Ionicons.glyphMap> = {
   'video.fill': 'videocam',
   'cross.case.fill': 'medkit',
   'figure.run': 'walk',
+  'dumbbell.fill': 'barbell',
   'fork.knife': 'restaurant',
   'bag.fill': 'bag-handle',
   'fuelpump.fill': 'speedometer',

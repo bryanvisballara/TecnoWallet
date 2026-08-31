@@ -3,7 +3,9 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
   forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -23,6 +25,10 @@ import {
   UserAttribution,
 } from './affiliate.schemas';
 import type { UpdateAffiliatePayoutDto } from './affiliate.dto';
+import {
+  AFFILIATE_FLAT_BOUNTY_CURRENCY,
+  AFFILIATE_FLAT_BOUNTY_MINOR,
+} from './affiliate.constants';
 
 export interface RecordCommissionFromRevenueEventInput {
   providerEventId: string;
@@ -37,8 +43,6 @@ export interface RecordCommissionFromRevenueEventInput {
   status?: CommissionEventStatus;
   subscriptionId?: string;
 }
-
-export type AffiliateTierId = 'partner' | 'creator' | 'ambassador';
 
 type ClickMetadata = {
   branchClickId?: string;
@@ -55,7 +59,8 @@ const ACTIVE_SUB_STATUSES = [
 ] as const;
 
 @Injectable()
-export class AffiliateService {
+export class AffiliateService implements OnModuleInit {
+  private readonly logger = new Logger(AffiliateService.name);
   constructor(
     @InjectModel(Affiliate.name)
     private readonly affiliates: Model<Affiliate>,
@@ -75,6 +80,14 @@ export class AffiliateService {
     @Inject(forwardRef(() => EntitlementService))
     private readonly entitlements: EntitlementService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.retireLegacyPercentageCommissions();
+    } catch (error) {
+      this.logger.error('Could not retire legacy percentage commissions', error);
+    }
+  }
 
   async recordClick(code: string, metadata: ClickMetadata) {
     const affiliate = await this.findActiveAffiliate(code);
@@ -241,13 +254,12 @@ export class AffiliateService {
       user.name,
       user.email,
     );
-    const tier = this.resolveTier(0);
     try {
       const created = await this.affiliates.create({
         code,
         name: user.name.trim() || code,
-        commissionPercent: tier.commissionPercent,
-        revenueShareMonths: 12,
+        commissionPercent: 0,
+        revenueShareMonths: 0,
         active: true,
         ownerUserId: new Types.ObjectId(userId),
       });
@@ -309,14 +321,12 @@ export class AffiliateService {
     );
 
     const commissionsByUser = new Map<string, number>();
-    let revenueGeneratedMinor = 0;
     let commissionTotalMinor = 0;
     let commissionPaidMinor = 0;
     let commissionPendingMinor = 0;
 
     for (const event of commissionRows) {
       if (event.status === 'reversed') continue;
-      revenueGeneratedMinor += event.netAmountMinor;
       commissionTotalMinor += event.commissionAmountMinor;
       if (event.status === 'paid') {
         commissionPaidMinor += event.commissionAmountMinor;
@@ -330,22 +340,27 @@ export class AffiliateService {
       );
     }
 
-    let activePaidCount = 0;
     const referred = attributions
       .map((attr) => {
         const uid = attr.userId.toString();
         const user = userById.get(uid);
         const sub = subByUser.get(uid);
         const paidActive = Boolean(sub && this.subscriptionIsActivePaid(sub));
-        if (paidActive) activePaidCount += 1;
-        const plan = paidActive ? this.planLabel(sub!.entitlementId) : 'Free';
+        const earned = (commissionsByUser.get(uid) ?? 0) > 0;
+        const plan = paidActive
+          ? this.planLabel(sub!.entitlementId)
+          : earned && sub
+            ? this.planLabel(sub.entitlementId)
+            : '—';
         const status = !user?.active
           ? 'Inactivo'
-          : paidActive
-            ? 'Activo'
-            : sub && ['cancelled', 'expired', 'refunded'].includes(sub.status)
-              ? 'Cancelado'
-              : 'Free';
+          : earned
+            ? 'Pagó'
+            : paidActive
+              ? 'En prueba'
+              : sub && ['cancelled', 'expired', 'refunded'].includes(sub.status)
+                ? 'Cancelado'
+                : 'Sin compra';
         return {
           userId: uid,
           label: this.maskUserLabel(user?.name, user?.email),
@@ -353,7 +368,7 @@ export class AffiliateService {
           plan,
           status,
           commissionMinor: commissionsByUser.get(uid) ?? 0,
-          currency: commissionRows[0]?.currency ?? 'USD',
+          currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
         };
       })
       .sort(
@@ -362,17 +377,8 @@ export class AffiliateService {
           new Date(a.attributedAt).getTime(),
       );
 
-    const tier = this.resolveTier(activePaidCount);
-    if (affiliate.commissionPercent !== tier.commissionPercent) {
-      await this.affiliates.updateOne(
-        { _id: affiliate._id },
-        { $set: { commissionPercent: tier.commissionPercent } },
-      );
-      affiliate.commissionPercent = tier.commissionPercent;
-    }
-
     const signups = attributions.length;
-    const plusConversions = activePaidCount;
+    const plusConversions = commissionsByUser.size;
     const conversionRate =
       signups > 0 ? Math.round((plusConversions / signups) * 1000) / 10 : 0;
 
@@ -380,18 +386,21 @@ export class AffiliateService {
       enrolled: true as const,
       affiliate: this.displayAffiliate(affiliate, { includePayout: true }),
       shareUrl: this.shareUrlFor(affiliate.code),
-      tier,
+      reward: {
+        amountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+        currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
+        once: true as const,
+      },
       stats: {
         clicks: clickCount,
         downloads: installCount,
         signups,
         plusConversions,
         conversionRate,
-        revenueGeneratedMinor,
         commissionTotalMinor,
         commissionPaidMinor,
         commissionPendingMinor,
-        currency: commissionRows[0]?.currency ?? 'USD',
+        currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
       },
       referred,
     };
@@ -455,28 +464,42 @@ export class AffiliateService {
     if (!attribution || occurredAt < attribution.attributedAt) return null;
 
     const affiliate = await this.affiliates
-      .findOne({ affiliateId: attribution.affiliateId })
+      .findOne({ affiliateId: attribution.affiliateId, active: true })
       .lean();
-    if (!affiliate || affiliate.revenueShareMonths <= 0) return null;
+    if (!affiliate) return null;
 
-    const shareEndsAt = this.addCalendarMonths(
-      attribution.attributedAt,
-      affiliate.revenueShareMonths,
-    );
-    if (occurredAt >= shareEndsAt) return null;
-
-    const paidCount = await this.countActivePaidReferrals(affiliate.affiliateId);
-    const tier = this.resolveTier(paidCount);
-    if (affiliate.commissionPercent !== tier.commissionPercent) {
-      await this.affiliates.updateOne(
-        { _id: affiliate._id },
-        { $set: { commissionPercent: tier.commissionPercent } },
+    const isRefund =
+      input.status === 'reversed' ||
+      input.eventType.trim().toUpperCase() === 'REFUND';
+    if (isRefund) {
+      await this.commissions.updateMany(
+        {
+          userId: input.userId,
+          affiliateId: affiliate.affiliateId,
+          status: { $in: ['pending', 'approved', 'paid'] },
+        },
+        {
+          $set: {
+            status: 'reversed',
+            payoutNote: 'Reembolso de la compra referida',
+          },
+        },
       );
+      return null;
     }
 
-    const commissionAmountMinor = Math.round(
-      (input.netAmountMinor * tier.commissionPercent) / 100,
-    );
+    // Intro / trial is $0 — pay only when Apple actually charges Plus or Business.
+    if (input.grossAmountMinor <= 0 && input.netAmountMinor <= 0) {
+      return null;
+    }
+
+    const alreadyPaidOut = await this.commissions.findOne({
+      userId: input.userId,
+      affiliateId: affiliate.affiliateId,
+      status: { $in: ['pending', 'approved', 'paid'] },
+    });
+    if (alreadyPaidOut) return alreadyPaidOut;
+
     let subscriptionId: Types.ObjectId | undefined;
     if (input.subscriptionId && isValidObjectId(input.subscriptionId)) {
       subscriptionId = new Types.ObjectId(input.subscriptionId);
@@ -496,15 +519,12 @@ export class AffiliateService {
       grossAmountMinor: input.grossAmountMinor,
       netAmountMinor: input.netAmountMinor,
       storeFeeAmountMinor: input.storeFeeAmountMinor,
-      commissionAmountMinor,
-      commissionRate: tier.commissionPercent,
-      currency: input.currency.trim().toUpperCase(),
+      commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+      commissionRate: 0,
+      currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
       status: input.status ?? 'pending',
       occurredAt,
-      monthsSinceAttribution: this.monthsBetween(
-        attribution.attributedAt,
-        occurredAt,
-      ),
+      monthsSinceAttribution: 0,
       ...(subscriptionId ? { subscriptionId } : {}),
       ...(input.status === 'paid' ? { paidAt: occurredAt } : {}),
     };
@@ -523,51 +543,25 @@ export class AffiliateService {
     }
   }
 
-  resolveTier(activePaidCount: number): {
-    id: AffiliateTierId;
-    label: string;
-    commissionPercent: number;
-    rangeLabel: string;
-    activePaidCount: number;
-  } {
-    if (activePaidCount >= 501) {
-      return {
-        id: 'ambassador',
-        label: 'Ambassador',
-        commissionPercent: 40,
-        rangeLabel: '501+',
-        activePaidCount,
-      };
+  private async retireLegacyPercentageCommissions() {
+    const result = await this.commissions.updateMany(
+      {
+        status: { $in: ['pending', 'approved', 'paid'] },
+        commissionRate: { $gt: 0 },
+      },
+      {
+        $set: {
+          status: 'reversed',
+          payoutNote:
+            'Modelo anterior (porcentaje / mensual) retirado. Comisión vigente: US$ 5 una vez.',
+        },
+      },
+    );
+    if (result.modifiedCount > 0) {
+      this.logger.log(
+        `Reversed ${result.modifiedCount} legacy percentage commission event(s)`,
+      );
     }
-    if (activePaidCount >= 101) {
-      return {
-        id: 'creator',
-        label: 'Creator',
-        commissionPercent: 30,
-        rangeLabel: '101–500',
-        activePaidCount,
-      };
-    }
-    return {
-      id: 'partner',
-      label: 'Partner',
-      commissionPercent: 20,
-      rangeLabel: '1–100',
-      activePaidCount,
-    };
-  }
-
-  private async countActivePaidReferrals(affiliateId: string) {
-    const attributions = await this.attributions
-      .find({ affiliateId })
-      .select('userId')
-      .lean();
-    if (!attributions.length) return 0;
-    const userIds = attributions.map((row) => row.userId);
-    const subs = await this.subscriptions
-      .find({ userId: { $in: userIds } })
-      .lean();
-    return subs.filter((sub) => this.subscriptionIsActivePaid(sub)).length;
   }
 
   private subscriptionIsActivePaid(sub: Subscription) {
@@ -717,8 +711,8 @@ export class AffiliateService {
       affiliateId: affiliate.affiliateId,
       code: affiliate.code,
       name: affiliate.name,
-      commissionPercent: affiliate.commissionPercent,
-      revenueShareMonths: affiliate.revenueShareMonths,
+      bountyAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+      bountyCurrency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
       branchUrl: affiliate.branchUrl,
       ...(options?.includePayout
         ? { payoutMethod: this.displayPayoutMethod(affiliate) }
@@ -785,31 +779,6 @@ export class AffiliateService {
   private cleanOptional(value?: string) {
     const cleaned = value?.trim();
     return cleaned || undefined;
-  }
-
-  private addCalendarMonths(date: Date, months: number) {
-    const result = new Date(date);
-    const targetMonth = result.getUTCMonth() + months;
-    const targetYear = result.getUTCFullYear() + Math.floor(targetMonth / 12);
-    const normalizedMonth = ((targetMonth % 12) + 12) % 12;
-    const lastDay = new Date(
-      Date.UTC(targetYear, normalizedMonth + 1, 0),
-    ).getUTCDate();
-    result.setUTCFullYear(
-      targetYear,
-      normalizedMonth,
-      Math.min(result.getUTCDate(), lastDay),
-    );
-    return result;
-  }
-
-  private monthsBetween(start: Date, end: Date) {
-    let months =
-      (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-      end.getUTCMonth() -
-      start.getUTCMonth();
-    if (months > 0 && end < this.addCalendarMonths(start, months)) months -= 1;
-    return Math.max(0, months);
   }
 
   private isDuplicateKey(error: unknown): boolean {

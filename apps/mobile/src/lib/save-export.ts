@@ -1,15 +1,20 @@
-import { Platform, Share } from 'react-native';
+import { Platform } from 'react-native';
+
+import { presentLocalFile } from '@/lib/share-local-file';
 
 function bytesToBase64(bytes: Uint8Array) {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  const table = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    const triple = (a << 16) | (b << 8) | c;
+    out += table[(triple >> 18) & 63] + table[(triple >> 12) & 63];
+    out += i + 1 < bytes.length ? table[(triple >> 6) & 63] : '=';
+    out += i + 2 < bytes.length ? table[triple & 63] : '=';
   }
-  if (typeof btoa === 'function') return btoa(binary);
-  const BufferCtor = (globalThis as { Buffer?: { from: (value: string, enc: string) => { toString: (enc: string) => string } } }).Buffer;
-  if (BufferCtor) return BufferCtor.from(binary, 'binary').toString('base64');
-  throw new Error('No hay codificador base64 en este entorno.');
+  return out;
 }
 
 function downloadOnWeb(bytes: Uint8Array, filename: string, mime: string) {
@@ -44,24 +49,14 @@ export async function saveExportFile(input: {
   if (!directory) {
     throw new Error('No hay almacenamiento disponible para el archivo.');
   }
-  const uri = `${directory}${input.filename}`;
+  const filename = input.filename.replace(/[/\\]/g, '-');
+  const uri = `${directory}${filename}`;
   await FileSystem.writeAsStringAsync(uri, bytesToBase64(input.bytes), {
     encoding: 'base64',
   });
-
-  try {
-    const Sharing = await import('expo-sharing');
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, {
-        mimeType: input.mime,
-        dialogTitle: input.filename,
-        UTI: input.mime === 'application/pdf' ? 'com.adobe.pdf' : 'org.openxmlformats.spreadsheetml.sheet',
-      });
-      return;
-    }
-  } catch {
-    // Sharing module may be missing in this binary.
-  }
-
-  await Share.share({ url: uri, title: input.filename });
+  await presentLocalFile({
+    uri,
+    filename,
+    mime: input.mime,
+  });
 }

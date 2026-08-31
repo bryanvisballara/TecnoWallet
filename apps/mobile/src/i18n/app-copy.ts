@@ -357,7 +357,6 @@ export type AppCopy = {
     downloads: string;
     registrations: string;
     conversion: string;
-    revenueGenerated: string;
     commissionAccrued: string;
     commissionPaid: string;
     pendingPayout: string;
@@ -372,10 +371,6 @@ export type AppCopy = {
     walletWarning: string;
     referredUsers: string;
     referredEmpty: string;
-    tiers: string;
-    yourLevel: string;
-    how: string;
-    until: string;
     businessRequired: string;
     upgradeBusiness: string;
     activate: string;
@@ -770,16 +765,16 @@ const es: AppCopy = {
   paywall: {
     reasons: {
       UPGRADE: {
-        title: 'Desbloquea tu plan',
-        body: 'Organiza más, comparte con tu gente y recibe respuestas inteligentes sobre tu dinero.',
+        title: 'Empieza tu prueba de 3 días',
+        body: 'Elige TecnoWallet+ o Business. Tienes 3 días gratis y después se cobra automáticamente el plan que elijas.',
       },
       BOOK_LIMIT: {
         title: 'Haz espacio para todos tus proyectos',
-        body: 'Tu plan gratis incluye un libro. Con un plan de pago puedes separar hogar, negocio, viajes y más.',
+        body: 'Empieza la prueba de 3 días para separar hogar, negocio, viajes y más en libros distintos.',
       },
       ENVELOPE_LIMIT: {
         title: 'Tu presupuesto puede crecer contigo',
-        body: 'Ya usaste los 5 sobres gratuitos de esta sección. Con Plus o Business puedes crear todos los que necesites.',
+        body: 'Empieza la prueba de 3 días para crear todos los sobres que necesites.',
       },
       SHARING_REQUIRED: {
         title: 'Las finanzas funcionan mejor en equipo',
@@ -799,7 +794,7 @@ const es: AppCopy = {
     upgradeBusinessSeat: 'Pasa a TecnoWallet Business',
     plusBenefits: [
       'Asistente IA financiero',
-      'Libros y sobres sin límites Free',
+      'Libros y sobres ilimitados',
       'Hasta 5 colaboradores',
       'Libros y calendarios compartidos',
     ],
@@ -810,11 +805,11 @@ const es: AppCopy = {
       'Asistente IA financiero',
       'Libros y calendarios compartidos',
     ],
-    subscribeApple: 'Suscribirme con Apple',
-    subscribeBusiness: 'Suscribirme a Business',
+    subscribeApple: 'Empieza 3 días de prueba',
+    subscribeBusiness: 'Prueba Business 3 días',
     viewPlus: 'Ver TecnoWallet+',
     viewBusiness: 'Ver TecnoWallet Business',
-    pricePerMonth: (price) => `${price} al mes`,
+    pricePerMonth: (price) => `Luego ${price} al mes`,
     priceBeforeConfirm: 'Precio mostrado antes de confirmar',
     couponLabel: 'Cupón de descuento',
     couponPlaceholder: 'Ej. TECNO10',
@@ -827,7 +822,7 @@ const es: AppCopy = {
     restoreEmpty: 'No encontramos una suscripción activa para restaurar.',
     restoreFailed: 'No pudimos restaurar tus compras.',
     legal:
-      'La suscripción se renueva automáticamente hasta que la canceles. El cobro se realiza con tu cuenta de Apple.',
+      '3 días de prueba gratis. Después se cobra automáticamente Plus o Business, según lo que elijas, con tu cuenta de Apple. La suscripción se renueva cada mes hasta que la canceles en Ajustes de Apple.',
     terms: 'Términos',
     privacy: 'Privacidad',
   },
@@ -880,7 +875,6 @@ const es: AppCopy = {
     downloads: 'Descargas',
     registrations: 'Registros',
     conversion: 'Conversión',
-    revenueGenerated: 'Ingresos generados',
     commissionAccrued: 'Comisión acumulada',
     commissionPaid: 'Comisión pagada',
     pendingPayout: 'Pendiente de pago',
@@ -898,10 +892,6 @@ const es: AppCopy = {
     referredUsers: 'Usuarios referidos',
     referredEmpty:
       'Aún no hay registros con tu enlace o código. Comparte tu link para empezar.',
-    tiers: 'Niveles',
-    yourLevel: 'Tu nivel',
-    how: 'Cómo:',
-    until: 'Hasta cuándo:',
     businessRequired: 'Programa para Business',
     upgradeBusiness: 'Pasarme a TecnoWallet Business',
     activate: 'Activar programa',
@@ -1353,16 +1343,16 @@ const en: AppCopy = {
   paywall: {
     reasons: {
       UPGRADE: {
-        title: 'Unlock your plan',
-        body: 'Organize more, share with your people, and get smart answers about your money.',
+        title: 'Start your 3-day trial',
+        body: 'Choose TecnoWallet+ or Business. You get 3 days free, then the plan you picked is charged automatically.',
       },
       BOOK_LIMIT: {
         title: 'Make room for all your projects',
-        body: 'Your free plan includes one book. With a paid plan you can separate home, business, trips, and more.',
+        body: 'Start the 3-day trial to separate home, business, trips, and more into different books.',
       },
       ENVELOPE_LIMIT: {
         title: 'Let your budget grow with you',
-        body: 'You’ve used the 5 free envelopes in this section. With Plus or Business you can create as many as you need.',
+        body: 'Start the 3-day trial to create as many envelopes as you need.',
       },
       SHARING_REQUIRED: {
         title: 'Money works better as a team',
@@ -1382,7 +1372,7 @@ const en: AppCopy = {
     upgradeBusinessSeat: 'Upgrade to TecnoWallet Business',
     plusBenefits: [
       'Financial AI assistant',
-      'Books and envelopes beyond Free limits',
+      'Unlimited books and envelopes',
       'Up to 5 collaborators',
       'Shared books and calendars',
     ],
@@ -1393,11 +1383,11 @@ const en: AppCopy = {
       'Financial AI assistant',
       'Shared books and calendars',
     ],
-    subscribeApple: 'Subscribe with Apple',
-    subscribeBusiness: 'Subscribe to Business',
+    subscribeApple: 'Start 3-day trial',
+    subscribeBusiness: 'Try Business for 3 days',
     viewPlus: 'View TecnoWallet+',
     viewBusiness: 'View TecnoWallet Business',
-    pricePerMonth: (price) => `${price} / month`,
+    pricePerMonth: (price) => `Then ${price} / month`,
     priceBeforeConfirm: 'Price shown before you confirm',
     couponLabel: 'Discount coupon',
     couponPlaceholder: 'e.g. TECNO10',
@@ -1410,7 +1400,7 @@ const en: AppCopy = {
     restoreEmpty: 'We couldn’t find an active subscription to restore.',
     restoreFailed: 'We couldn’t restore your purchases.',
     legal:
-      'The subscription renews automatically until you cancel. You’re charged through your Apple account.',
+      '3-day free trial. After that, Plus or Business is charged automatically based on what you chose, through your Apple account. The subscription renews every month until you cancel in Apple Settings.',
     terms: 'Terms',
     privacy: 'Privacy',
   },
@@ -1463,7 +1453,6 @@ const en: AppCopy = {
     downloads: 'Downloads',
     registrations: 'Sign-ups',
     conversion: 'Conversion',
-    revenueGenerated: 'Revenue generated',
     commissionAccrued: 'Accrued commission',
     commissionPaid: 'Paid commission',
     pendingPayout: 'Pending payout',
@@ -1480,10 +1469,6 @@ const en: AppCopy = {
       'Use only a wallet you control. A wrong network or address can make the payment undeliverable.',
     referredUsers: 'Referred users',
     referredEmpty: 'No sign-ups with your link or code yet. Share your link to get started.',
-    tiers: 'Tiers',
-    yourLevel: 'Your tier',
-    how: 'How:',
-    until: 'Until when:',
     businessRequired: 'Business program',
     upgradeBusiness: 'Upgrade to TecnoWallet Business',
     activate: 'Activate program',

@@ -7,7 +7,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert,
   Image,
+  InteractionManager,
   Keyboard,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -20,9 +22,10 @@ import {
 import { AppTimeField, formatHhmmAmPm, normalizeHhmm } from '@/components/app-time-field';
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { CalendarShareSheet } from '@/components/calendar-share-sheet';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
-import { attachmentKind, isImageAttachment } from '@/lib/open-attachment';
+import { attachmentKind, isImageAttachment, persistCalendarAttachments } from '@/lib/open-attachment';
 import {
   CALENDAR_REMINDER_CUSTOM,
   CALENDAR_REMINDER_NONE,
@@ -42,6 +45,9 @@ import {
   type CalendarAttachment,
   type CalendarItemType,
 } from '@/data/calendar';
+import { categoryIcons } from '@/lib/category-icons';
+import { displayCalendarName } from '@/i18n/app-copy';
+import type { CalendarSharePayload } from '@/lib/calendar-share';
 import {
   scheduleCalendarReminder,
 } from '@/services/push-notifications';
@@ -54,6 +60,38 @@ const colors = ['#0878F9', '#7F56D9', '#12B76A', '#F79009', '#F5C518', '#EE46BC'
 
 function newAttachmentId() {
   return `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function afterAlertDismisses() {
+  return new Promise<void>((resolve) => {
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(resolve, Platform.OS === 'ios' ? 650 : 80);
+    });
+  });
+}
+
+async function ensureImagePermission(kind: 'camera' | 'library') {
+  const current =
+    kind === 'camera'
+      ? await ImagePicker.getCameraPermissionsAsync()
+      : await ImagePicker.getMediaLibraryPermissionsAsync();
+  if (current.granted) return true;
+  const next =
+    kind === 'camera'
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (next.granted) return true;
+  Alert.alert(
+    kind === 'camera' ? 'Sin acceso a la cámara' : 'Sin acceso a tus fotos',
+    kind === 'camera'
+      ? 'Activa la cámara para TecnoWallet en Ajustes para tomar una foto.'
+      : 'Activa el acceso a fotos para TecnoWallet en Ajustes.',
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Abrir Ajustes', onPress: () => void Linking.openSettings() },
+    ],
+  );
+  return false;
 }
 
 function pickOption(title: string, options: readonly string[], onPick: (value: string) => void) {
@@ -135,6 +173,9 @@ export default function AddCalendarItemScreen() {
   const [color, setColor] = useState<string>(
     existing?.color ?? calendarColors[initialType],
   );
+  const [icon, setIcon] = useState(
+    existing?.icon?.trim() || typeIcons[initialType],
+  );
   const [reminder, setReminder] = useState<string>(
     existing?.reminder?.startsWith('A las ')
       ? CALENDAR_REMINDER_CUSTOM
@@ -162,6 +203,7 @@ export default function AddCalendarItemScreen() {
     existing?.attachments ?? [],
   );
   const [preview, setPreview] = useState<CalendarAttachment | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hydratedEdit, setHydratedEdit] = useState(!editId);
 
@@ -177,6 +219,7 @@ export default function AddCalendarItemScreen() {
     setStartTime(hhmmFromHour(existing.startHour, '09:00'));
     setEndTime(hhmmFromHour(existing.endHour, '10:00'));
     setColor(existing.color);
+    setIcon(existing.icon?.trim() || typeIcons[existing.type]);
     if (existing.reminder?.startsWith('A las ')) {
       setReminder(CALENDAR_REMINDER_CUSTOM);
       setCustomReminderTime(existing.reminder.slice(6));
@@ -215,6 +258,68 @@ export default function AddCalendarItemScreen() {
     ? `A las ${normalizeHhmm(customReminderTime) ?? customReminderTime}`
     : reminder;
 
+  const sharePayload: CalendarSharePayload = useMemo(() => {
+    const isAllDay = type === 'birthday' ? true : allDay;
+    const startNormalized = normalizeHhmm(startTime) ?? '09:00';
+    const endNormalized = normalizeHhmm(endTime) ?? '10:00';
+    const reminderValue =
+      reminder === CALENDAR_REMINDER_NONE
+        ? undefined
+        : reminderIsCustom
+          ? `A las ${normalizeHhmm(customReminderTime) ?? customReminderTime}`
+          : reminder;
+    return {
+      type,
+      title: title.trim(),
+      date: dateKey,
+      allDay: isAllDay,
+      startHour: isAllDay ? undefined : hourFromHhmm(startNormalized),
+      endHour: isAllDay ? undefined : hourFromHhmm(endNormalized),
+      color,
+      icon,
+      notes: notes.trim() || undefined,
+      location: location.trim() || undefined,
+      meetingLink: type === 'event' && meetingLink.trim() ? meetingLink.trim() : undefined,
+      reminder: reminderValue,
+      completed: existing?.completed ?? false,
+      list,
+      assigneeName: assigneeName.trim() || undefined,
+      attachments,
+      calendarName: displayCalendarName(calendar?.name ?? 'Mi calendario', locale),
+    };
+  }, [
+    allDay,
+    assigneeName,
+    attachments,
+    calendar?.name,
+    color,
+    customReminderTime,
+    dateKey,
+    endTime,
+    existing?.completed,
+    icon,
+    list,
+    locale,
+    location,
+    meetingLink,
+    notes,
+    reminder,
+    reminderIsCustom,
+    startTime,
+    title,
+    type,
+  ]);
+
+  const openShare = async () => {
+    if (saving) return;
+    if (!title.trim()) {
+      Alert.alert('Falta el título', 'Escribe un nombre para compartir esta entrada.');
+      return;
+    }
+    const saved = await save({ dismiss: false });
+    if (saved) setShareOpen(true);
+  };
+
   const pickRepeat = () => pickOption('Repetición', calendarRepeatOptions, setRepeat);
   const pickList = () => pickOption('Lista', calendarListOptions, setList);
   const pickReminder = () => setShowReminderPicker((open) => !open);
@@ -243,41 +348,69 @@ export default function AddCalendarItemScreen() {
   };
 
   const pickPhoto = async (camera = false) => {
-    const result = camera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
-      : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
-          quality: 0.8,
-          allowsMultipleSelection: true,
-          selectionLimit: 6,
-        });
-    if (result.canceled) return;
-    addAttachments(
-      result.assets.map((asset, index) => ({
+    try {
+      await afterAlertDismisses();
+      if (camera) {
+        const allowed = await ensureImagePermission('camera');
+        if (!allowed) return;
+      } else {
+        const allowed = await ensureImagePermission('library');
+        if (!allowed) return;
+      }
+      const result = camera
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ['images'],
+            quality: 0.82,
+            allowsEditing: false,
+            exif: false,
+            preferredAssetRepresentationMode: 'compatible',
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.82,
+            allowsMultipleSelection: true,
+            selectionLimit: 6,
+            preferredAssetRepresentationMode: 'compatible',
+          });
+      if (result.canceled) return;
+      const incoming = result.assets.map((asset, index) => ({
         id: newAttachmentId() + index,
         name: asset.fileName ?? `Foto ${attachments.length + index + 1}`,
         uri: asset.uri,
         mimeType: asset.mimeType,
         kind: 'image' as const,
-      })),
-    );
+      }));
+      addAttachments(await persistCalendarAttachments(incoming));
+    } catch (error) {
+      Alert.alert(
+        camera ? 'No se pudo abrir la cámara' : 'No se pudieron abrir las fotos',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
   };
 
   const pickFile = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      multiple: true,
-      copyToCacheDirectory: true,
-    });
-    if (result.canceled) return;
-    addAttachments(
-      result.assets.map((asset, index) => ({
+    try {
+      await afterAlertDismisses();
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const incoming = result.assets.map((asset, index) => ({
         id: newAttachmentId() + index,
         name: asset.name,
         uri: asset.uri,
         mimeType: asset.mimeType ?? undefined,
         kind: attachmentKind(asset.name, asset.mimeType ?? undefined),
-      })),
-    );
+      }));
+      addAttachments(await persistCalendarAttachments(incoming));
+    } catch (error) {
+      Alert.alert(
+        'No se pudo abrir el archivo',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+      );
+    }
   };
 
   const chooseAttachment = () => {
@@ -293,12 +426,13 @@ export default function AddCalendarItemScreen() {
     setAttachments((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const save = async () => {
-    if (saving) return;
+  const save = async (options?: { dismiss?: boolean }) => {
+    if (saving) return false;
     if (!title.trim()) {
       Alert.alert('Falta el título', 'Escribe un nombre para esta entrada.');
-      return;
+      return false;
     }
+    const dismiss = options?.dismiss !== false;
 
     const isAllDay = type === 'birthday' ? true : allDay;
     let startHour: number | undefined;
@@ -312,11 +446,11 @@ export default function AddCalendarItemScreen() {
       endHour = hourFromHhmm(endNormalized);
       if (startHour == null || endHour == null) {
         Alert.alert('Hora inválida', 'Elige una hora de inicio y fin.');
-        return;
+        return false;
       }
       if (endHour <= startHour) {
         Alert.alert('Hora inválida', 'La hora de fin debe ser posterior a la de inicio.');
-        return;
+        return false;
       }
     }
 
@@ -340,6 +474,11 @@ export default function AddCalendarItemScreen() {
         })
       : null;
 
+    const durableAttachments = attachments.length
+      ? await persistCalendarAttachments(attachments)
+      : [];
+    if (durableAttachments.length) setAttachments(durableAttachments);
+
     const payload = {
       type,
       title: title.trim(),
@@ -348,6 +487,7 @@ export default function AddCalendarItemScreen() {
       startHour,
       endHour,
       color,
+      icon,
       notes: notes.trim() || undefined,
       location: location.trim() || undefined,
       meetingLink: type === 'event' && meetingLink.trim() ? meetingLink.trim() : undefined,
@@ -359,7 +499,7 @@ export default function AddCalendarItemScreen() {
       assigneeName,
       assigneeEmail,
       completed: existing?.completed ?? false,
-      attachments: attachments.length ? attachments : undefined,
+      attachments: durableAttachments.length ? durableAttachments : undefined,
       calendarId: existing?.calendarId ?? activeCalendarId,
     };
 
@@ -368,6 +508,10 @@ export default function AddCalendarItemScreen() {
       const itemId = isEditing && existing
         ? (await updateItem({ ...existing, ...payload }), existing.id)
         : await addItem(payload);
+
+      if (!isEditing) {
+        router.setParams({ id: itemId });
+      }
 
       const reminderScheduled = reminderValue
         ? await scheduleCalendarReminder({
@@ -383,19 +527,22 @@ export default function AddCalendarItemScreen() {
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      if (reminderValue && !reminderScheduled && Platform.OS !== 'web') {
-        Alert.alert(
-          'Guardado',
-          'El elemento se guardó, pero no se pudo programar el push. Revisa permisos de notificación o elige una hora futura.',
-        );
+      if (dismiss) {
+        if (reminderValue && !reminderScheduled && Platform.OS !== 'web') {
+          Alert.alert(
+            'Guardado',
+            'El elemento se guardó, pero no se pudo programar el push. Revisa permisos de notificación o elige una hora futura.',
+          );
+        }
+        safeGoBack('/(tabs)/calendario');
       }
-
-      safeGoBack('/(tabs)/calendario');
+      return true;
     } catch (error) {
       Alert.alert(
         'No se pudo guardar',
         error instanceof Error ? error.message : 'Inténtalo de nuevo.',
       );
+      return false;
     } finally {
       setSaving(false);
     }
@@ -467,6 +614,9 @@ export default function AddCalendarItemScreen() {
                     Keyboard.dismiss();
                     setType(item.key);
                     setColor(calendarColors[item.key]);
+                    setIcon((current) =>
+                      current === typeIcons[type] ? typeIcons[item.key] : current,
+                    );
                     setAllDay(item.key !== 'event');
                     setList(item.key === 'task' ? 'Mis tareas' : 'Mi calendario');
                   }}
@@ -658,6 +808,31 @@ export default function AddCalendarItemScreen() {
             </View>
           ) : null}
 
+          <View style={[styles.iconBlock, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.iconLabel, { color: theme.text }]}>Icono</Text>
+            <View style={styles.icons}>
+              {categoryIcons.map((item) => {
+                const selected = icon === item.name;
+                return (
+                  <Pressable
+                    key={item.name}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.label}
+                    onPress={() => setIcon(item.name)}
+                    style={[
+                      styles.iconOption,
+                      {
+                        backgroundColor: selected ? `${color}22` : theme.surfaceSecondary,
+                        borderColor: selected ? color : theme.border,
+                      },
+                    ]}>
+                    <AppIcon name={item.name} color={selected ? color : theme.muted} size={20} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
           <Row icon="paintbrush.fill">
             <View style={[styles.swatch, { backgroundColor: color }]} />
             <Text style={[styles.rowValue, { color: theme.text }]}>Color</Text>
@@ -687,7 +862,7 @@ export default function AddCalendarItemScreen() {
             />
           </Row>
 
-          <Row icon="paperclip" last={!isEditing}>
+          <Row icon="paperclip" last={false}>
             <View style={styles.attachBlock}>
               <Pressable
                 accessibilityRole="button"
@@ -737,6 +912,15 @@ export default function AddCalendarItemScreen() {
             </View>
           </Row>
 
+          <ScalePressable
+            accessibilityRole="button"
+            accessibilityLabel="Compartir"
+            onPress={saving ? undefined : () => void openShare()}
+            style={[styles.shareBtn, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
+            <AppIcon name="square.and.arrow.up" color="#FFFFFF" size={18} />
+            <Text style={styles.shareBtnText}>{saving ? 'Guardando…' : 'Compartir'}</Text>
+          </ScalePressable>
+
           {isEditing ? (
             <ScalePressable
               onPress={saving ? undefined : confirmDelete}
@@ -749,6 +933,11 @@ export default function AddCalendarItemScreen() {
         </FormScrollView>
       </View>
       <AttachmentPreview item={preview} onClose={() => setPreview(null)} />
+      <CalendarShareSheet
+        visible={shareOpen}
+        payload={sharePayload}
+        onClose={() => setShareOpen(false)}
+      />
     </SheetScreen>
   );
 }
@@ -856,6 +1045,22 @@ const styles = StyleSheet.create({
   rowLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
   rowValue: { flex: 1, fontSize: 15, fontWeight: '500' },
   rowHint: { fontSize: 13, marginTop: 2 },
+  iconBlock: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
+  iconLabel: { fontSize: 15, fontWeight: '500' },
+  icons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  iconOption: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   inlineInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   timeFields: { flex: 1, gap: 12 },
   timeBlock: { flex: 1, gap: 4 },
@@ -906,8 +1111,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  shareBtn: {
+    marginTop: 16,
+    minHeight: 52,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  shareBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   deleteBtn: {
-    marginTop: 8,
+    marginTop: 10,
     minHeight: 48,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,

@@ -78,13 +78,15 @@ export class Affiliate {
   })
   affiliateId!: string;
 
-  @Prop({ required: true, min: 0, max: 100 })
+  /** Legacy field. New partners use a flat US$ 5 bounty, not a percent. */
+  @Prop({ required: true, min: 0, max: 100, default: 0 })
   commissionPercent!: number;
 
   @Prop({ required: true, default: true, index: true })
   active!: boolean;
 
-  @Prop({ required: true, default: 12, min: 0 })
+  /** Legacy field. Commissions are one-time, not a month window. */
+  @Prop({ required: true, default: 0, min: 0 })
   revenueShareMonths!: number;
 
   @Prop({ trim: true, maxlength: 2048 })
@@ -268,7 +270,7 @@ export class CommissionEvent {
   @Prop({ type: MongooseSchema.Types.ObjectId, index: true })
   subscriptionId?: Types.ObjectId;
 
-  /** Percent applied at event time (e.g. 20). */
+  /** 0 for the flat US$ 5 bounty. Legacy events stored 20/30/40. */
   @Prop({ required: true, min: 0, max: 100, default: 0 })
   commissionRate!: number;
 

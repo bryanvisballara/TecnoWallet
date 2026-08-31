@@ -25,7 +25,7 @@ import {
   localizedTypeLabels,
   parseDateKey,
   toDateKey,
-  typeIcons,
+  calendarItemIcon,
   weekDayLabels,
   type CalendarItem,
   type CalendarItemType,
@@ -43,6 +43,40 @@ import { isSelfOwner } from '@/lib/collaboration-roles';
 import { hasPaidPlan, usePlusStore } from '@/store/plus';
 
 const AnimatedScrollView = Animated.ScrollView;
+const DONE_GREEN = '#12B76A';
+
+function CompleteButton({
+  done,
+  onPress,
+  light,
+}: {
+  done: boolean;
+  onPress: () => void;
+  light?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={done ? 'Marcar como pendiente' : 'Marcar como completado'}
+      hitSlop={8}
+      onPress={(event) => {
+        event.stopPropagation?.();
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+      style={[
+        styles.completeBtn,
+        done
+          ? { backgroundColor: DONE_GREEN, borderColor: DONE_GREEN }
+          : {
+              backgroundColor: light ? 'rgba(255,255,255,0.22)' : 'transparent',
+              borderColor: light ? 'rgba(255,255,255,0.92)' : '#D0D5DD',
+            },
+      ]}>
+      {done ? <AppIcon name="checkmark" color="#FFFFFF" size={14} /> : null}
+    </Pressable>
+  );
+}
 
 export default function CalendarScreen() {
   const theme = useAppTheme();
@@ -366,16 +400,21 @@ export default function CalendarScreen() {
             <ScalePressable
               key={`${item.id}-${item.date}`}
               onPress={() => openItem(item.id)}
-              onLongPress={() => {
-                if (item.type === 'task') {
-                  void Haptics.selectionAsync();
-                  toggleTask(item.id);
-                }
-              }}
-              style={[styles.itemCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <View style={[styles.itemAccent, { backgroundColor: item.color }]} />
-              <View style={[styles.itemIcon, { backgroundColor: `${item.color}22` }]}>
-                <AppIcon name={typeIcons[item.type]} color={item.color} size={18} />
+              style={[
+                styles.itemCard,
+                {
+                  backgroundColor: item.completed ? '#ECFDF3' : theme.surface,
+                  borderColor: item.completed ? DONE_GREEN : theme.border,
+                  borderWidth: item.completed ? 2 : StyleSheet.hairlineWidth,
+                },
+              ]}>
+              <View style={[styles.itemAccent, { backgroundColor: item.completed ? DONE_GREEN : item.color }]} />
+              <View style={[styles.itemIcon, { backgroundColor: `${item.completed ? DONE_GREEN : item.color}22` }]}>
+                <AppIcon
+                  name={calendarItemIcon(item)}
+                  color={item.completed ? DONE_GREEN : item.color}
+                  size={18}
+                />
               </View>
               <View style={styles.itemCopy}>
                 <Text
@@ -394,6 +433,7 @@ export default function CalendarScreen() {
                   {item.location ? ` · ${item.location}` : ''}
                 </Text>
               </View>
+              <CompleteButton done={Boolean(item.completed)} onPress={() => toggleTask(item.id)} />
             </ScalePressable>
           ))
         )}
@@ -485,14 +525,29 @@ function DayTimeline({
             <Pressable
               key={item.id}
               onPress={() => onOpenItem(item.id)}
-              onLongPress={() => {
-                if (item.type === 'task') onToggleTask(item.id);
-              }}
-              style={[styles.allDayChip, { backgroundColor: `${item.color}22` }]}>
-              <View style={[styles.allDayDot, { backgroundColor: item.color }]} />
-              <Text numberOfLines={1} style={[styles.allDayText, { color: theme.text }, item.completed && styles.completed]}>
+              style={[
+                styles.allDayChip,
+                {
+                  backgroundColor: item.completed ? '#ECFDF3' : `${item.color}22`,
+                  borderWidth: item.completed ? 2 : 0,
+                  borderColor: item.completed ? DONE_GREEN : 'transparent',
+                },
+              ]}>
+              <AppIcon
+                name={calendarItemIcon(item)}
+                color={item.completed ? DONE_GREEN : item.color}
+                size={16}
+              />
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.allDayText,
+                  { color: theme.text },
+                  item.completed && styles.completed,
+                ]}>
                 {item.title}
               </Text>
+              <CompleteButton done={Boolean(item.completed)} onPress={() => onToggleTask(item.id)} />
             </Pressable>
           ))}
         </View>
@@ -515,13 +570,12 @@ function DayTimeline({
                 <Pressable
                   key={block.id}
                   onPress={() => onOpenItem(block.id)}
-                  onLongPress={() => {
-                    if (block.type === 'task') onToggleTask(block.id);
-                  }}
                   style={[
                     styles.eventBlock,
                     {
-                      backgroundColor: block.color,
+                      backgroundColor: block.completed ? '#0E9F6E' : block.color,
+                      borderWidth: block.completed ? 3 : 0,
+                      borderColor: block.completed ? '#054C32' : 'transparent',
                       top: ((block.startHour ?? hour) - hour) * hourHeight,
                       height: Math.max(
                         compact ? 36 : 44,
@@ -531,8 +585,29 @@ function DayTimeline({
                       right: 8,
                     },
                   ]}>
-                  <Text numberOfLines={2} style={styles.eventBlockTitle}>{block.title}</Text>
-                  {block.location ? <Text style={styles.eventBlockMeta}>{block.location}</Text> : null}
+                  <View style={styles.eventBlockRow}>
+                    <View style={styles.eventBlockCopy}>
+                      <View style={styles.eventBlockHead}>
+                        <AppIcon name={calendarItemIcon(block)} color="#FFFFFF" size={14} />
+                        <Text
+                          numberOfLines={2}
+                          style={[
+                            styles.eventBlockTitle,
+                            block.completed && styles.completed,
+                          ]}>
+                          {block.title}
+                        </Text>
+                      </View>
+                      {block.location ? (
+                        <Text style={styles.eventBlockMeta}>{block.location}</Text>
+                      ) : null}
+                    </View>
+                    <CompleteButton
+                      light
+                      done={Boolean(block.completed)}
+                      onPress={() => onToggleTask(block.id)}
+                    />
+                  </View>
                 </Pressable>
               ))}
             </View>
@@ -739,7 +814,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  eventBlockTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  eventBlockRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  eventBlockCopy: { flex: 1, minWidth: 0 },
+  eventBlockHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  eventBlockTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', flex: 1 },
+  completeBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
   eventBlockMeta: { color: '#FFFFFFCC', fontSize: 11, marginTop: 2 },
   fabHost: {
     position: 'absolute',

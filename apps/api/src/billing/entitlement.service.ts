@@ -61,8 +61,8 @@ export class EntitlementService {
       .lean()
       .exec();
 
-    // Always report the real plan to the client. New users have no subscription → Free.
-    // PLUS_ENFORCEMENT_ENABLED only controls whether assertPlus/assertBusiness block.
+    // Always report the real plan to the client. New users have no subscription
+    // until they start the 3-day Plus/Business trial.
     if (!subscription || !this.hasCurrentEntitlement(subscription)) {
       return {
         access: 'free',

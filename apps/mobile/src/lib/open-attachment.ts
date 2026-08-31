@@ -1,6 +1,7 @@
-import { Alert, Linking, Platform, Share } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 
 import type { CalendarAttachment } from '@/data/calendar';
+import { presentLocalFile } from '@/lib/share-local-file';
 
 export function isImageAttachment(item: CalendarAttachment) {
   if (item.kind === 'image' || item.mimeType?.startsWith('image/')) return true;
@@ -98,11 +99,32 @@ async function shareOrDownloadOnWeb(
 }
 
 async function shareNative(item: CalendarAttachment) {
-  const payload =
-    Platform.OS === 'ios'
-      ? { url: item.uri, title: item.name }
-      : { title: item.name, message: item.name, url: item.uri };
-  await Share.share(payload);
+  await presentLocalFile({
+    uri: item.uri,
+    filename: fileNameForShare(item),
+    mime: mimeForShare(item),
+  });
+}
+
+function fileNameForShare(item: CalendarAttachment) {
+  const name = item.name.trim() || 'archivo';
+  if (/\.[a-z0-9]+$/i.test(name)) return name;
+  if (isImageAttachment(item)) {
+    if (item.mimeType?.includes('png') || /\.png$/i.test(item.uri)) return `${name}.png`;
+    return `${name}.jpg`;
+  }
+  if (isPdfAttachment(item)) return `${name}.pdf`;
+  return name;
+}
+
+function mimeForShare(item: CalendarAttachment) {
+  if (item.mimeType?.trim()) return item.mimeType;
+  if (isPdfAttachment(item)) return 'application/pdf';
+  if (item.mimeType?.includes('png') || /\.png$/i.test(item.name) || /\.png$/i.test(item.uri)) {
+    return 'image/png';
+  }
+  if (isImageAttachment(item)) return 'image/jpeg';
+  return 'application/octet-stream';
 }
 
 export async function openAttachment(item: CalendarAttachment) {
@@ -121,12 +143,11 @@ export async function openAttachment(item: CalendarAttachment) {
       window.open(item.uri, '_blank', 'noopener');
       return;
     }
-    try {
+    if (/^https?:/i.test(item.uri)) {
       await Linking.openURL(item.uri);
       return;
-    } catch {
-      await shareNative(item);
     }
+    await shareNative(item);
   } catch (error) {
     if (isCancel(error)) return;
     Alert.alert('No se pudo abrir', friendlyError(error, 'No se pudo abrir el archivo.'));
@@ -143,6 +164,51 @@ export async function shareAttachment(item: CalendarAttachment) {
   } catch (error) {
     if (isCancel(error)) return;
     Alert.alert('No se pudo compartir', friendlyError(error, 'No se pudo compartir el archivo.'));
+  }
+}
+
+export async function persistCalendarAttachments(items: CalendarAttachment[]) {
+  if (Platform.OS === 'web' || !items.length) return items;
+  const FileSystem = await import('expo-file-system/legacy');
+  const root = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+  if (!root) return items;
+  const dir = `${root}calendar-attachments/`;
+  try {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  } catch {
+    // Directory may already exist.
+  }
+  const next: CalendarAttachment[] = [];
+  for (const item of items) {
+    next.push(await persistOne(item, dir, FileSystem));
+  }
+  return next;
+}
+
+async function persistOne(
+  item: CalendarAttachment,
+  dir: string,
+  FileSystem: typeof import('expo-file-system/legacy'),
+): Promise<CalendarAttachment> {
+  const uri = item.uri?.trim();
+  if (!uri || /^(https?:|data:|blob:)/i.test(uri)) return item;
+  if (uri.includes('/calendar-attachments/')) return item;
+  const ext =
+    item.name.match(/\.[a-z0-9]+$/i)?.[0] ||
+    (item.kind === 'image' || item.mimeType?.includes('png') ? '.jpg' : '') ||
+    (item.kind === 'image' ? '.jpg' : '');
+  const dest = `${dir}${item.id}${ext}`;
+  try {
+    await FileSystem.copyAsync({ from: uri, to: dest });
+    return { ...item, uri: dest };
+  } catch {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      await FileSystem.writeAsStringAsync(dest, base64, { encoding: 'base64' });
+      return { ...item, uri: dest };
+    } catch {
+      return item;
+    }
   }
 }
 

@@ -23,6 +23,10 @@ import type {
   PayAffiliateDto,
 } from './admin.dto';
 import { affiliatePayoutEmailHtml } from './payout-email';
+import {
+  AFFILIATE_FLAT_BOUNTY_CURRENCY,
+  AFFILIATE_FLAT_BOUNTY_MINOR,
+} from '../affiliate/affiliate.constants';
 
 export const AFFILIATE_PAYOUT_MIN_MINOR = 10_000;
 export const AFFILIATE_PAYOUT_DAY = 15;
@@ -328,18 +332,13 @@ export class AdminService {
           .filter((row) => row.status !== 'reversed')
           .map((row) => row.userId),
       ).size;
-      const tier = this.resolveTier(paidReferrals);
-      const netMinor = bucket.commissions
-        .filter((row) => row.status !== 'reversed')
-        .reduce((sum, row) => sum + (row.netAmountMinor || 0), 0);
       return {
         ...bucket,
         status,
         ready: blockReason == null,
         blockReason,
-        tier,
         referralCount: paidReferrals,
-        netMinor,
+        bountyAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
       };
     });
     affiliatesOut.sort((a, b) => {
@@ -746,19 +745,14 @@ export class AdminService {
         });
       }
       const paidCount = referrals.length;
-      const rate = paidCount >= 501 ? 40 : paidCount >= 101 ? 30 : 20;
-      const commissionMinor = referrals.reduce((sum, row) => {
-        const net =
-          row.plan === 'business' ? BUSINESS_PRICE_MINOR : PLUS_PRICE_MINOR;
-        return sum + Math.round((net * rate) / 100);
-      }, 0);
+      const commissionMinor = paidCount * AFFILIATE_FLAT_BOUNTY_MINOR;
       await this.affiliates.create({
         code,
         name: seed.name,
         affiliateId,
-        commissionPercent: rate,
+        commissionPercent: 0,
         active: true,
-        revenueShareMonths: 12,
+        revenueShareMonths: 0,
         ...(seed.network && seed.address
           ? {
               payoutMethod: {
@@ -829,12 +823,12 @@ export class AdminService {
             grossAmountMinor: netMinor,
             netAmountMinor: netMinor,
             storeFeeAmountMinor: 0,
-            commissionAmountMinor: Math.round((netMinor * rate) / 100),
-            currency: 'USD',
+            commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+            currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
             status: 'pending' as const,
             occurredAt,
-            monthsSinceAttribution: 1,
-            commissionRate: rate,
+            monthsSinceAttribution: 0,
+            commissionRate: 0,
           };
         }),
       );
@@ -845,8 +839,7 @@ export class AdminService {
         business: seed.business,
         referrals: paidCount,
         hasWallet: Boolean(seed.address),
-        tier: rate === 40 ? 'Ambassador' : rate === 30 ? 'Creator' : 'Partner',
-        rate,
+        bountyUsd: AFFILIATE_FLAT_BOUNTY_MINOR / 100,
       });
     }
 
@@ -1004,34 +997,6 @@ export class AdminService {
         address: wallet.address,
       },
       remainingPendingMinor: 0,
-    };
-  }
-
-  private resolveTier(activePaidCount: number) {
-    if (activePaidCount >= 501) {
-      return {
-        id: 'ambassador' as const,
-        label: 'Ambassador',
-        commissionPercent: 40,
-        rangeLabel: '501+',
-        activePaidCount,
-      };
-    }
-    if (activePaidCount >= 101) {
-      return {
-        id: 'creator' as const,
-        label: 'Creator',
-        commissionPercent: 30,
-        rangeLabel: '101–500',
-        activePaidCount,
-      };
-    }
-    return {
-      id: 'partner' as const,
-      label: 'Partner',
-      commissionPercent: 20,
-      rangeLabel: '1–100',
-      activePaidCount,
     };
   }
 

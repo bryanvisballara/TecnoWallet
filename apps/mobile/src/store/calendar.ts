@@ -502,7 +502,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         body: created.reminder
           ? `${created.title} · ${created.date} · con recordatorio`
           : `${created.title} · ${created.date}`,
-        icon: typeIcons[created.type] ?? 'calendar',
+        icon: created.icon || typeIcons[created.type] || 'calendar',
         route: '/(tabs)/calendario',
       });
       syncCalendarWidget(get().items);
@@ -549,7 +549,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   toggleTask: (id) => {
     let changed: CalendarItem | undefined;
     const items = get().items.map((item) =>
-      item.id === id && item.type === 'task'
+      item.id === id
         ? (changed = { ...item, completed: !item.completed })
         : item,
     );
