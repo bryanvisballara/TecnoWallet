@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LanguagePicker } from '@/components/language-picker';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
 import { onboardingCopy } from '@/i18n/languages';
+import { authHref } from '@/lib/auth-entry';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 
@@ -44,7 +45,7 @@ export default function OnboardingScreen() {
     if (page < slides.length - 1) setPage(page + 1);
     else {
       await finish();
-      router.replace('/auth');
+      router.replace(authHref('register'));
     }
   };
 
@@ -54,7 +55,7 @@ export default function OnboardingScreen() {
         <Image source={require('../../assets/images/tecnowallet-logo.png')} style={styles.logo as ImageStyle} contentFit="contain" />
         <View style={[styles.actions, isRtl && styles.actionsRtl]}>
           <LanguagePicker label={copy.language} />
-          <ScalePressable onPress={async () => { await finish(); router.replace('/auth'); }}>
+          <ScalePressable onPress={async () => { await finish(); router.replace(authHref('register')); }}>
             <Text style={[styles.skip, { color: theme.muted }]}>{copy.skip}</Text>
           </ScalePressable>
         </View>

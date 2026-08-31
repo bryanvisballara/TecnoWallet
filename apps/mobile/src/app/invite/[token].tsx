@@ -10,6 +10,7 @@ import {
   Screen,
   useAppTheme,
 } from '@/components/ui';
+import { authHref } from '@/lib/auth-entry';
 import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useRecaudosStore } from '@/store/recaudos';
@@ -26,7 +27,7 @@ export default function RecaudoInviteScreen() {
     if (!token || loading) return;
     if (!authenticated) {
       await localStorage.set('pending-recaudo-invite', token);
-      router.replace('/auth');
+      router.replace(authHref('login'));
       return;
     }
     setLoading(true);

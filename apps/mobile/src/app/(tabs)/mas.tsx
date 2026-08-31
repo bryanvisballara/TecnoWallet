@@ -21,6 +21,7 @@ import {
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { localizedFeatureGroups, useAppCopy } from '@/i18n/app-copy';
 import { languages } from '@/i18n/languages';
+import { authHref } from '@/lib/auth-entry';
 import { currencies, currencyLabel } from '@/lib/currencies';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
@@ -253,7 +254,7 @@ export default function MoreScreen() {
 
   const leave = async () => {
     await signOut();
-    router.replace('/auth');
+    router.replace(authHref('login'));
   };
 
   const openDeleteModal = () => {
@@ -329,7 +330,7 @@ export default function MoreScreen() {
     try {
       await deleteAccount(deleteCode);
       setDeleteOpen(false);
-      router.replace('/auth');
+      router.replace(authHref('login'));
     } catch (error) {
       setDeleteError(
         error instanceof Error

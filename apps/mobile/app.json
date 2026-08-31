@@ -2,7 +2,7 @@
   "expo": {
     "name": "TecnoWallet",
     "slug": "tecnowallet",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/app-icon.png",
     "scheme": "tecnowallet",

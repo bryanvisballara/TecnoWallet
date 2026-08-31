@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton, useAppTheme } from '@/components/ui';
 import { authCopy } from '@/i18n/languages';
+import { authHref } from '@/lib/auth-entry';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 
@@ -57,7 +58,7 @@ export default function ResetPasswordScreen() {
       await resetPasswordWithToken(token, password);
       setInfo(copy.resetDone);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setTimeout(() => router.replace('/auth'), 1200);
+      setTimeout(() => router.replace(authHref('login')), 1200);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : copy.resetInvalid,
@@ -141,7 +142,7 @@ export default function ResetPasswordScreen() {
             </>
           )}
 
-          <Pressable accessibilityRole="button" onPress={() => router.replace('/auth')}>
+          <Pressable accessibilityRole="button" onPress={() => router.replace(authHref('login'))}>
             <Text style={[styles.link, { color: theme.primary }]}>
               {copy.forgotBack}
             </Text>

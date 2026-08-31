@@ -62,7 +62,16 @@ const CLEARING_NAME = '__clearing__';
 export function objectId(value: { _id?: string; id?: string } | string | null | undefined) {
   if (!value) return '';
   if (typeof value === 'string') return value;
-  return String(value._id ?? value.id ?? '');
+  const nested = value._id ?? value.id;
+  if (nested && typeof nested === 'object') {
+    const oid = nested as { toString?: () => string; $oid?: string };
+    if (typeof oid.$oid === 'string' && oid.$oid) return oid.$oid;
+    if (typeof oid.toString === 'function') {
+      const text = oid.toString();
+      if (text && text !== '[object Object]') return text;
+    }
+  }
+  return String(nested ?? '');
 }
 
 export function toMinor(amount: number) {
@@ -232,25 +241,41 @@ export function mapPlanningResource(
   };
 }
 
+function entryId(value: unknown) {
+  return objectId(value as { _id?: string; id?: string } | string | null | undefined);
+}
+
 export function mapTransaction(
   tx: ApiTransaction,
   accountsById: Map<string, Account>,
   envelopesById?: Map<string, Envelope>,
   authorByUserId?: Map<string, string>,
+  clearingId?: string,
 ): Transaction {
+  const nonClearing = tx.entries.filter(
+    (entry) => !clearingId || entryId(entry.accountId) !== clearingId,
+  );
   const userFacing =
-    tx.entries.find((entry) => accountsById.has(String(entry.accountId))) ??
-    tx.entries.find((entry) => entry.amountMinor !== 0) ??
+    nonClearing.find((entry) => accountsById.has(entryId(entry.accountId))) ??
+    (tx.kind === 'expense'
+      ? nonClearing.find((entry) => entry.amountMinor < 0)
+      : tx.kind === 'income'
+        ? nonClearing.find((entry) => entry.amountMinor > 0)
+        : undefined) ??
+    nonClearing.find((entry) => entry.amountMinor !== 0) ??
+    nonClearing[0] ??
     tx.entries[0];
   const amountMinor = userFacing?.amountMinor ?? 0;
   const account = userFacing
-    ? accountsById.get(String(userFacing.accountId))
+    ? accountsById.get(entryId(userFacing.accountId))
     : undefined;
   const envelopeIdRaw =
     userFacing?.envelopeId ??
     tx.entries.find((entry) => entry.envelopeId)?.envelopeId;
-  const envelopeId = envelopeIdRaw ? String(envelopeIdRaw) : undefined;
-  const envelope = envelopeId ? envelopesById?.get(envelopeId) : undefined;
+  const envelopeId = envelopeIdRaw ? entryId(envelopeIdRaw) || undefined : undefined;
+  const envelope = envelopeId
+    ? envelopesById?.get(envelopeId) ?? envelopesById?.get(envelopeId.toLowerCase())
+    : undefined;
   const occurred = new Date(tx.occurredAt);
   const dateLabel = Number.isNaN(occurred.getTime())
     ? tx.occurredAt
@@ -267,8 +292,7 @@ export function mapTransaction(
   return {
     id: objectId(tx),
     title: tx.description,
-    // Sobres UI matches spent by envelope name — never use tx.kind here.
-    category: envelope?.name ?? (tx.kind === 'income' || tx.kind === 'expense' ? tx.kind : 'Movimiento'),
+    category: envelope?.name ?? '',
     account: account?.name ?? 'Cuenta del equipo',
     amount: fromMinor(amountMinor),
     date: dateLabel,
@@ -431,9 +455,25 @@ export async function deleteResource(kind: ResourceKind, id: string) {
 }
 
 export async function listTransactions(workspaceId: string) {
-  return apiRequest<ApiTransaction[]>(
-    `/transactions?workspaceId=${encodeURIComponent(workspaceId)}`,
-  );
+  const pageSize = 250;
+  const all: ApiTransaction[] = [];
+  const seen = new Set<string>();
+  for (let offset = 0; offset < 4000; offset += pageSize) {
+    const page = await apiRequest<ApiTransaction[]>(
+      `/transactions?workspaceId=${encodeURIComponent(workspaceId)}&limit=${pageSize}&offset=${offset}`,
+    );
+    if (!Array.isArray(page) || !page.length) break;
+    let added = 0;
+    for (const tx of page) {
+      const id = objectId(tx);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      all.push(tx);
+      added += 1;
+    }
+    if (added === 0 || page.length < pageSize) break;
+  }
+  return all;
 }
 
 export async function createLedgerTransaction(input: {
@@ -617,7 +657,11 @@ export async function loadWorkspaceSnapshot(
         : undefined,
     };
   });
-  const envelopesById = new Map(envelopes.map((item) => [item.id, item]));
+  const envelopesById = new Map<string, Envelope>();
+  for (const item of envelopes) {
+    envelopesById.set(item.id, item);
+    envelopesById.set(item.id.toLowerCase(), item);
+  }
   const planning = [
     ...billResources.map((item) => mapPlanningResource(item, 'bill')),
     ...subscriptionResources.map((item) =>
@@ -633,15 +677,12 @@ export async function loadWorkspaceSnapshot(
     .filter((tx) => {
       if (tx.reversedById) return false;
       if (tx.kind === 'refund') return false;
-      if (tx.entries.every((entry) => String(entry.accountId) === clearingId)) {
+      if (tx.entries.every((entry) => entryId(entry.accountId) === clearingId)) {
         return false;
       }
-      // Keep teammate movements even if this viewer cannot see that account
-      // (private-to-them or not yet in the local snapshot). Only skip
-      // clearing-only rows and true empty entries.
-      return tx.entries.some((entry) => String(entry.accountId) !== clearingId);
+      return tx.entries.some((entry) => entryId(entry.accountId) !== clearingId);
     })
-    .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors));
+    .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors, clearingId));
 
   // Derive envelope spent from ledger entries so UI stays correct even if
   // spentMinor on the resource was never incremented.

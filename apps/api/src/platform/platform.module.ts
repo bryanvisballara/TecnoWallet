@@ -1133,14 +1133,18 @@ class TransactionController {
   async list(
     @Query('workspaceId') workspaceId: string,
     @Query('search') search: string | undefined,
+    @Query('limit') limitRaw: string | undefined,
+    @Query('offset') offsetRaw: string | undefined,
     @CurrentUser() user: AuthPrincipal,
   ) {
     await this.access.assertMember(workspaceId, user.userId);
+    const limit = Math.min(Math.max(Number(limitRaw) || 250, 1), 500);
+    const offset = Math.max(Number(offsetRaw) || 0, 0);
     return this.transactions
       .find({
         workspaceId,
         $or: [
-          { privacy: 'workspace' },
+          { privacy: { $ne: 'private' } },
           { privacy: 'private', ownerId: user.userId },
         ],
         ...(search
@@ -1148,7 +1152,8 @@ class TransactionController {
           : {}),
       })
       .sort({ occurredAt: -1, _id: -1 })
-      .limit(100);
+      .skip(offset)
+      .limit(limit);
   }
 
   @Post(':id/reverse')

@@ -5,6 +5,7 @@ import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { VoiceExpenseFab } from '@/components/voice-expense-fab';
 import { AppIcon, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
+import { authHref } from '@/lib/auth-entry';
 import { FEATURE_RECAUDOS_ENABLED } from '@/lib/feature-flags';
 import { useAuthStore } from '@/store/auth';
 import { useLedgerStore } from '@/store/ledger';
@@ -61,7 +62,7 @@ export default function TabsLayout() {
   }
 
   if (!authenticated || ledgerCount === 0) {
-    return <Redirect href="/auth" />;
+    return <Redirect href={authHref(authenticated ? 'login' : 'register')} />;
   }
 
   return (

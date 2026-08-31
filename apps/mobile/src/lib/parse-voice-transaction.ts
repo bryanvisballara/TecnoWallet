@@ -9,6 +9,7 @@ export type ParsedVoiceTransaction = {
   amount: number;
   title: string;
   envelopeName: string;
+  envelopeId?: string;
 };
 
 export type MissingVoiceEnvelope = {
@@ -314,5 +315,6 @@ export function parseVoiceTransaction(
     amount,
     title,
     envelopeName: envelope.name,
+    envelopeId: envelope.id,
   };
 }

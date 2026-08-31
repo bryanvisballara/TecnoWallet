@@ -473,7 +473,12 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     if (!clearingId) throw new Error('El libro aún no está listo. Recarga e intenta de nuevo.');
 
     const kind = value.amount >= 0 ? 'income' : 'expense';
-    const envelope = slice.envelopes.find((item) => item.name === value.category);
+    const wantedName = value.category.trim().toLowerCase();
+    const envelope =
+      (value.envelopeId
+        ? slice.envelopes.find((item) => item.id === value.envelopeId)
+        : undefined) ??
+      slice.envelopes.find((item) => item.name.trim().toLowerCase() === wantedName);
     const idempotencyKey =
       globalThis.crypto?.randomUUID?.() ?? `tx-${Date.now()}-${Math.random()}`;
     const occurredAt =

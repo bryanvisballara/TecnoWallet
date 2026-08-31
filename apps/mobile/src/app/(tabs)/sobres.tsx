@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
@@ -7,7 +7,7 @@ import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, use
 import { money, type Envelope } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { filterTransactionsByMonth } from '@/lib/dates';
-import { useActiveLedger } from '@/store/ledger';
+import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
 
@@ -15,29 +15,43 @@ export default function EnvelopesScreen() {
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
   const { envelopes, ledger, transactions } = useActiveLedger();
+  const refreshLedger = useLedgerStore((state) => state.refreshLedger);
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
   const period = useMemo(() => ({ year, month }), [year, month]);
+  useFocusEffect(
+    useCallback(() => {
+      if (ledger?.type === 'shared' && ledger.id) {
+        void refreshLedger(ledger.id);
+      }
+    }, [ledger?.id, ledger?.type, refreshLedger]),
+  );
   const monthTransactions = useMemo(
     () => filterTransactionsByMonth(transactions, period),
     [transactions, period],
   );
   const spentByEnvelope = useMemo(() => {
-    const map = new Map<string, number>();
+    const byId = new Map<string, number>();
+    const byName = new Map<string, number>();
     monthTransactions.forEach((tx) => {
-      const key = (tx.envelopeId || tx.category).trim().toLowerCase();
-      if (!key) return;
-      map.set(key, (map.get(key) ?? 0) + Math.abs(tx.amount));
+      const amount = Math.abs(tx.amount);
+      if (!amount) return;
+      const id = tx.envelopeId?.trim().toLowerCase();
+      const name = tx.category.trim().toLowerCase();
+      if (id) byId.set(id, (byId.get(id) ?? 0) + amount);
+      if (name && name !== 'expense' && name !== 'income' && name !== 'movimiento') {
+        byName.set(name, (byName.get(name) ?? 0) + amount);
+      }
     });
-    return map;
+    return { byId, byName };
   }, [monthTransactions]);
 
   const withMonthSpent = (items: Envelope[]) =>
     items.map((item) => ({
       ...item,
       spent:
-        spentByEnvelope.get(item.id.toLowerCase()) ??
-        spentByEnvelope.get(item.name.trim().toLowerCase()) ??
+        spentByEnvelope.byId.get(item.id.toLowerCase()) ??
+        spentByEnvelope.byName.get(item.name.trim().toLowerCase()) ??
         0,
     }));
 

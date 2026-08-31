@@ -159,15 +159,36 @@ export function WeeklyBars({
   transactions = [],
   resetKey,
   today = new Date(),
+  weekOffset: weekOffsetProp,
+  onWeekOffsetChange,
+  mode: modeProp,
+  onModeChange,
+  hideModeRow = false,
 }: {
   transactions?: Transaction[];
   resetKey?: string;
   today?: Date;
+  weekOffset?: number;
+  onWeekOffsetChange?: (value: number) => void;
+  mode?: WeeklyMode;
+  onModeChange?: (value: WeeklyMode) => void;
+  hideModeRow?: boolean;
 }) {
   const theme = useAppTheme();
   const locale = useLanguageStore((state) => state.locale);
-  const [mode, setMode] = useState<WeeklyMode>('expenses');
-  const [weekOffset, setWeekOffset] = useState(0);
+  const [modeState, setModeState] = useState<WeeklyMode>('expenses');
+  const mode = modeProp ?? modeState;
+  const setMode = (value: WeeklyMode) => {
+    onModeChange?.(value);
+    if (modeProp === undefined) setModeState(value);
+  };
+  const [weekOffsetState, setWeekOffsetState] = useState(0);
+  const weekOffset = weekOffsetProp ?? weekOffsetState;
+  const setWeekOffset = (updater: number | ((value: number) => number)) => {
+    const next = typeof updater === 'function' ? updater(weekOffset) : updater;
+    onWeekOffsetChange?.(next);
+    if (weekOffsetProp === undefined) setWeekOffsetState(next);
+  };
   const weekAnchor = useMemo(() => {
     const anchor = new Date(today);
     anchor.setDate(anchor.getDate() + weekOffset * 7);
@@ -245,29 +266,31 @@ export function WeeklyBars({
 
   return (
     <View style={styles.chart}>
-      <View style={styles.modeRow}>
-        {MODE_OPTIONS.map((item) => {
-          const active = mode === item.key;
-          return (
-            <Pressable
-              key={item.key}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              onPress={() => setMode(item.key)}
-              style={[
-                styles.modeChip,
-                {
-                  backgroundColor: active ? theme.primary : theme.surfaceSecondary,
-                  borderColor: active ? theme.primary : theme.border,
-                },
-              ]}>
-              <Text style={[styles.modeChipText, { color: active ? '#FFFFFF' : theme.muted }]}>
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {hideModeRow ? null : (
+        <View style={styles.modeRow}>
+          {MODE_OPTIONS.map((item) => {
+            const active = mode === item.key;
+            return (
+              <Pressable
+                key={item.key}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() => setMode(item.key)}
+                style={[
+                  styles.modeChip,
+                  {
+                    backgroundColor: active ? theme.primary : theme.surfaceSecondary,
+                    borderColor: active ? theme.primary : theme.border,
+                  },
+                ]}>
+                <Text style={[styles.modeChipText, { color: active ? '#FFFFFF' : theme.muted }]}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
 
       <View style={styles.summaryHeader}>
         <View style={styles.weekNav}>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, PrimaryButton, Screen, useAppTheme } from '@/components/ui';
+import { authHref } from '@/lib/auth-entry';
 import { recordAffiliateClick } from '@/services/affiliate-api';
 import { storeWebAffiliateReferral } from '@/services/branch';
 
@@ -32,7 +33,7 @@ export default function AffiliateReferralRoute() {
       if (process.env.EXPO_OS === 'web') {
         await Linking.openURL(APP_STORE_URL);
       } else {
-        router.replace('/auth');
+        router.replace(authHref('register'));
       }
     } catch (cause) {
       setError(

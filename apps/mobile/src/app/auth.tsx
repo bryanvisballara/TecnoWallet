@@ -1,7 +1,7 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -36,6 +36,7 @@ import {
 import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
+import type { AuthEntryMode } from '@/lib/auth-entry';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -63,7 +64,10 @@ export default function AuthScreen() {
   const signInWithGoogle = useAuthStore((state) => state.signInWithGoogle);
   const signInWithApple = useAuthStore((state) => state.signInWithApple);
   const requestPasswordReset = useAuthStore((state) => state.requestPasswordReset);
-  const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot'>('register');
+  const params = useLocalSearchParams<{ mode?: string | string[] }>();
+  const requestedMode = (Array.isArray(params.mode) ? params.mode[0] : params.mode)?.trim();
+  const initialMode: AuthEntryMode = requestedMode === 'login' ? 'login' : 'register';
+  const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot'>(initialMode);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -91,6 +95,18 @@ export default function AuthScreen() {
       : enterFrom.current === 'left'
         ? FadeInLeft.duration(320)
         : FadeInUp.duration(380);
+
+  useEffect(() => {
+    if (requestedMode === 'login') {
+      enterFrom.current = 'right';
+      setMode((current) => (current === 'verify' || current === 'forgot' ? current : 'login'));
+      return;
+    }
+    if (requestedMode === 'register') {
+      enterFrom.current = 'left';
+      setMode((current) => (current === 'verify' || current === 'forgot' ? current : 'register'));
+    }
+  }, [requestedMode]);
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
@@ -497,7 +513,11 @@ export default function AuthScreen() {
               <View style={styles.socialStack}>
                 {appleAvailable ? (
                   <AppleAuthentication.AppleAuthenticationButton
-                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                    buttonType={
+                      mode === 'register'
+                        ? AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP
+                        : AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+                    }
                     buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
                     cornerRadius={16}
                     style={styles.appleButton}

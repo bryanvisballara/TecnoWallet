@@ -216,6 +216,7 @@ export default function AddTransactionScreen() {
       const payload = {
         title: title.trim(),
         category: selectedEnvelope.name,
+        envelopeId: selectedEnvelope.id,
         account: selectedAccount.name,
         amount: type === 'income' ? parsed : -parsed,
         note: note.trim() || undefined,

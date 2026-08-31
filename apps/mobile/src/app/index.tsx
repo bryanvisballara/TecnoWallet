@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useAppTheme } from '@/components/ui';
+import { authHref } from '@/lib/auth-entry';
 import { useAuthStore } from '@/store/auth';
 import { useLedgerStore } from '@/store/ledger';
 
@@ -19,9 +20,9 @@ export default function IndexScreen() {
     );
   }
   if (!onboarded) return <Redirect href="/onboarding" />;
-  if (!authenticated) return <Redirect href="/auth" />;
+  if (!authenticated) return <Redirect href={authHref('register')} />;
   // Auth flag without books usually means a dead token mid-hydrate — back to login.
-  if (ledgerCount === 0) return <Redirect href="/auth" />;
+  if (ledgerCount === 0) return <Redirect href={authHref('login')} />;
   return <Redirect href="/(tabs)/inicio" />;
 }
 

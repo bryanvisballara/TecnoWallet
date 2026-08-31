@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
@@ -10,7 +10,7 @@ import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
 import { safeGoBack } from '@/lib/navigation';
 import { useFinanceStore } from '@/store/finance';
-import { useActiveLedger } from '@/store/ledger';
+import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
 
@@ -22,6 +22,7 @@ export default function TransactionsScreen() {
   const locale = useLanguageStore((state) => state.locale);
   const { fabBottom } = useSafeLayout();
   const { ledger } = useActiveLedger();
+  const refreshLedger = useLedgerStore((state) => state.refreshLedger);
   const transactions = useFinanceStore((state) => state.transactions);
   const pending = useFinanceStore((state) => state.pendingIds);
   const year = usePeriodStore((state) => state.year);
@@ -31,6 +32,13 @@ export default function TransactionsScreen() {
   const [filter, setFilter] = useState<MovementFilterKey>('all');
   const [calendar, setCalendar] = useState(false);
   const period = useMemo(() => ({ year, month }), [year, month]);
+  useFocusEffect(
+    useCallback(() => {
+      if (ledger?.type === 'shared' && ledger.id) {
+        void refreshLedger(ledger.id);
+      }
+    }, [ledger?.id, ledger?.type, refreshLedger]),
+  );
   const monthTransactions = useMemo(
     () => filterTransactionsByMonth(transactions, period),
     [transactions, period],

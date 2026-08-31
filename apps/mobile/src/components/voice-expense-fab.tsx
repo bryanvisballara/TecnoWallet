@@ -52,14 +52,14 @@ async function announce(message: string) {
 
 function Waveform({ level }: { level: number }) {
   const theme = useAppTheme();
-  const heights = useMemo(
-    () =>
-      Array.from({ length: BAR_COUNT }, (_, index) => {
-        const wave = 0.35 + Math.sin(index * 0.7) * 0.2;
-        return Math.max(0.12, Math.min(1, wave + level * (0.45 + (index % 4) * 0.08)));
-      }),
-    [level],
-  );
+  const speaking = level >= 0.16;
+  const heights = useMemo(() => {
+    if (!speaking) return Array.from({ length: BAR_COUNT }, () => 0);
+    return Array.from({ length: BAR_COUNT }, (_, index) => {
+      const wave = 0.22 + Math.sin(index * 0.85) * 0.18;
+      return Math.max(0.08, Math.min(1, wave + level * (0.5 + (index % 4) * 0.07)));
+    });
+  }, [level, speaking]);
 
   return (
     <View style={styles.wave}>
@@ -69,9 +69,9 @@ function Waveform({ level }: { level: number }) {
           style={[
             styles.waveBar,
             {
-              height: 12 + value * 36,
+              height: speaking ? 10 + value * 36 : 3,
               backgroundColor: theme.primary,
-              opacity: 0.45 + value * 0.55,
+              opacity: speaking ? 0.5 + value * 0.5 : 0.28,
             },
           ]}
         />
@@ -98,8 +98,7 @@ export function VoiceExpenseFab() {
   const [open, setOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [level, setLevel] = useState(0.18);
-  const [pulse, setPulse] = useState(0.2);
+  const [level, setLevel] = useState(0);
   const [finalText, setFinalText] = useState('');
   const [interimText, setInterimText] = useState('');
   const [statusLine, setStatusLine] = useState(voice.listening);
@@ -126,7 +125,7 @@ export function VoiceExpenseFab() {
     sessionRef.current?.stop();
     sessionRef.current = null;
     setListening(false);
-    setLevel(0.12);
+    setLevel(0);
   };
 
   const close = () => {
@@ -149,14 +148,6 @@ export function VoiceExpenseFab() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!listening) return;
-    const id = setInterval(() => {
-      setPulse(0.16 + Math.random() * 0.4);
-    }, 90);
-    return () => clearInterval(id);
-  }, [listening]);
-
   const beginListening = async () => {
     if (startingRef.current) return;
     if (!isVoiceDictationSupported()) {
@@ -174,6 +165,7 @@ export function VoiceExpenseFab() {
     setFinalText('');
     setInterimText('');
     setListening(true);
+    setLevel(0);
     setStatusLine(voice.speakNow);
     sheet.value = withTiming(1, { duration: 140, easing: Easing.out(Easing.cubic) });
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
@@ -312,6 +304,7 @@ export function VoiceExpenseFab() {
       await addTransaction({
         title: parsed.title,
         category: parsed.envelopeName,
+        envelopeId: parsed.envelopeId,
         account: account.name,
         amount: parsed.kind === 'income' ? parsed.amount : -parsed.amount,
         date: toDateKey(new Date()),
@@ -354,6 +347,7 @@ export function VoiceExpenseFab() {
         amount: parsed.amount,
         title: parsed.title,
         envelopeName: envelope.name,
+        envelopeId: envelope.id,
       });
     } catch (error) {
       setSaving(false);
@@ -405,7 +399,7 @@ export function VoiceExpenseFab() {
             <Text style={[styles.kicker, { color: theme.primary }]}>
               {saving ? voice.saving : statusLine}
             </Text>
-            <Waveform level={listening ? Math.max(level, pulse) : 0.08} />
+            <Waveform level={listening ? level : 0} />
             <Text
               style={[
                 styles.transcript,

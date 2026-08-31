@@ -285,11 +285,11 @@ async function ensureNativePermissions() {
   }
   if (nativePermissionsReady) return;
   const copy = getVoiceCopy(useLanguageStore.getState().locale);
-  const [mic] = await Promise.all([
+  const [mic, speech] = await Promise.all([
     Speech.requestMicrophonePermissionsAsync(),
     Speech.requestSpeechRecognizerPermissionsAsync().catch(() => ({ granted: false })),
   ]);
-  if (!mic.granted) {
+  if (!mic.granted || (Platform.OS === 'ios' && !speech.granted)) {
     throw new Error(copy.micPermission);
   }
   nativePermissionsReady = true;
@@ -299,26 +299,6 @@ async function ensureNativePermissions() {
 export function warmupVoiceDictation() {
   if (Platform.OS === 'web' || !Speech || nativePermissionsReady) return;
   void ensureNativePermissions().catch(() => undefined);
-}
-
-function prepareIosAudioSession() {
-  if (Platform.OS !== 'ios' || !Speech) return;
-  try {
-    Speech.setCategoryIOS({
-      category: 'playAndRecord',
-      categoryOptions: ['defaultToSpeaker', 'allowBluetooth', 'mixWithOthers'],
-      mode: 'measurement',
-    });
-  } catch {
-    // ignore
-  }
-  try {
-    Speech.setAudioSessionActiveIOS(true, {
-      notifyOthersOnDeactivation: false,
-    });
-  } catch {
-    // ignore
-  }
 }
 
 function releaseIosAudioSession() {
@@ -343,7 +323,7 @@ function buildStartOptions(lang: string, onDevice: boolean) {
     iosTaskHint: 'dictation' as const,
     iosCategory: {
       category: 'playAndRecord' as const,
-      categoryOptions: ['defaultToSpeaker', 'allowBluetooth', 'mixWithOthers'] as const,
+      categoryOptions: ['defaultToSpeaker', 'allowBluetooth'] as const,
       mode: 'measurement' as const,
     },
     contextualStrings: [
@@ -365,8 +345,23 @@ function buildStartOptions(lang: string, onDevice: boolean) {
       'sobre',
       'envelope',
     ],
-    volumeChangeEventOptions: { enabled: true, intervalMillis: 60 },
+    volumeChangeEventOptions: { enabled: true, intervalMillis: 80 },
   };
+}
+
+function extractTranscript(event?: ExpoSpeechRecognitionResultEvent) {
+  if (!event) return '';
+  const rows = event.results ?? [];
+  return rows
+    .map((item) => (typeof item?.transcript === 'string' ? item.transcript : ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function volumeToLevel(value?: number) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+  return Math.min(1, Math.max(0, (value + 2) / 12));
 }
 
 async function startNativeDictation(
@@ -385,17 +380,14 @@ async function startNativeDictation(
   }
 
   await waitForAppActive();
-  try {
-    Speech.abort();
-  } catch {
-    // ignore
-  }
-  prepareIosAudioSession();
 
   let stopped = false;
   let finalText = '';
   let retries = 0;
   let startedNotified = false;
+  let engineLive = false;
+  let startQueued = false;
+  let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let langIndex = 0;
   const langOptions = speechLangFallbacks(lang);
   let currentLang = langOptions[0] ?? lang;
@@ -403,38 +395,66 @@ async function startNativeDictation(
   let preferOnDevice = false;
   const maxRetries = 3;
 
+  const clearRestart = () => {
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+  };
+
   const startEngine = () => {
-    if (stopped) return;
-    prepareIosAudioSession();
+    if (stopped || startQueued) return;
+    startQueued = true;
+    engineLive = false;
     try {
       Speech.start(buildStartOptions(currentLang, preferOnDevice));
     } catch {
-      // Already started.
+      startQueued = false;
     }
+  };
+
+  const scheduleRestart = (ms = 420) => {
+    if (stopped) return;
+    clearRestart();
+    startQueued = false;
+    engineLive = false;
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      if (!stopped) startEngine();
+    }, ms);
   };
 
   const subs = [
     Speech.addListener('start', () => {
-      if (stopped || startedNotified) return;
-      startedNotified = true;
+      if (stopped) return;
+      startQueued = false;
+      engineLive = true;
       retries = 0;
-      handlers.onStarted?.();
+      if (!startedNotified) {
+        startedNotified = true;
+        handlers.onStarted?.();
+      }
+    }),
+    Speech.addListener('audiostart', () => {
+      if (stopped) return;
+      startQueued = false;
+      engineLive = true;
+      if (!startedNotified) {
+        startedNotified = true;
+        handlers.onStarted?.();
+      }
     }),
     Speech.addListener(
       'result',
       (event: ExpoSpeechRecognitionResultEvent) => {
         if (stopped) return;
-        const piece = (event.results ?? [])
-          .map((item) => item.transcript)
-          .join(' ')
-          .trim();
+        const piece = extractTranscript(event);
         if (!piece) return;
         if (event.isFinal) {
           finalText = `${finalText} ${piece}`.trim();
           handlers.onTranscript({ finalText, interimText: '' });
           handlers.onUtteranceFinal?.(finalText);
         } else {
-          // Live partial: keep accumulated finals + current interim.
           handlers.onTranscript({ finalText, interimText: piece });
         }
       },
@@ -443,7 +463,11 @@ async function startNativeDictation(
       'error',
       (event: ExpoSpeechRecognitionErrorEvent) => {
         if (stopped) return;
-        if (event.error === 'no-speech' || event.error === 'aborted') return;
+        if (event.error === 'aborted') return;
+        if (event.error === 'no-speech') {
+          scheduleRestart(280);
+          return;
+        }
         if (event.error === 'not-allowed') {
           handlers.onError?.(copy.micPermission);
           return;
@@ -456,9 +480,7 @@ async function startNativeDictation(
             return;
           }
           currentLang = nextLang;
-          void delay(300).then(() => {
-            if (!stopped) startEngine();
-          });
+          scheduleRestart(350);
           return;
         }
         if (
@@ -466,33 +488,19 @@ async function startNativeDictation(
           (event.error === 'service-not-allowed' || event.error === 'language-not-supported')
         ) {
           preferOnDevice = false;
-          void delay(300).then(() => {
-            if (!stopped) startEngine();
-          });
+          scheduleRestart(350);
           return;
         }
         if (!preferOnDevice && event.error === 'network') {
           if (Speech.supportsOnDeviceRecognition()) {
             preferOnDevice = true;
-            void delay(300).then(() => {
-              if (!stopped) startEngine();
-            });
+            scheduleRestart(350);
             return;
           }
         }
         if (isTransientSpeechError(event.error, event.message) && retries < maxRetries) {
           retries += 1;
-          void delay(400 + retries * 300).then(() => {
-            if (stopped) return;
-            try {
-              Speech.abort();
-            } catch {
-              // ignore
-            }
-            void delay(250).then(() => {
-              if (!stopped) startEngine();
-            });
-          });
+          scheduleRestart(500 + retries * 280);
           return;
         }
         handlers.onError?.(friendlySpeechError(event.error, event.message));
@@ -500,21 +508,28 @@ async function startNativeDictation(
     ),
     Speech.addListener('end', () => {
       if (stopped) return;
-      // Keep the session alive so live transcription continues.
-      void delay(350).then(() => {
-        if (!stopped) startEngine();
-      });
+      // Only restart after the engine actually finished — never stack a second start.
+      if (startQueued && !engineLive) return;
+      scheduleRestart(400);
     }),
     Speech.addListener('volumechange', (event) => {
-      handlers.onLevel?.(Math.min(1, Math.max(0, ((event.value ?? -2) + 2) / 12)));
+      handlers.onLevel?.(volumeToLevel(event.value));
     }),
   ];
 
   startEngine();
+  void delay(1800).then(() => {
+    if (stopped || engineLive || startedNotified) return;
+    startQueued = false;
+    startEngine();
+  });
 
   return {
     stop: () => {
       stopped = true;
+      clearRestart();
+      startQueued = false;
+      engineLive = false;
       subs.forEach((item) => item.remove());
       try {
         Speech.stop();

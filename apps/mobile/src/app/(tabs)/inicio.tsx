@@ -1,8 +1,9 @@
-import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { buildWeeklySpend, WeeklyBars } from '@/components/charts';
+import { ActivityOverview } from '@/components/activity-overview';
+import { buildWeeklySpend } from '@/components/charts';
 import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { LedgerSwitcher } from '@/components/ledger-switcher';
 import { MonthSwitcher } from '@/components/month-switcher';
@@ -36,8 +37,9 @@ export default function DashboardScreen() {
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const plusAccess = usePlusStore((state) => state.access);
   const [authUserId, setAuthUserId] = useState('');
-  const { summary, transactions, upcoming, ledger, accounts } = useActiveLedger();
+  const { summary, transactions, upcoming, ledger, accounts, envelopes } = useActiveLedger();
   const ledgers = useLedgerStore((state) => state.ledgers);
+  const refreshLedger = useLedgerStore((state) => state.refreshLedger);
   const snapshots = useLedgerStore((state) => state.snapshots);
   const readIds = useNotificationsStore((state) => state.readIds);
   const dismissedIds = useNotificationsStore((state) => state.dismissedIds);
@@ -46,6 +48,13 @@ export default function DashboardScreen() {
   useEffect(() => {
     void localStorage.get('auth-user-id', '').then((id) => setAuthUserId(id || ''));
   }, [profile?.name]);
+  useFocusEffect(
+    useCallback(() => {
+      if (ledger?.type === 'shared' && ledger.id) {
+        void refreshLedger(ledger.id);
+      }
+    }, [ledger?.id, ledger?.type, refreshLedger]),
+  );
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
   const monthLabel = usePeriodStore((state) => state.label);
@@ -259,14 +268,16 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <SectionTitle>{copy.home.weeklyActivity}</SectionTitle>
-      <Card>
-        <WeeklyBars
-          transactions={transactions}
-          today={weekAnchor}
-          resetKey={`${ledger.id}-${year}-${month}`}
-        />
-      </Card>
+      <ActivityOverview
+        transactions={transactions}
+        envelopes={envelopes}
+        year={year}
+        month={month}
+        weekAnchor={weekAnchor}
+        resetKey={`${ledger.id}-${year}-${month}`}
+        hidden={hidden}
+        currency={moneyCurrency}
+      />
 
       <SectionTitle action={copy.common.viewAll} onAction={() => router.push('/(tabs)/movimientos')}>
         {copy.home.movementsMonth(monthLabel)}

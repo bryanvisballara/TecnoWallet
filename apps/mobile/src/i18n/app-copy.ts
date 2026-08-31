@@ -85,6 +85,15 @@ export type AppCopy = {
     noGoalTitle: string;
     noGoalHint: string;
     weeklyActivity: string;
+    monthlyActivity: string;
+    rangeActivity: string;
+    periodWeek: string;
+    periodMonth: string;
+    periodDates: string;
+    dateFrom: string;
+    dateTo: string;
+    viewBreakdown: string;
+    noExpensesInPeriod: string;
     movementsMonth: (month: string) => string;
     filters: Record<MovementFilterKey, string>;
     balanceMonth: (month: string) => string;
@@ -555,6 +564,15 @@ const es: AppCopy = {
     noGoalTitle: 'Sin meta en este libro',
     noGoalHint: 'Cuando definas una meta, verás el progreso aquí.',
     weeklyActivity: 'Actividad semanal',
+    monthlyActivity: 'Actividad mensual',
+    rangeActivity: 'Actividad por fechas',
+    periodWeek: 'Semanal',
+    periodMonth: 'Mensual',
+    periodDates: 'Fechas',
+    dateFrom: 'Desde',
+    dateTo: 'Hasta',
+    viewBreakdown: 'Ver detalle',
+    noExpensesInPeriod: 'No hay gastos en este periodo.',
     movementsMonth: (month) => `Movimientos · ${month}`,
     filters: {
       all: 'Todos',
@@ -1127,6 +1145,15 @@ const en: AppCopy = {
     noGoalTitle: 'No goal in this book',
     noGoalHint: 'When you set a goal, you’ll see progress here.',
     weeklyActivity: 'Weekly activity',
+    monthlyActivity: 'Monthly activity',
+    rangeActivity: 'Activity by dates',
+    periodWeek: 'Weekly',
+    periodMonth: 'Monthly',
+    periodDates: 'Dates',
+    dateFrom: 'From',
+    dateTo: 'To',
+    viewBreakdown: 'View details',
+    noExpensesInPeriod: 'No expenses in this period.',
     movementsMonth: (month) => `Activity · ${month}`,
     filters: {
       all: 'All',

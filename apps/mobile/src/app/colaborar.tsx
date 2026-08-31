@@ -9,6 +9,7 @@ import {
   storePendingCollaborationInvite,
   type CollaborationInvitePreview,
 } from '@/services/collaboration-api';
+import { authHref } from '@/lib/auth-entry';
 import { useAuthStore } from '@/store/auth';
 import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
@@ -47,7 +48,7 @@ export default function CollaborationInviteRoute() {
     try {
       if (!authenticated) {
         await storePendingCollaborationInvite(token);
-        router.replace('/auth');
+        router.replace(authHref('login'));
         return;
       }
       const result = await acceptCollaborationInvite(token);
