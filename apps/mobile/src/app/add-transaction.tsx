@@ -12,6 +12,10 @@ import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/component
 import { getActiveMoneyCurrency, money } from '@/data/demo';
 import { toDateKey } from '@/data/calendar';
 import { isLiquidAccount } from '@/lib/accounts';
+import {
+  defaultNeedWant,
+  type NeedWant,
+} from '@/lib/need-want';
 import { useLanguageStore } from '@/store/language';
 import { useAuthStore } from '@/store/auth';
 import { useFinanceStore } from '@/store/finance';
@@ -45,7 +49,15 @@ function initialTransactionType(raw: string | string[] | undefined): 'expense' |
 export default function AddTransactionScreen() {
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
-  const params = useLocalSearchParams<{ type?: string; id?: string; accountId?: string }>();
+  const params = useLocalSearchParams<{
+    type?: string;
+    id?: string;
+    accountId?: string;
+    envelopeId?: string;
+  }>();
+  const envelopeIdParam = Array.isArray(params.envelopeId)
+    ? params.envelopeId[0]
+    : params.envelopeId;
   const editId = Array.isArray(params.id) ? params.id[0] : params.id;
   const isEditing = Boolean(editId?.trim());
   const locale = useLanguageStore((state) => state.locale);
@@ -81,7 +93,9 @@ export default function AddTransactionScreen() {
     existing ? String(Math.abs(existing.amount)) : '',
   );
   const [title, setTitle] = useState(() => existing?.title ?? '');
-  const [envelopeId, setEnvelopeId] = useState(() => existing?.envelopeId ?? '');
+  const [envelopeId, setEnvelopeId] = useState(
+    () => existing?.envelopeId ?? envelopeIdParam?.trim() ?? '',
+  );
   const [accountId, setAccountId] = useState(() => {
     if (existing) {
       const match = liquidAccounts.find((item) => item.name === existing.account);
@@ -97,6 +111,14 @@ export default function AddTransactionScreen() {
       if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
     }
     return defaultTransactionDateKey(isCurrentMonth, year, month);
+  });
+  const [needWant, setNeedWant] = useState<NeedWant | undefined>(() => {
+    if (existing && existing.amount < 0) return existing.needWant;
+    if (existing) return undefined;
+    if (initialTransactionType(params.type) === 'expense') {
+      return defaultNeedWant(ledger);
+    }
+    return undefined;
   });
   const [note, setNote] = useState(() => existing?.note ?? '');
   const [tags, setTags] = useState(() => (existing?.tags ?? []).join(', '));
@@ -123,6 +145,7 @@ export default function AddTransactionScreen() {
         const iso = existing.occurredAt.slice(0, 10);
         if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) setDateKey(iso);
       }
+      setNeedWant(existing.amount < 0 ? existing.needWant : undefined);
       setNote(existing.note ?? '');
       setTags((existing.tags ?? []).join(', '));
       setRecurring(Boolean(existing.recurring));
@@ -173,10 +196,14 @@ export default function AddTransactionScreen() {
       setEnvelopeId('');
       return;
     }
-    if (!envelopeOptions.some((item) => item.id === envelopeId)) {
-      setEnvelopeId(envelopeOptions[0].id);
+    if (envelopeOptions.some((item) => item.id === envelopeId)) return;
+    const fromParam = envelopeIdParam?.trim();
+    if (fromParam && envelopeOptions.some((item) => item.id === fromParam)) {
+      setEnvelopeId(fromParam);
+      return;
     }
-  }, [envelopeOptions, envelopeId]);
+    setEnvelopeId(envelopeOptions[0].id);
+  }, [envelopeOptions, envelopeId, envelopeIdParam]);
 
   const accountLabel =
     type === 'income' ? '¿A qué cuenta ingresó?' : '¿De qué cuenta salió?';
@@ -221,6 +248,7 @@ export default function AddTransactionScreen() {
         envelopeId: selectedEnvelope.id,
         account: selectedAccount.name,
         amount: type === 'income' ? parsed : -parsed,
+        needWant: type === 'expense' ? needWant : undefined,
         note: note.trim() || undefined,
         tags: [
           ...tags
@@ -313,7 +341,15 @@ export default function AddTransactionScreen() {
           ) : null}
           <View style={[styles.segmented, { backgroundColor: theme.surfaceSecondary }]}>
             {([['expense', 'Gasto'], ['income', 'Ingreso']] as const).map(([value, label]) => (
-              <Pressable key={value} onPress={() => setType(value)} style={[styles.segment, type === value && { backgroundColor: theme.surface }]}>
+              <Pressable
+                key={value}
+                onPress={() => {
+                  setType(value);
+                  if (value === 'expense' && !isEditing) {
+                    setNeedWant((current) => current ?? defaultNeedWant(ledger));
+                  }
+                }}
+                style={[styles.segment, type === value && { backgroundColor: theme.surface }]}>
                 <Text style={[styles.segmentText, { color: type === value ? theme.text : theme.muted }]}>{label}</Text>
               </Pressable>
             ))}
@@ -327,7 +363,7 @@ export default function AddTransactionScreen() {
                 : 'Sobre de gastos o ahorros'
             }>
             {envelopeOptions.length ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              <View style={styles.chips}>
                 {envelopeOptions.map((item) => {
                   const selected = selectedEnvelope?.id === item.id;
                   return (
@@ -341,14 +377,14 @@ export default function AddTransactionScreen() {
                           borderColor: selected ? item.color : theme.border,
                         },
                       ]}>
-                      <AppIcon name={item.icon} color={selected ? '#FFFFFF' : item.color} size={14} />
+                      <AppIcon name={item.icon} color={selected ? '#FFFFFF' : item.color} size={20} />
                       <Text style={[styles.chipText, { color: selected ? '#FFFFFF' : theme.muted }]}>
                         {item.kind === 'savings' ? `${item.name} · ahorro` : item.name}
                       </Text>
                     </Pressable>
                   );
                 })}
-              </ScrollView>
+              </View>
             ) : (
               <Pressable
                 onPress={() =>
@@ -364,6 +400,76 @@ export default function AddTransactionScreen() {
               </Pressable>
             )}
           </Field>
+          {type === 'expense' ? (
+            <Field label="Tipo de gasto">
+              <View style={styles.chips}>
+                {(
+                  [
+                    { key: 'need' as const, label: 'Necesidad', icon: 'cart.fill' },
+                    { key: 'want' as const, label: 'Deseo', icon: 'heart.fill' },
+                  ] as const
+                ).map((item) => {
+                  const selected = needWant === item.key;
+                  return (
+                    <Pressable
+                      key={item.key}
+                      accessibilityRole="button"
+                      accessibilityLabel={item.label}
+                      accessibilityState={{ selected }}
+                      onPress={() => setNeedWant(item.key)}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: selected ? theme.primarySoft : theme.surface,
+                          borderColor: selected ? theme.primary : theme.border,
+                        },
+                      ]}>
+                      <AppIcon
+                        name={item.icon}
+                        color={selected ? theme.primary : theme.muted}
+                        size={18}
+                      />
+                      <Text
+                        style={[
+                          styles.chipText,
+                          { color: selected ? theme.primary : theme.muted },
+                        ]}>
+                        {item.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: needWant === 'na' }}
+                onPress={() =>
+                  setNeedWant((current) => (current === 'na' ? undefined : 'na'))
+                }
+                style={[
+                  styles.naRow,
+                  {
+                    backgroundColor:
+                      needWant === 'na' ? theme.primarySoft : theme.surface,
+                    borderColor: needWant === 'na' ? theme.primary : theme.border,
+                  },
+                ]}>
+                <AppIcon
+                  name={needWant === 'na' ? 'checkmark.circle.fill' : 'circle'}
+                  color={needWant === 'na' ? theme.primary : theme.muted}
+                  size={22}
+                />
+                <View style={styles.flex}>
+                  <Text style={[styles.accountName, { color: theme.text }]}>
+                    No aplica
+                  </Text>
+                  <Text style={[styles.accountMeta, { color: theme.muted }]}>
+                    Márcalo si es un gasto de negocio o no es deseo/necesidad
+                  </Text>
+                </View>
+              </Pressable>
+            </Field>
+          ) : null}
           <Field label={accountLabel}>
             {liquidAccounts.length ? (
               <View style={styles.accountList}>
@@ -542,17 +648,27 @@ const styles = StyleSheet.create({
   currency: { fontSize: 12, fontWeight: '700', letterSpacing: 1 }, amountInput: { fontSize: 52, fontWeight: '700', minWidth: 200, textAlign: 'center', letterSpacing: -1.5 },
   field: { gap: 8 }, fieldLabel: { fontSize: 13, fontWeight: '600' }, input: { minHeight: 50, borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, paddingHorizontal: 14, fontSize: 15 },
   note: { minHeight: 84, paddingTop: 13, textAlignVertical: 'top' },
-  chips: { gap: 8, alignItems: 'center' },
+  chips: { gap: 10, flexDirection: 'row', flexWrap: 'wrap' },
   chip: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 9,
+    borderRadius: 16,
+    minHeight: 48,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
-  chipText: { fontSize: 12, fontWeight: '600' },
+  chipText: { fontSize: 15, fontWeight: '700' },
+  naRow: {
+    minHeight: 62,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   accountList: { gap: 8 },
   accountOption: {
     minHeight: 62,

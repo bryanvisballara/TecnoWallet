@@ -301,6 +301,14 @@ export type AppCopy = {
     couponApplying: string;
     couponApplied: (code: string) => string;
     couponInvalid: string;
+    guestInviteTitle: string;
+    guestInviteHint: string;
+    guestInvitePlaceholder: string;
+    guestInviteApply: string;
+    guestInviteWorking: string;
+    guestInviteInvalid: string;
+    guestInvitePending: string;
+    guestInviteOk: string;
     restore: string;
     purchaseFailed: string;
     restoreEmpty: string;
@@ -823,6 +831,17 @@ const es: AppCopy = {
     couponApplying: 'Aplicando…',
     couponApplied: (code) => `Cupón ${code} aplicado`,
     couponInvalid: 'Ese código no es válido.',
+    guestInviteTitle: '¿Te invitaron a un libro o calendario?',
+    guestInviteHint:
+      'Pega el código o el enlace. No es el cupón de descuento.',
+    guestInvitePlaceholder: 'Código o enlace',
+    guestInviteApply: 'Entrar',
+    guestInviteWorking: 'Entrando…',
+    guestInviteInvalid:
+      'No encontramos esa invitación. Revisa el código o entra con el correo al que te invitaron.',
+    guestInvitePending:
+      'Listo. El dueño tiene que aceptar tu solicitud.',
+    guestInviteOk: 'Ya puedes usar lo que te compartieron. No necesitas pagar.',
     restore: 'Restaurar compras',
     purchaseFailed: 'No pudimos completar la compra.',
     restoreEmpty: 'No encontramos una suscripción activa para restaurar.',
@@ -1409,6 +1428,15 @@ const en: AppCopy = {
     couponApplying: 'Applying…',
     couponApplied: (code) => `Coupon ${code} applied`,
     couponInvalid: 'That code isn’t valid.',
+    guestInviteTitle: 'Were you invited to a book or calendar?',
+    guestInviteHint: 'Paste the code or link. This is not the discount coupon.',
+    guestInvitePlaceholder: 'Code or link',
+    guestInviteApply: 'Join',
+    guestInviteWorking: 'Joining…',
+    guestInviteInvalid:
+      'We couldn’t find that invite. Check the code or sign in with the email they invited.',
+    guestInvitePending: 'Done. The owner still has to approve your request.',
+    guestInviteOk: 'You can use what they shared. You don’t need to pay.',
     restore: 'Restore purchases',
     purchaseFailed: 'We couldn’t complete the purchase.',
     restoreEmpty: 'We couldn’t find an active subscription to restore.',

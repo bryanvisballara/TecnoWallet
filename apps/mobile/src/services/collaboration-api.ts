@@ -2,7 +2,20 @@ import { apiRequest } from './api';
 import { localStorage, tokenStorage } from './persistence';
 
 export const PENDING_COLLABORATION_INVITE_KEY = 'pending-collaboration-invite';
+export const PENDING_SHARE_CODE_KEY = 'pending-collaboration-share-code';
 const PENDING_INVITE_KEY = PENDING_COLLABORATION_INVITE_KEY;
+
+export function parseInviteInput(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const fromUrl = trimmed.match(/[?&]token=([^&#]+)/i);
+  const value = fromUrl ? decodeURIComponent(fromUrl[1]) : trimmed;
+  const share = value.toUpperCase().replace(/\s+/g, '');
+  if (/^T[WC][A-Z2-9]{8}$/.test(share)) {
+    return { kind: 'share' as const, value: share };
+  }
+  return { kind: 'token' as const, value };
+}
 const SEEN_ACCESS_REQUESTS_KEY = 'seen-access-request-ids';
 const SEEN_TEAM_TX_KEY = 'seen-team-transaction-ids';
 const SEEN_TEAM_CAL_KEY = 'seen-team-calendar-item-ids';
@@ -217,6 +230,30 @@ export async function claimPendingCollaborationInvite() {
   const result = await acceptCollaborationInvite(token);
   await localStorage.remove(PENDING_INVITE_KEY);
   return result;
+}
+
+export async function storePendingShareCode(code: string) {
+  return localStorage.set(PENDING_SHARE_CODE_KEY, code.trim().toUpperCase());
+}
+
+export async function claimPendingShareCode() {
+  if (!(await tokenStorage.get())) return null;
+  const code = await localStorage.get(PENDING_SHARE_CODE_KEY, '');
+  if (!code) return null;
+  const result = await createAccessRequest(code);
+  await localStorage.remove(PENDING_SHARE_CODE_KEY);
+  return result;
+}
+
+export async function rememberInviteInput(raw: string) {
+  const parsed = parseInviteInput(raw);
+  if (!parsed) return null;
+  if (parsed.kind === 'share') {
+    await storePendingShareCode(parsed.value);
+    return parsed;
+  }
+  await storePendingCollaborationInvite(parsed.value);
+  return parsed;
 }
 
 export async function markAccessRequestSeen(requestId: string) {

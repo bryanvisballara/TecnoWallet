@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -21,6 +22,9 @@ export const transactionKinds = [
   'envelope_transfer',
 ] as const;
 export type TransactionKind = (typeof transactionKinds)[number];
+
+export const needWantKinds = ['need', 'want', 'na'] as const;
+export type NeedWant = (typeof needWantKinds)[number];
 
 export class LedgerEntryDto {
   @IsString()
@@ -62,13 +66,17 @@ export class CreateTransactionDto {
   @IsBoolean()
   private?: boolean;
 
+  @IsOptional()
+  @IsIn(needWantKinds)
+  needWant?: NeedWant;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LedgerEntryDto)
   entries!: LedgerEntryDto[];
 }
 
-/** Date, description or envelope — not amounts. Amounts stay immutable. */
+/** Date, description, envelope or spend class — not amounts. Amounts stay immutable. */
 export class AmendTransactionDto {
   @IsOptional()
   @IsDateString()
@@ -81,6 +89,11 @@ export class AmendTransactionDto {
   @IsOptional()
   @IsString()
   envelopeId?: string;
+
+  /** Empty string clears the classification. */
+  @IsOptional()
+  @IsIn([...needWantKinds, ''])
+  needWant?: NeedWant | '';
 }
 
 @Schema({ _id: false })
@@ -136,6 +149,10 @@ export class LedgerTransaction {
     default: 'workspace',
   })
   privacy!: 'workspace' | 'private';
+
+  /** Personal spend: need vs want. `na` when it does not apply (business). */
+  @Prop({ type: String, enum: needWantKinds })
+  needWant?: NeedWant;
 
   createdAt!: Date;
 }
@@ -261,7 +278,8 @@ export class LedgerService {
     const hasDate = Boolean(patch.occurredAt);
     const hasDescription = patch.description !== undefined;
     const hasEnvelope = patch.envelopeId !== undefined;
-    if (!hasDate && !hasDescription && !hasEnvelope) {
+    const hasNeedWant = patch.needWant !== undefined;
+    if (!hasDate && !hasDescription && !hasEnvelope && !hasNeedWant) {
       throw new BadRequestException('Nothing to amend');
     }
     if (hasDate) {
@@ -296,6 +314,11 @@ export class LedgerService {
         entry.envelopeId = envelopeObjectId ?? undefined;
       }
       original.markModified('entries');
+    }
+    if (hasNeedWant) {
+      const raw = (patch.needWant ?? '').trim();
+      original.needWant = raw ? (raw as NeedWant) : undefined;
+      original.markModified('needWant');
     }
     return original.save();
   }

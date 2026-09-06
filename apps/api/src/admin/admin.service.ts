@@ -127,7 +127,7 @@ export class AdminService {
       paydayDay: AFFILIATE_PAYOUT_DAY,
       minimumUsd: AFFILIATE_PAYOUT_MIN_MINOR / 100,
       minimumMinor: AFFILIATE_PAYOUT_MIN_MINOR,
-      rule: 'El afiliado solicita el pago desde la app cuando acumuló al menos USD 100 y ya guardó su wallet USDT. No hay fecha fija al mes: se paga cuando lo pide.',
+      rule: 'A desembolsar suma toda la remuneración pendiente (US$ 5 por conversión), aunque aún no lleguen a USD 100. El afiliado pide el pago desde la app al acumular USD 100 y tener wallet USDT. No hay fecha fija al mes.',
     };
   }
 
@@ -165,7 +165,11 @@ export class AdminService {
   }
 
   async affiliatePayouts(query: AdminPayoutsQueryDto) {
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = {
+      commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+      commissionRate: 0,
+      eventType: { $ne: 'admin_simulate' },
+    };
     if (query.status) filter.status = query.status;
     const occurredAt: { $gte?: Date; $lte?: Date } = {};
     if (query.from) {
@@ -230,6 +234,7 @@ export class AdminService {
       email: string | null;
       commissionTotalMinor: number;
       pendingMinor: number;
+      paidMinor: number;
       currency: string;
       status: CommissionEventStatus;
       simulated: boolean;
@@ -275,6 +280,7 @@ export class AdminService {
           email: owner?.email ?? null,
           commissionTotalMinor: 0,
           pendingMinor: 0,
+          paidMinor: 0,
           currency: row.currency || 'USD',
           status: row.status,
           simulated: row.eventType === 'admin_simulate',
@@ -303,6 +309,9 @@ export class AdminService {
         (row.status === 'pending' || row.status === 'approved')
       ) {
         bucket.pendingMinor += row.commissionAmountMinor;
+      }
+      if (isBounty && row.status === 'paid') {
+        bucket.paidMinor += row.commissionAmountMinor;
       }
       if (row.eventType === 'admin_simulate') bucket.simulated = true;
       bucket.commissions.push({
@@ -354,18 +363,42 @@ export class AdminService {
         blockReason,
         referralCount: paidReferrals,
         bountyAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
+        payoutRequestedAt:
+          affiliateById.get(bucket.affiliateId)?.payoutRequestedAt ?? null,
+        lastPaidAt:
+          bucket.commissions
+            .map((row) => row.paidAt)
+            .filter((value): value is Date => Boolean(value))
+            .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
       };
     });
     affiliatesOut.sort((a, b) => {
+      if (a.payoutRequested !== b.payoutRequested) {
+        return a.payoutRequested ? -1 : 1;
+      }
       if (a.ready !== b.ready) return a.ready ? -1 : 1;
       return b.pendingMinor - a.pendingMinor;
     });
+
+    const pendingMinor = affiliatesOut.reduce(
+      (sum, row) => sum + row.pendingMinor,
+      0,
+    );
+    const requestedMinor = affiliatesOut
+      .filter((row) => row.payoutRequested)
+      .reduce((sum, row) => sum + row.pendingMinor, 0);
+    const paidMinor = affiliatesOut.reduce((sum, row) => sum + row.paidMinor, 0);
 
     return {
       from: query.from ?? null,
       to: query.to ?? null,
       status: query.status ?? null,
       policy: this.payoutPolicy(),
+      totals: {
+        pendingMinor,
+        requestedMinor,
+        paidMinor,
+      },
       affiliates: affiliatesOut,
     };
   }

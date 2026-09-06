@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
 import { AffiliateModule } from '../affiliate/affiliate.module';
+import { CollaborationModule } from '../collaboration/collaboration.module';
 import {
   BillingController,
   RevenueCatWebhookController,
@@ -19,6 +20,7 @@ import { EntitlementService } from './entitlement.service';
   imports: [
     AuthModule,
     forwardRef(() => AffiliateModule),
+    forwardRef(() => CollaborationModule),
     MongooseModule.forFeature([
       { name: Subscription.name, schema: SubscriptionSchema },
       {

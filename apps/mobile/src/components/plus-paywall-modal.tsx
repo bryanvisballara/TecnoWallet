@@ -31,7 +31,16 @@ import {
   purchasePlus,
   restorePlusPurchases,
 } from '@/services/purchases';
+import {
+  acceptCollaborationInvite,
+  createAccessRequest,
+  parseInviteInput,
+  rememberInviteInput,
+} from '@/services/collaboration-api';
+import { canUseSharedBooksWithoutPaying } from '@/services/plus-api';
 import { useAffiliateStore } from '@/store/affiliate';
+import { useCalendarStore } from '@/store/calendar';
+import { useLedgerStore } from '@/store/ledger';
 import {
   type PaywallPlan,
   usePlusStore,
@@ -68,11 +77,13 @@ export function PlusPaywallModal() {
   const close = usePlusStore((state) => state.closePaywall);
   const setBilling = usePlusStore((state) => state.setBilling);
   const setCoupon = usePlusStore((state) => state.setCoupon);
-  const [working, setWorking] = useState<'buy' | 'restore' | 'coupon' | null>(
-    null,
-  );
+  const [working, setWorking] = useState<
+    'buy' | 'restore' | 'coupon' | 'invite' | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [couponDraft, setCouponDraft] = useState('');
+  const [inviteDraft, setInviteDraft] = useState('');
   const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
   const benefitLabels = isBusiness ? copy.paywall.businessBenefits : copy.paywall.plusBenefits;
@@ -97,6 +108,7 @@ export function PlusPaywallModal() {
   useEffect(() => {
     if (!visible) return;
     setError(null);
+    setInviteNotice(null);
     useAffiliateStore.getState().dismissWelcome();
     if (usePlusStore.getState().couponCode) {
       setCouponDraft(usePlusStore.getState().couponCode ?? '');
@@ -128,6 +140,45 @@ export function PlusPaywallModal() {
       setError(message);
     } finally {
       if (!options?.silent) setWorking(null);
+    }
+  };
+
+  const applyGuestInvite = async () => {
+    const parsed = parseInviteInput(inviteDraft);
+    if (!parsed) {
+      setError(copy.paywall.guestInviteInvalid);
+      return;
+    }
+    setError(null);
+    setInviteNotice(null);
+    setWorking('invite');
+    try {
+      if (parsed.kind === 'share') {
+        await createAccessRequest(parsed.value);
+        await usePlusStore.getState().hydrate();
+        setInviteNotice(copy.paywall.guestInvitePending);
+        if (canUseSharedBooksWithoutPaying(usePlusStore.getState().billing)) {
+          close();
+        }
+        return;
+      }
+      await rememberInviteInput(parsed.value);
+      await acceptCollaborationInvite(parsed.value);
+      await Promise.all([
+        usePlusStore.getState().hydrate(),
+        useLedgerStore.getState().hydrate(),
+        useCalendarStore.getState().hydrate(),
+      ]);
+      setInviteNotice(copy.paywall.guestInviteOk);
+      close();
+    } catch (inviteError) {
+      setError(
+        inviteError instanceof Error
+          ? inviteError.message
+          : copy.paywall.guestInviteInvalid,
+      );
+    } finally {
+      setWorking(null);
     }
   };
 
@@ -247,6 +298,60 @@ export function PlusPaywallModal() {
                 </Text>
               </View>
             ))}
+          </View>
+
+          <View style={styles.couponBlock}>
+            <Text style={[styles.couponLabel, { color: theme.text }]}>
+              {copy.paywall.guestInviteTitle}
+            </Text>
+            <Text style={[styles.guestHint, { color: theme.muted }]}>
+              {copy.paywall.guestInviteHint}
+            </Text>
+            <View style={styles.couponRow}>
+              <TextInput
+                value={inviteDraft}
+                onChangeText={setInviteDraft}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!working}
+                placeholder={copy.paywall.guestInvitePlaceholder}
+                placeholderTextColor={theme.muted}
+                style={[
+                  styles.couponInput,
+                  {
+                    color: theme.text,
+                    backgroundColor: theme.surfaceSecondary,
+                    borderColor: theme.border,
+                    letterSpacing: 0,
+                    fontWeight: '600',
+                  },
+                ]}
+              />
+              <ScalePressable
+                accessibilityRole="button"
+                disabled={Boolean(working) || !inviteDraft.trim()}
+                onPress={() => void applyGuestInvite()}
+                style={[
+                  styles.couponButton,
+                  {
+                    backgroundColor: theme.primary,
+                    opacity: working || !inviteDraft.trim() ? 0.6 : 1,
+                  },
+                ]}>
+                {working === 'invite' ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.couponButtonText}>
+                    {copy.paywall.guestInviteApply}
+                  </Text>
+                )}
+              </ScalePressable>
+            </View>
+            {inviteNotice ? (
+              <Text style={[styles.guestOk, { color: theme.success }]}>
+                {inviteNotice}
+              </Text>
+            ) : null}
           </View>
 
           {couponCode ? (
@@ -438,6 +543,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   benefitText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  guestHint: { fontSize: 12, lineHeight: 17, fontWeight: '500' },
+  guestOk: { fontSize: 13, fontWeight: '700' },
   couponBlock: { gap: 6, marginTop: 4 },
   couponLabel: { fontSize: 13, fontWeight: '700' },
   couponRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },

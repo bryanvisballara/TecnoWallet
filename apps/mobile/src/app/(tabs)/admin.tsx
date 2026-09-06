@@ -1,6 +1,6 @@
 import { Redirect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,16 +15,15 @@ import { AppIcon, Card, Pill, PrimaryButton, Screen, useAppTheme } from '@/compo
 import { copyText } from '@/lib/copy-text';
 import { safeGoBack } from '@/lib/navigation';
 import {
-  clearSimulatedAdminPayouts,
   getAdminAffiliatePayouts,
   getAdminUserDetail,
   getAdminUserStats,
   payAdminAffiliate,
   searchAdminUsers,
-  simulateAdminPayouts,
   upgradeAdminUser,
   type AdminAffiliatePayout,
   type AdminPayoutPolicy,
+  type AdminPayoutTotals,
   type AdminPlan,
   type AdminUserDetail,
   type AdminUserRow,
@@ -70,17 +69,6 @@ function moneyMinor(amountMinor: number, currency: string) {
   }).format(amountMinor / 100);
 }
 
-function toInputDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function previousMonthRange() {
-  const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59));
-  return { from: toInputDate(from), to: toInputDate(to) };
-}
-
 const MAX_PROOF_B64 = 900_000;
 
 async function pickCompressedProof() {
@@ -123,6 +111,7 @@ function payoutOrigin(row: AdminAffiliatePayout) {
   >();
   for (const item of row.commissions) {
     if (item.status === 'reversed') continue;
+    if (item.commissionAmountMinor !== bounty) continue;
     const key = item.planLabel || item.product || 'Plan';
     const cur = groups.get(key) ?? {
       count: 0,
@@ -140,20 +129,162 @@ function payoutOrigin(row: AdminAffiliatePayout) {
   };
 }
 
-function blockCopy(reason: AdminAffiliatePayout['blockReason']) {
-  if (reason === 'no_wallet') {
-    return 'Sin wallet USDT. No se puede pagar. Pídele que la registre en Afiliados.';
-  }
-  if (reason === 'below_minimum') {
-    return 'Bajo el mínimo de USD 100. El afiliado debe acumular más para solicitar el pago.';
-  }
-  if (reason === 'already_paid') {
-    return 'Sin saldo pendiente.';
-  }
-  if (reason === 'not_requested') {
-    return 'Todavía no ha solicitado el pago desde la app.';
-  }
-  return '';
+type AdminTheme = ReturnType<typeof useAppTheme>;
+
+function AdminPayoutCard({
+  row,
+  mode,
+  theme,
+  open,
+  busy,
+  onToggle,
+  onMarkPaid,
+}: {
+  row: AdminAffiliatePayout;
+  mode: 'request' | 'history';
+  theme: AdminTheme;
+  open: boolean;
+  busy: boolean;
+  onToggle: () => void;
+  onMarkPaid?: () => void;
+}) {
+  const payout = row.payoutMethod;
+  const pending = row.pendingMinor ?? 0;
+  const paid = row.paidMinor ?? 0;
+  const amount = mode === 'history' ? paid : pending;
+  const origin = payoutOrigin(row);
+  const visibleCommissions =
+    mode === 'history'
+      ? row.commissions.filter((item) => item.status === 'paid')
+      : row.commissions.filter((item) => item.status !== 'reversed');
+  return (
+    <Card style={styles.block}>
+      <Pressable onPress={onToggle} style={styles.between}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={[styles.memberName, { color: theme.text }]}>
+            {row.affiliateName}
+          </Text>
+          <Text style={[styles.hint, { color: theme.muted }]}>
+            {row.affiliateCode || row.affiliateId}
+            {row.email ? ` · ${row.email}` : ''}
+          </Text>
+          <Text style={[styles.hint, { color: payout ? theme.text : theme.danger }]}>
+            {payout
+              ? `USDT ${payout.network.toUpperCase()}\n${payout.address}`
+              : 'Sin wallet USDT'}
+          </Text>
+          {mode === 'request' && row.payoutRequestedAt ? (
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Solicitó el {formatAdminDate(row.payoutRequestedAt)}
+            </Text>
+          ) : null}
+          {mode === 'history' && row.lastPaidAt ? (
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Pagado el {formatAdminDate(row.lastPaidAt)}
+            </Text>
+          ) : null}
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 6 }}>
+          <Text style={[styles.amount, { color: theme.text }]}>
+            {moneyMinor(amount, row.currency)}
+          </Text>
+          <Pill tone={mode === 'history' ? 'green' : 'blue'}>
+            {mode === 'history' ? 'Pagado' : 'Solicitado'}
+          </Pill>
+        </View>
+      </Pressable>
+
+      <View
+        style={[
+          styles.originBox,
+          {
+            backgroundColor: theme.surfaceSecondary,
+            borderColor: theme.border,
+          },
+        ]}>
+        <View style={styles.between}>
+          <Text style={[styles.label, { color: theme.text }]}>
+            US$ 5 una vez por conversión
+          </Text>
+          <Pill tone="blue">
+            {origin.refs} referido{origin.refs === 1 ? '' : 's'}
+          </Pill>
+        </View>
+        <Text style={[styles.hint, { color: theme.muted }]}>
+          Verifica estas conversiones Plus o Business antes de marcar el pago.
+        </Text>
+        {origin.groups.map((group) => (
+          <Text
+            key={group.label}
+            style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
+            {group.count} × {group.label} ={' '}
+            {moneyMinor(group.commissionMinor, row.currency)}
+          </Text>
+        ))}
+      </View>
+
+      {payout ? (
+        <Pressable
+          onPress={() => {
+            void copyValue(
+              payout.address,
+              `Wallet USDT ${payout.network.toUpperCase()} copiada.`,
+            ).catch((cause) =>
+              Alert.alert(
+                'No se copió',
+                cause instanceof Error ? cause.message : 'Intenta de nuevo.',
+              ),
+            );
+          }}
+          style={[
+            styles.copyBtn,
+            {
+              borderColor: theme.primary,
+              backgroundColor: theme.primarySoft,
+            },
+          ]}>
+          <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
+            Copiar wallet
+          </Text>
+        </Pressable>
+      ) : null}
+
+      {mode === 'request' && onMarkPaid ? (
+        <PrimaryButton onPress={onMarkPaid}>
+          {busy ? 'Pagando…' : 'Marcar como pagado · subir comprobante'}
+        </PrimaryButton>
+      ) : null}
+
+      <Pressable onPress={onToggle}>
+        <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
+          {open
+            ? 'Ocultar afiliados referidos'
+            : `Ver afiliados referidos (${visibleCommissions.length})`}
+        </Text>
+      </Pressable>
+
+      {open
+        ? visibleCommissions.map((commission) => (
+            <View
+              key={commission.id}
+              style={[styles.commissionRow, { borderTopColor: theme.border }]}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={[styles.memberName, { color: theme.text }]}>
+                  {commission.userLabel}
+                </Text>
+                <Text style={[styles.hint, { color: theme.muted }]}>
+                  {commission.planLabel} · US$ 5 una vez ·{' '}
+                  {statusLabel[commission.status]}
+                </Text>
+              </View>
+              <Text style={[styles.amount, { color: theme.text }]}>
+                {moneyMinor(commission.commissionAmountMinor, commission.currency)}
+              </Text>
+            </View>
+          ))
+        : null}
+    </Card>
+  );
 }
 
 export default function AdminPortalScreen() {
@@ -166,10 +297,7 @@ export default function AdminPortalScreen() {
   const [payouts, setPayouts] = useState<AdminAffiliatePayout[]>([]);
   const [payoutsLoading, setPayoutsLoading] = useState(false);
   const [payoutPolicy, setPayoutPolicy] = useState<AdminPayoutPolicy | null>(null);
-  const month = useMemo(() => previousMonthRange(), []);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState(month.to);
-  const [statusFilter, setStatusFilter] = useState<string>('pending');
+  const [payoutTotals, setPayoutTotals] = useState<AdminPayoutTotals | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [userQuery, setUserQuery] = useState('');
@@ -197,20 +325,60 @@ export default function AdminPortalScreen() {
     setPayoutsLoading(true);
     setError(null);
     try {
-      const result = await getAdminAffiliatePayouts({
-        from: from || undefined,
-        to: to || undefined,
-        status: statusFilter || undefined,
-      });
+      const result = await getAdminAffiliatePayouts();
       setPayouts(result.affiliates);
       setPayoutPolicy(result.policy);
+      setPayoutTotals(result.totals ?? null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los pagos.');
       setPayouts([]);
     } finally {
       setPayoutsLoading(false);
     }
-  }, [from, to, statusFilter]);
+  }, []);
+
+  const markAffiliatePaid = useCallback(async (row: AdminAffiliatePayout) => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Permiso',
+        'Necesitas acceso a fotos para adjuntar el comprobante de la transferencia.',
+      );
+      return;
+    }
+    const proof = await pickCompressedProof();
+    if (proof.canceled) {
+      Alert.alert(
+        'Comprobante',
+        'Sube la captura de la transferencia USDT para enviar el correo y marcar pagado.',
+      );
+      return;
+    }
+    setBusyId(row.affiliateId);
+    try {
+      const result = await payAdminAffiliate(row.affiliateId, {
+        note: 'Pago USDT a solicitud del afiliado',
+        proofName: proof.name,
+        proofBase64: proof.base64,
+      });
+      Alert.alert(
+        'Pagado',
+        `${moneyMinor(result.paidMinor, result.currency)} a ${result.wallet.network.toUpperCase()} ${result.wallet.address}\nCorreo ${result.emailDelivered ? 'enviado' : 'registrado'} a ${result.email}.${
+          proof.omitted
+            ? '\nLa foto era muy pesada: el pago sí quedó, el correo va sin adjunto.'
+            : ''
+        }\nSaldo del afiliado: USD 0.00`,
+      );
+      await loadPayouts();
+    } catch (cause) {
+      Alert.alert(
+        'No se pagó',
+        cause instanceof Error ? cause.message : 'Revisa wallet, solicitud y comprobante.',
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }, [loadPayouts]);
 
   const loadUsers = useCallback(async (q?: string, plan?: PlanFilter) => {
     setUsersLoading(true);
@@ -281,6 +449,27 @@ export default function AdminPortalScreen() {
   if (!isAdmin) {
     return <Redirect href="/(tabs)/mas" />;
   }
+
+  const pendingToReserve =
+    payoutTotals?.pendingMinor ??
+    payouts.reduce((sum, row) => sum + (row.pendingMinor ?? 0), 0);
+  const paidTotal =
+    payoutTotals?.paidMinor ??
+    payouts.reduce((sum, row) => sum + (row.paidMinor ?? 0), 0);
+  const payoutRequests = payouts.filter(
+    (row) => row.payoutRequested && row.pendingMinor > 0,
+  );
+  const payoutHistory = [...payouts]
+    .filter(
+      (row) =>
+        (row.paidMinor ?? 0) > 0 ||
+        (row.pendingMinor <= 0 && (row.commissionTotalMinor ?? 0) > 0),
+    )
+    .sort((a, b) => {
+      const aTime = a.lastPaidAt ? new Date(a.lastPaidAt).getTime() : 0;
+      const bTime = b.lastPaidAt ? new Date(b.lastPaidAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
   return (
     <Screen
@@ -356,390 +545,108 @@ export default function AdminPortalScreen() {
             <Text style={[styles.section, { color: theme.text }]}>Cómo se paga</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
               {payoutPolicy?.rule ??
-                'El afiliado solicita el pago desde la app al acumular USD 100 y tener wallet USDT. No hay fecha fija al mes.'}
+                'A desembolsar es el dinero generado en remuneraciones, aunque aún no lleguen a USD 100. Las solicitudes aparecen cuando el afiliado pide el pago.'}
             </Text>
             <View style={styles.statGrid}>
               <StatCard
-                label="Listos ≥ $100"
-                value={String(payouts.filter((row) => row.ready).length)}
+                label="A desembolsar"
+                value={moneyMinor(pendingToReserve, 'USD')}
+                tone={theme.primary}
+              />
+              <StatCard
+                label="Solicitudes"
+                value={String(payoutRequests.length)}
                 tone={theme.success}
               />
               <StatCard
-                label="Sin wallet"
-                value={String(payouts.filter((row) => row.blockReason === 'no_wallet').length)}
-                tone={theme.warning}
-              />
-              <StatCard
-                label="Bajo mínimo"
-                value={String(payouts.filter((row) => row.blockReason === 'below_minimum').length)}
+                label="Pagado"
+                value={moneyMinor(paidTotal, 'USD')}
                 tone={theme.muted}
               />
               <StatCard
-                label="A desembolsar"
-                value={moneyMinor(
-                  payouts.filter((row) => row.ready).reduce((sum, row) => sum + row.pendingMinor, 0),
-                  'USD',
+                label="Conversiones"
+                value={String(
+                  payouts.reduce((sum, row) => sum + (row.referralCount ?? 0), 0),
                 )}
-                tone={theme.primary}
+                tone={theme.warning}
               />
             </View>
-            <PrimaryButton
-              onPress={() => {
-                void (async () => {
-                  try {
-                    const result = await simulateAdminPayouts();
-                    Alert.alert('Cola de prueba', `${result.notice}\nCorreo: ${result.email}`);
-                    setStatusFilter('pending');
-                    await loadPayouts();
-                  } catch (cause) {
-                    Alert.alert(
-                      'Error',
-                      cause instanceof Error ? cause.message : 'No se pudo simular.',
-                    );
-                  }
-                })();
-              }}>
-              Cargar 10 pagos de prueba
+            <PrimaryButton onPress={() => void loadPayouts()}>
+              {payoutsLoading ? 'Cargando…' : 'Actualizar'}
             </PrimaryButton>
-            <Pressable
-              onPress={() => {
-                void (async () => {
-                  try {
-                    await clearSimulatedAdminPayouts();
-                    await loadPayouts();
-                  } catch (cause) {
-                    Alert.alert(
-                      'Error',
-                      cause instanceof Error ? cause.message : 'No se pudieron borrar.',
-                    );
-                  }
-                })();
-              }}>
-              <Text style={{ color: theme.muted, fontWeight: '700', textAlign: 'center' }}>
-                Borrar pagos de prueba
-              </Text>
-            </Pressable>
           </Card>
 
           <Card style={styles.block}>
-            <Text style={[styles.section, { color: theme.text }]}>Periodo a pagar</Text>
+            <Text style={[styles.section, { color: theme.text }]}>Solicitudes de pago</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Vacío en Desde = todo lo acumulado no pagado hasta Hasta (mes anterior).
+              Aparecen cuando el afiliado llega a USD 100, guarda su wallet USDT y
+              presiona Solicitar pago. Te llega un push y un correo a
+              dev@wwtecno.com.
             </Text>
-            <View style={styles.row}>
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text style={[styles.label, { color: theme.muted }]}>Desde</Text>
-                <TextInput
-                  value={from}
-                  onChangeText={setFrom}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={theme.muted}
-                  autoCapitalize="none"
-                  style={[
-                    styles.input,
-                    {
-                      color: theme.text,
-                      borderColor: theme.border,
-                      backgroundColor: theme.surfaceSecondary,
-                    },
-                  ]}
-                />
-              </View>
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text style={[styles.label, { color: theme.muted }]}>Hasta</Text>
-                <TextInput
-                  value={to}
-                  onChangeText={setTo}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={theme.muted}
-                  autoCapitalize="none"
-                  style={[
-                    styles.input,
-                    {
-                      color: theme.text,
-                      borderColor: theme.border,
-                      backgroundColor: theme.surfaceSecondary,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
-            <View style={styles.rowWrap}>
-              {['', 'pending', 'approved', 'paid', 'reversed'].map((value) => {
-                const active = statusFilter === value;
-                const label = value ? statusLabel[value] : 'Todos';
-                return (
-                  <Pressable
-                    key={value || 'all'}
-                    onPress={() => setStatusFilter(value)}
-                    style={[
-                      styles.chip,
-                      {
-                        borderColor: active ? theme.primary : theme.border,
-                        backgroundColor: active
-                          ? theme.primarySoft
-                          : theme.surfaceSecondary,
-                      },
-                    ]}>
-                    <Text
-                      style={{
-                        color: active ? theme.primary : theme.text,
-                        fontWeight: '700',
-                        fontSize: 12,
-                      }}>
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <PrimaryButton onPress={() => void loadPayouts()}>
-              {payoutsLoading ? 'Cargando…' : 'Aplicar filtro'}
-            </PrimaryButton>
           </Card>
 
           {payoutsLoading ? (
             <ActivityIndicator color={theme.primary} />
-          ) : payouts.length === 0 ? (
+          ) : payoutRequests.length === 0 ? (
             <Card>
               <Text style={[styles.hint, { color: theme.muted }]}>
-                No hay comisiones en este rango.
+                No hay solicitudes. El saldo pendiente se aparta en A desembolsar
+                hasta que alguien pida el pago.
               </Text>
             </Card>
           ) : (
-            payouts.map((row) => {
-              const open = expandedId === row.affiliateId;
-              const payout = row.payoutMethod;
-              const pending = row.pendingMinor ?? row.commissionTotalMinor;
-              const origin = payoutOrigin(row);
-              return (
-                <Card key={row.affiliateId} style={styles.block}>
-                  <Pressable
-                    onPress={() =>
-                      setExpandedId(open ? null : row.affiliateId)
-                    }
-                    style={styles.between}>
-                    <View style={{ flex: 1, gap: 4 }}>
-                      <Text style={[styles.memberName, { color: theme.text }]}>
-                        {row.affiliateName}
-                        {row.simulated ? ' · prueba' : ''}
-                      </Text>
-                      <Text style={[styles.hint, { color: theme.muted }]}>
-                        {row.affiliateCode || row.affiliateId}
-                        {row.email ? ` · ${row.email}` : ''}
-                      </Text>
-                      <Text style={[styles.hint, { color: payout ? theme.text : theme.danger }]}>
-                        {payout
-                          ? `USDT ${payout.network.toUpperCase()}\n${payout.address}`
-                          : 'Sin wallet USDT'}
-                      </Text>
-                      {row.blockReason ? (
-                        <Text style={[styles.hint, { color: theme.warning }]}>
-                          {blockCopy(row.blockReason)}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                      <Text style={[styles.amount, { color: theme.text }]}>
-                        {moneyMinor(pending, row.currency)}
-                      </Text>
-                      <Pill
-                        tone={
-                          row.ready
-                            ? 'green'
-                            : row.blockReason === 'already_paid'
-                              ? 'neutral'
-                              : 'orange'
-                        }>
-                        {row.ready
-                          ? 'Listo'
-                          : row.blockReason === 'no_wallet'
-                            ? 'Sin wallet'
-                            : row.blockReason === 'below_minimum'
-                              ? 'Acumula'
-                              : row.blockReason === 'not_requested'
-                                ? 'Sin solicitud'
-                                : statusLabel[row.status] ?? row.status}
-                      </Pill>
-                    </View>
-                  </Pressable>
+            payoutRequests.map((row) => (
+              <AdminPayoutCard
+                key={`req-${row.affiliateId}`}
+                row={row}
+                mode="request"
+                theme={theme}
+                open={expandedId === `req-${row.affiliateId}`}
+                busy={busyId === row.affiliateId}
+                onToggle={() =>
+                  setExpandedId((current) =>
+                    current === `req-${row.affiliateId}`
+                      ? null
+                      : `req-${row.affiliateId}`,
+                  )
+                }
+                onMarkPaid={() => void markAffiliatePaid(row)}
+              />
+            ))
+          )}
 
-                  <View
-                    style={[
-                      styles.originBox,
-                      {
-                        backgroundColor: theme.surfaceSecondary,
-                        borderColor: theme.border,
-                      },
-                    ]}>
-                    <View style={styles.between}>
-                      <Text style={[styles.label, { color: theme.text }]}>
-                        US$ 5 una vez por conversión
-                      </Text>
-                      <Pill tone="blue">
-                        {origin.refs} compra{origin.refs === 1 ? '' : 's'}
-                      </Pill>
-                    </View>
-                    <Text style={[styles.hint, { color: theme.muted }]}>
-                      {origin.refs} referido{origin.refs === 1 ? '' : 's'} que compró
-                      Plus o Business. US$ 5 una sola vez, sin niveles ni comisión
-                      mensual.
-                    </Text>
-                    {origin.groups.map((group) => (
-                      <Text
-                        key={group.label}
-                        style={[styles.memberName, { color: theme.text, fontSize: 13 }]}>
-                        {group.count} × {group.label} ={' '}
-                        {moneyMinor(group.commissionMinor, row.currency)}
-                      </Text>
-                    ))}
-                    <Text style={[styles.hint, { color: theme.text, fontWeight: '700' }]}>
-                      Total a pagar: {moneyMinor(pending, row.currency)}
-                    </Text>
-                  </View>
+          <Card style={styles.block}>
+            <Text style={[styles.section, { color: theme.text }]}>Historial de pagos</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              Pagos ya marcados. El saldo del afiliado vuelve a USD 0 y se le envía
+              el correo con el comprobante.
+            </Text>
+          </Card>
 
-                  {payout ? (
-                    <Pressable
-                      onPress={() => {
-                        void copyValue(
-                          payout.address,
-                          `Wallet USDT ${payout.network.toUpperCase()} copiada.`,
-                        ).catch((cause) =>
-                          Alert.alert(
-                            'No se copió',
-                            cause instanceof Error ? cause.message : 'Intenta de nuevo.',
-                          ),
-                        );
-                      }}
-                      style={[
-                        styles.copyBtn,
-                        {
-                          borderColor: theme.primary,
-                          backgroundColor: theme.primarySoft,
-                        },
-                      ]}>
-                      <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
-                        Copiar wallet
-                      </Text>
-                    </Pressable>
-                  ) : null}
-
-                  <PrimaryButton
-                    onPress={() => {
-                      void (async () => {
-                        if (row.blockReason === 'no_wallet') {
-                          Alert.alert(
-                            'No se puede pagar',
-                            'Esta persona no ha puesto wallet USDT. Escríbele para que la registre en Afiliados. El saldo se queda pendiente.',
-                          );
-                          return;
-                        }
-                        if (row.blockReason === 'below_minimum') {
-                          Alert.alert(
-                            'Bajo el mínimo',
-                            'Mínimo de desembolso: USD 100. No pagues ahora. Se suma al próximo día 15.',
-                          );
-                          return;
-                        }
-                        if (row.blockReason === 'already_paid' || pending <= 0) {
-                          Alert.alert('Ya pagado', 'Este saldo ya quedó en 0.');
-                          return;
-                        }
-                        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                        if (!permission.granted) {
-                          Alert.alert(
-                            'Permiso',
-                            'Necesitas acceso a fotos para adjuntar el comprobante de la transferencia.',
-                          );
-                          return;
-                        }
-                        const proof = await pickCompressedProof();
-                        if (proof.canceled) {
-                          Alert.alert(
-                            'Comprobante',
-                            'Sube la captura de la transferencia USDT para enviar el correo y marcar pagado.',
-                          );
-                          return;
-                        }
-                        setBusyId(row.affiliateId);
-                        try {
-                          const result = await payAdminAffiliate(row.affiliateId, {
-                            from: from || undefined,
-                            to: to || undefined,
-                            note: 'Pago USDT día 15',
-                            proofName: proof.name,
-                            proofBase64: proof.base64,
-                          });
-                          Alert.alert(
-                            'Pagado',
-                            `${moneyMinor(result.paidMinor, result.currency)} a ${result.wallet.network.toUpperCase()} ${result.wallet.address}\nCorreo ${result.emailDelivered ? 'enviado' : 'registrado'} a ${result.email}.${
-                              proof.omitted
-                                ? '\nLa foto era muy pesada: el pago sí quedó, el correo va sin adjunto.'
-                                : ''
-                            }\nSaldo del periodo: USD 0.00`,
-                          );
-                          await loadPayouts();
-                        } catch (cause) {
-                          Alert.alert(
-                            'No se pagó',
-                            cause instanceof Error ? cause.message : 'Revisa wallet y mínimo.',
-                          );
-                        } finally {
-                          setBusyId(null);
-                        }
-                      })();
-                    }}>
-                    {busyId === row.affiliateId
-                      ? 'Pagando…'
-                      : row.ready
-                        ? 'Pagar · subir comprobante y avisar'
-                        : 'Por qué no se puede pagar'}
-                  </PrimaryButton>
-
-                  <Pressable
-                    onPress={() =>
-                      setExpandedId(open ? null : row.affiliateId)
-                    }>
-                    <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
-                      {open
-                        ? 'Ocultar suscriptores'
-                        : `Ver quiénes son (${origin.refs})`}
-                    </Text>
-                  </Pressable>
-
-                  {open
-                    ? row.commissions.map((commission) => (
-                        <View
-                          key={commission.id}
-                          style={[
-                            styles.commissionRow,
-                            { borderTopColor: theme.border },
-                          ]}>
-                          <View style={{ flex: 1, gap: 2 }}>
-                            <Text style={[styles.memberName, { color: theme.text }]}>
-                              {commission.userLabel}
-                            </Text>
-                            <Text style={[styles.hint, { color: theme.muted }]}>
-                              {commission.planLabel} · {commission.commissionRate}% de{' '}
-                              {moneyMinor(
-                                commission.netAmountMinor ?? 0,
-                                commission.currency,
-                              )}{' '}
-                              · {statusLabel[commission.status]}
-                            </Text>
-                          </View>
-                          <Text style={[styles.amount, { color: theme.text }]}>
-                            {moneyMinor(
-                              commission.commissionAmountMinor,
-                              commission.currency,
-                            )}
-                          </Text>
-                        </View>
-                      ))
-                    : null}
-                </Card>
-              );
-            })
+          {!payoutsLoading && payoutHistory.length === 0 ? (
+            <Card>
+              <Text style={[styles.hint, { color: theme.muted }]}>
+                Aún no hay pagos registrados.
+              </Text>
+            </Card>
+          ) : (
+            payoutHistory.map((row) => (
+              <AdminPayoutCard
+                key={`paid-${row.affiliateId}`}
+                row={row}
+                mode="history"
+                theme={theme}
+                open={expandedId === `paid-${row.affiliateId}`}
+                busy={false}
+                onToggle={() =>
+                  setExpandedId((current) =>
+                    current === `paid-${row.affiliateId}`
+                      ? null
+                      : `paid-${row.affiliateId}`,
+                  )
+                }
+              />
+            ))
           )}
         </>
       ) : null}

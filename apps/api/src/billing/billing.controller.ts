@@ -3,15 +3,18 @@ import {
   Controller,
   Get,
   Headers,
+  Inject,
   Post,
   ServiceUnavailableException,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsOptional, IsString, Matches } from 'class-validator';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { CurrentUser, Public, type AuthPrincipal } from '../auth/auth.module';
+import { CollaborationService } from '../collaboration/collaboration.service';
 import { BillingService } from './billing.service';
 import { EntitlementService } from './entitlement.service';
 
@@ -29,17 +32,28 @@ export class BillingController {
   constructor(
     private readonly billing: BillingService,
     private readonly entitlements: EntitlementService,
+    @Inject(forwardRef(() => CollaborationService))
+    private readonly collaboration: CollaborationService,
   ) {}
 
   @Get('status')
   status(@CurrentUser() user: AuthPrincipal) {
-    return this.entitlements.statusFor(user.userId);
+    return this.statusWithGuestAccess(user);
   }
 
   @Post('sync')
   async sync(@CurrentUser() user: AuthPrincipal, @Body() body: SyncBillingDto) {
     await this.billing.sync(user.userId, body.appUserId);
-    return this.entitlements.statusFor(user.userId);
+    return this.statusWithGuestAccess(user);
+  }
+
+  private async statusWithGuestAccess(user: AuthPrincipal) {
+    await this.collaboration.acceptPendingInvitesForUser(user);
+    const [status, guest] = await Promise.all([
+      this.entitlements.statusFor(user.userId),
+      this.collaboration.guestAccessFor(user.userId, user.email),
+    ]);
+    return { ...status, ...guest };
   }
 }
 

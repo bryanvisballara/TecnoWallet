@@ -6,10 +6,8 @@ import {
   Subscription,
   SubscriptionSchema,
 } from '../billing/billing.schemas';
-import {
-  AffiliateController,
-  BranchWebhookController,
-} from './affiliate.controller';
+import { MailModule } from '../mail/mail.module';
+import { PushModule } from '../push/push.module';
 import {
   Affiliate,
   AffiliateClick,
@@ -23,10 +21,16 @@ import {
   UserAttributionSchema,
 } from './affiliate.schemas';
 import { AffiliateService } from './affiliate.service';
+import {
+  AffiliateController,
+  BranchWebhookController,
+} from './affiliate.controller';
 
 @Module({
   imports: [
     AuthModule,
+    MailModule,
+    PushModule,
     forwardRef(() => BillingModule),
     MongooseModule.forFeature([
       { name: Affiliate.name, schema: AffiliateSchema },

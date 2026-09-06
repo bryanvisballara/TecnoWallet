@@ -40,6 +40,10 @@ export default function ProfileScreen() {
   const updateProfile = useAuthStore((state) => state.updateProfile);
   const changePassword = useAuthStore((state) => state.changePassword);
   const plusAccess = usePlusStore((state) => state.access);
+  const guestPlan = usePlusStore((state) => ({
+    hasSharedAccess: Boolean(state.billing?.hasSharedAccess),
+    invitedToSharedBook: Boolean(state.billing?.invitedToSharedBook),
+  }));
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
   const [name, setName] = useState(profile.name);
@@ -155,7 +159,7 @@ export default function ProfileScreen() {
                   ? 'green'
                   : 'neutral'
             }>
-            {planDisplayLabel(plusAccess, locale)}
+            {planDisplayLabel(plusAccess, locale, guestPlan)}
           </Pill>
         </View>
       </View>
@@ -196,10 +200,10 @@ export default function ProfileScreen() {
                       ? 'green'
                       : 'neutral'
                 }>
-                {planDisplayLabel(plusAccess, locale)}
+                {planDisplayLabel(plusAccess, locale, guestPlan)}
               </Pill>
               <Text style={[styles.planSubtitle, { color: theme.muted }]}>
-                {planDisplaySubtitle(plusAccess, locale)}
+                {planDisplaySubtitle(plusAccess, locale, guestPlan)}
               </Text>
             </View>
             {!hasPaidPlan(plusAccess) ? (

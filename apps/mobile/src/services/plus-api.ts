@@ -13,7 +13,16 @@ export type BillingStatus = {
   expiresAt?: string;
   willRenew?: boolean;
   sponsoredBy?: string[];
+  hasSharedAccess?: boolean;
+  invitedToSharedBook?: boolean;
+  sharedResourceName?: string | null;
 };
+
+export function canUseSharedBooksWithoutPaying(
+  billing: Pick<BillingStatus, 'hasSharedAccess' | 'invitedToSharedBook'> | null | undefined,
+) {
+  return Boolean(billing?.hasSharedAccess || billing?.invitedToSharedBook);
+}
 
 export function hasPaidPlan(access: PlusAccess | null | undefined) {
   return access === 'plus' || access === 'business';
@@ -27,6 +36,7 @@ export function isBusinessPlan(access: PlusAccess | null | undefined) {
 export function planDisplayLabel(
   access: PlusAccess | null | undefined,
   locale: 'es' | 'en' = 'es',
+  options?: { hasSharedAccess?: boolean; invitedToSharedBook?: boolean },
 ) {
   const es = locale === 'es';
   switch (access) {
@@ -35,9 +45,12 @@ export function planDisplayLabel(
     case 'business':
       return 'Business';
     case 'sponsored_collaborator':
-      return es ? 'Colaborador' : 'Collaborator';
+      return es ? 'Invitado' : 'Guest';
     case 'free':
     default:
+      if (options?.hasSharedAccess || options?.invitedToSharedBook) {
+        return es ? 'Invitado' : 'Guest';
+      }
       return es ? 'Sin plan' : 'No plan';
   }
 }
@@ -46,6 +59,7 @@ export function planDisplayLabel(
 export function planDisplaySubtitle(
   access: PlusAccess | null | undefined,
   locale: 'es' | 'en' = 'es',
+  options?: { hasSharedAccess?: boolean; invitedToSharedBook?: boolean },
 ) {
   const es = locale === 'es';
   switch (access) {
@@ -55,10 +69,20 @@ export function planDisplaySubtitle(
       return es ? 'Plan TecnoWallet Business' : 'TecnoWallet Business plan';
     case 'sponsored_collaborator':
       return es
-        ? 'Acceso compartido por un sponsor'
-        : 'Shared access via a sponsor';
+        ? 'Usas un libro o calendario compartido, sin pagar'
+        : 'You use a shared book or calendar, no payment needed';
     case 'free':
     default:
+      if (options?.hasSharedAccess) {
+        return es
+          ? 'Usas un libro o calendario compartido, sin pagar'
+          : 'You use a shared book or calendar, no payment needed';
+      }
+      if (options?.invitedToSharedBook) {
+        return es
+          ? 'Te invitaron a un libro o calendario. Entra sin pagar'
+          : 'You were invited to a book or calendar. Join without paying';
+      }
       return es
         ? '3 días de prueba, luego se cobra'
         : '3-day trial, then billed';

@@ -7,12 +7,15 @@ import * as Haptics from 'expo-haptics';
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
 import { filterTransactionsByMonth } from '@/lib/dates';
+import { needWantLabel } from '@/lib/need-want';
+import { useLanguageStore } from '@/store/language';
 import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { usePeriodStore } from '@/store/period';
 
 export default function EnvelopeDetailScreen() {
   const theme = useAppTheme();
+  const locale = useLanguageStore((state) => state.locale);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { envelopes, transactions, ledger } = useActiveLedger();
   const removeEnvelope = useLedgerStore((state) => state.removeEnvelope);
@@ -273,7 +276,10 @@ export default function EnvelopeDetailScreen() {
               <View style={styles.copy}>
                 <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
                 <Text style={[styles.small, { color: theme.muted }]}>
-                  {item.account} · {item.date}
+                  {item.account}
+                  {item.needWant ? ` · ${needWantLabel(item.needWant, locale)}` : ''}
+                  {' · '}
+                  {item.date}
                 </Text>
               </View>
               <Text
@@ -293,7 +299,10 @@ export default function EnvelopeDetailScreen() {
         onPress={() =>
           router.push({
             pathname: '/add-transaction',
-            params: { type: isIncome ? 'income' : 'expense' },
+            params: {
+              type: isIncome ? 'income' : 'expense',
+              envelopeId: envelope.id,
+            },
           })
         }>
         {isIncome ? 'Registrar ingreso' : isSavings ? 'Registrar aporte' : 'Registrar gasto'}

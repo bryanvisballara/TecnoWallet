@@ -17,6 +17,8 @@ export type Transaction = {
   createdBy?: string;
   /** Auth user id of who registered the movement (from API ownerId). */
   createdByUserId?: string;
+  /** Gasto personal: necesidad o deseo. `na` si no aplica (negocio). */
+  needWant?: 'need' | 'want' | 'na';
 };
 
 export type Account = {

@@ -519,6 +519,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       amountMajor: value.amount,
       currency,
       envelopeId: envelope?.id,
+      needWant: kind === 'expense' ? value.needWant : undefined,
       idempotencyKey,
     });
 
@@ -582,6 +583,8 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
           occurredAt,
           description: value.title.trim() || existing.title,
           envelopeId: envelope?.id ?? value.envelopeId ?? '',
+          needWant:
+            value.amount < 0 ? value.needWant ?? '' : '',
         });
       } catch (error) {
         if (

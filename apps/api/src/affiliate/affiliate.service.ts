@@ -15,6 +15,8 @@ import { isValidObjectId, Model, Types } from 'mongoose';
 import { User } from '../auth/auth.module';
 import { Subscription } from '../billing/billing.schemas';
 import { EntitlementService } from '../billing/entitlement.service';
+import { BrevoMailer } from '../mail/brevo';
+import { PushService } from '../push/push.service';
 import {
   Affiliate,
   AffiliateClick,
@@ -30,6 +32,7 @@ import {
   AFFILIATE_FLAT_BOUNTY_MINOR,
   AFFILIATE_PAYOUT_MIN_MINOR,
 } from './affiliate.constants';
+import { affiliatePayoutRequestEmailHtml } from '../admin/payout-email';
 
 export interface RecordCommissionFromRevenueEventInput {
   providerEventId: string;
@@ -80,6 +83,8 @@ export class AffiliateService implements OnModuleInit {
     private readonly config: ConfigService,
     @Inject(forwardRef(() => EntitlementService))
     private readonly entitlements: EntitlementService,
+    private readonly mailer: BrevoMailer,
+    private readonly push: PushService,
   ) {}
 
   async onModuleInit() {
@@ -476,7 +481,67 @@ export class AffiliateService implements OnModuleInit {
       },
     );
 
+    const amount = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(dashboard.stats.commissionPendingMinor / 100);
+    const wallet = dashboard.affiliate.payoutMethod;
+    const owner = await this.users.findById(userId).select('name email').lean();
+    void this.notifyAdminsOfPayoutRequest({
+      actorUserId: userId,
+      name: dashboard.affiliate.name,
+      code: dashboard.affiliate.code,
+      email: owner?.email ?? '',
+      amount,
+      network: wallet?.network,
+      address: wallet?.address,
+    });
+
     return this.getPartnerDashboard(userId);
+  }
+
+  private async notifyAdminsOfPayoutRequest(input: {
+    actorUserId: string;
+    name: string;
+    code: string;
+    email: string;
+    amount: string;
+    network?: string;
+    address?: string;
+  }) {
+    try {
+      await this.mailer.sendHtml({
+        to: 'dev@wwtecno.com',
+        subject: `TecnoWallet · Solicitud de pago ${input.amount} · ${input.code}`,
+        htmlContent: affiliatePayoutRequestEmailHtml(input),
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Payout request email failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    try {
+      const admins = await this.users
+        .find({ platformRole: 'admin', active: true })
+        .select('_id')
+        .lean();
+      this.push.notifyUsers(
+        admins.map((row) => row._id.toString()),
+        'payout-request',
+        {
+          title: 'Solicitud de pago de afiliado',
+          body: `${input.name} pidió ${input.amount}. Ábrelo en Portal admin.`,
+          data: {
+            kind: 'affiliate_payout',
+            route: '/(tabs)/admin',
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Payout request push failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async recordCommissionFromRevenueEvent(

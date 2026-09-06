@@ -8,7 +8,10 @@ import {
   setSessionExpiredHandler,
 } from '@/services/api';
 import { clearBranchIdentity } from '@/services/branch';
-import { claimPendingCollaborationInvite } from '@/services/collaboration-api';
+import {
+  claimPendingCollaborationInvite,
+  claimPendingShareCode,
+} from '@/services/collaboration-api';
 import {
   localStorage,
   refreshTokenStorage,
@@ -142,6 +145,7 @@ async function persistAuthSession(
   ]);
   await configurePurchases(String(auth.user.id)).catch(() => undefined);
   await claimPendingCollaborationInvite().catch(() => undefined);
+  await claimPendingShareCode().catch(() => undefined);
   await usePlusStore.getState().hydrate();
   // Product data lives in Mongo. Reload books (and dependents) after auth.
   if (options?.freshAccount) {

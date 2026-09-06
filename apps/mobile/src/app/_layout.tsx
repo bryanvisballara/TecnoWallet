@@ -40,6 +40,7 @@ export default function RootLayout() {
   const hydrated = useAuthStore((state) => state.hydrated);
   const authenticated = useAuthStore((state) => state.authenticated);
   const ledgerHydrated = useLedgerStore((state) => state.hydrated);
+  const calendarHydrated = useCalendarStore((state) => state.hydrated);
   const languageHydrated = useLanguageStore((state) => state.hydrated);
   const preferencesHydrated = usePreferencesStore((state) => state.hydrated);
   const hydrateFinance = useFinanceStore((state) => state.hydrate);
@@ -121,8 +122,19 @@ export default function RootLayout() {
   useEffect(() => {
     if (!authenticated || !plusHydrated) return;
     if (plusAccess !== 'free') return;
+    const hasSharedBook = useLedgerStore
+      .getState()
+      .ledgers.some((item) => item.type === 'shared');
+    const hasSharedCalendar = useCalendarStore
+      .getState()
+      .calendars.some((calendar) =>
+        calendar.members.some(
+          (member) => member.id === 'me' && member.role !== 'owner',
+        ),
+      );
+    if (hasSharedBook || hasSharedCalendar) return;
     usePlusStore.getState().maybePromptTrialPaywall();
-  }, [authenticated, plusHydrated, plusAccess]);
+  }, [authenticated, plusHydrated, plusAccess, ledgerHydrated, calendarHydrated]);
 
   useEffect(() => {
     // Never hide the native splash before the branded overlay can paint.

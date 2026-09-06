@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
@@ -28,7 +28,7 @@ import { CalendarReminderSchedulerService } from './calendar-reminder.scheduler'
 @Module({
   imports: [
     AuthModule,
-    BillingModule,
+    forwardRef(() => BillingModule),
     MailModule,
     PushModule,
     MongooseModule.forFeature([

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import {
+  canUseSharedBooksWithoutPaying,
   getBillingStatus,
   hasPaidPlan,
   planDisplayLabel,
@@ -78,6 +79,9 @@ export const usePlusStore = create<PlusState>((set, get) => ({
         access: billing.access,
         hydrated: true,
         loading: false,
+        ...(canUseSharedBooksWithoutPaying(billing)
+          ? { paywallOpen: false }
+          : {}),
       });
     } catch {
       set({ hydrated: true, loading: false, access: 'free', billing: null });
@@ -114,6 +118,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
     const state = get();
     if (state.trialPaywallPrompted || state.paywallOpen) return;
     if (state.access !== 'free') return;
+    if (canUseSharedBooksWithoutPaying(state.billing)) return;
     set({
       trialPaywallPrompted: true,
       paywallOpen: true,
@@ -131,7 +136,14 @@ export const usePlusStore = create<PlusState>((set, get) => ({
       couponCode: couponCode?.trim().toUpperCase() || null,
       couponName: couponName?.trim() || null,
     }),
-  setBilling: (billing) => set({ billing, access: billing.access }),
+  setBilling: (billing) =>
+    set({
+      billing,
+      access: billing.access,
+      ...(canUseSharedBooksWithoutPaying(billing)
+        ? { paywallOpen: false }
+        : {}),
+    }),
 }));
 
 export { hasPaidPlan, planDisplayLabel, planDisplaySubtitle };

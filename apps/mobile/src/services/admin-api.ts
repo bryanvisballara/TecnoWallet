@@ -44,6 +44,9 @@ export type AdminAffiliatePayout = {
   status: 'pending' | 'approved' | 'paid' | 'reversed';
   simulated?: boolean;
   payoutRequested?: boolean;
+  payoutRequestedAt?: string | null;
+  lastPaidAt?: string | null;
+  paidMinor?: number;
   ready: boolean;
   blockReason: AdminPayoutBlock;
   referralCount?: number;
@@ -57,6 +60,12 @@ export type AdminPayoutPolicy = {
   minimumUsd: number;
   minimumMinor: number;
   rule: string;
+};
+
+export type AdminPayoutTotals = {
+  pendingMinor: number;
+  requestedMinor: number;
+  paidMinor: number;
 };
 
 export type AdminPlan = 'free' | 'plus' | 'business';
@@ -120,42 +129,12 @@ export function getAdminUserStats() {
   return apiRequest<AdminUserStats>('/admin/stats/users');
 }
 
-export function getAdminAffiliatePayouts(input?: {
-  from?: string;
-  to?: string;
-  status?: string;
-}) {
-  const query = new URLSearchParams();
-  if (input?.from) query.set('from', input.from);
-  if (input?.to) query.set('to', input.to);
-  if (input?.status) query.set('status', input.status);
-  const suffix = query.toString() ? `?${query.toString()}` : '';
+export function getAdminAffiliatePayouts() {
   return apiRequest<{
-    from: string | null;
-    to: string | null;
-    status: string | null;
     policy: AdminPayoutPolicy;
+    totals?: AdminPayoutTotals;
     affiliates: AdminAffiliatePayout[];
-  }>(`/admin/affiliate/payouts${suffix}`);
-}
-
-export function simulateAdminPayouts() {
-  return apiRequest<{
-    created: number;
-    email: string;
-    notice: string;
-    rows: Array<{ name: string; amountUsd: number; hasWallet: boolean }>;
-  }>('/admin/affiliate/payouts/simulate', {
-    method: 'POST',
-    body: '{}',
-  });
-}
-
-export function clearSimulatedAdminPayouts() {
-  return apiRequest<{ commissions: number; affiliates: number }>(
-    '/admin/affiliate/payouts/clear-simulated',
-    { method: 'POST', body: '{}' },
-  );
+  }>('/admin/affiliate/payouts');
 }
 
 export function payAdminAffiliate(

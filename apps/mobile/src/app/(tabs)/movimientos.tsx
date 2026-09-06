@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { needWantLabel } from '@/lib/need-want';
 import { displayLedgerName, useAppCopy, type MovementFilterKey } from '@/i18n/app-copy';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
@@ -51,7 +52,9 @@ export default function TransactionsScreen() {
   }, [monthTransactions]);
 
   const visible = useMemo(() => monthTransactions.filter((item) => {
-    const textMatch = `${item.title} ${item.category} ${item.account}`.toLowerCase().includes(query.toLowerCase());
+    const textMatch = `${item.title} ${item.category} ${item.account} ${needWantLabel(item.needWant, locale)}`
+      .toLowerCase()
+      .includes(query.toLowerCase());
     if (!textMatch) return false;
     if (filter === 'expenses') return item.amount < 0;
     if (filter === 'income') return item.amount > 0;
@@ -160,7 +163,10 @@ export default function TransactionsScreen() {
               </View>
               <View style={styles.rowCopy}>
                 <View style={uiStyles.row}><Text numberOfLines={1} style={[styles.rowTitle, { color: theme.text }]}>{item.title}</Text>{pending.includes(item.id) && <Pill tone="orange">{copy.movements.pending}</Pill>}</View>
-                <Text style={[styles.small, { color: theme.muted }]}>{item.category} · {item.account}</Text>
+                <Text style={[styles.small, { color: theme.muted }]}>
+                  {item.category} · {item.account}
+                  {item.needWant ? ` · ${needWantLabel(item.needWant, locale)}` : ''}
+                </Text>
               </View>
               <View style={styles.amountCopy}><Text style={[styles.amount, { color: item.amount > 0 ? theme.success : theme.text }]}>{item.amount > 0 ? '+' : ''}{money(item.amount)}</Text><Text style={[styles.date, { color: theme.muted }]}>{item.date}</Text></View>
             </View>

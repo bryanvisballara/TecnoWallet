@@ -1,4 +1,4 @@
-import { apiRequest } from '@/services/api';
+import { ApiError, apiRequest } from '@/services/api';
 import type { Account, Envelope, Transaction } from '@/data/demo';
 import {
   emptySnapshot,
@@ -11,6 +11,7 @@ import {
 } from '@/data/ledgers';
 import { applyLedgerAccountBalances } from '@/lib/accounts';
 import { applyLedgerEnvelopeSpent, resolveEnvelopeForTransaction } from '@/lib/envelope-match';
+import { parseNeedWant, type NeedWant } from '@/lib/need-want';
 
 type ResourceKind = 'account' | 'envelope' | 'bill' | 'subscription';
 
@@ -57,6 +58,7 @@ export type ApiTransaction = {
   ownerId?: string;
   /** Set when this transaction was corrected/voided via reverse. */
   reversedById?: string;
+  needWant?: NeedWant;
 };
 
 const CLEARING_NAME = '__clearing__';
@@ -326,6 +328,7 @@ export function mapTransaction(
     occurredAt: Number.isNaN(occurred.getTime()) ? undefined : occurred.toISOString(),
     createdBy,
     createdByUserId,
+    needWant: parseNeedWant(tx.needWant),
   };
 }
 
@@ -525,47 +528,92 @@ export async function createLedgerTransaction(input: {
   amountMajor: number;
   currency: string;
   envelopeId?: string;
+  needWant?: NeedWant;
   idempotencyKey?: string;
 }) {
   const amountMinor = toMinor(Math.abs(input.amountMajor));
   const signed = input.kind === 'income' ? amountMinor : -amountMinor;
-  return apiRequest<ApiTransaction>('/transactions', {
-    method: 'POST',
-    body: JSON.stringify({
-      workspaceId: input.workspaceId,
-      kind: input.kind,
-      occurredAt: input.occurredAt,
-      description: input.description,
-      idempotencyKey: input.idempotencyKey,
-      entries: [
-        {
-          accountId: input.accountId,
-          currency: input.currency,
-          amountMinor: signed,
-          ...(input.envelopeId ? { envelopeId: input.envelopeId } : {}),
-        },
-        {
-          accountId: input.clearingAccountId,
-          currency: input.currency,
-          amountMinor: -signed,
-        },
-      ],
-    }),
-  });
+  const body = {
+    workspaceId: input.workspaceId,
+    kind: input.kind,
+    occurredAt: input.occurredAt,
+    description: input.description,
+    idempotencyKey: input.idempotencyKey,
+    ...(input.kind === 'expense' && input.needWant
+      ? { needWant: input.needWant }
+      : {}),
+    entries: [
+      {
+        accountId: input.accountId,
+        currency: input.currency,
+        amountMinor: signed,
+        ...(input.envelopeId ? { envelopeId: input.envelopeId } : {}),
+      },
+      {
+        accountId: input.clearingAccountId,
+        currency: input.currency,
+        amountMinor: -signed,
+      },
+    ],
+  };
+  try {
+    return await apiRequest<ApiTransaction>('/transactions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (!body.needWant || !isUnknownNeedWantError(error)) throw error;
+    const { needWant: _ignored, ...legacy } = body;
+    return apiRequest<ApiTransaction>('/transactions', {
+      method: 'POST',
+      body: JSON.stringify(legacy),
+    });
+  }
 }
 
 /** Ledger rows are immutable for money — date/description/envelope can be amended. */
 export async function amendLedgerTransaction(
   transactionId: string,
-  patch: { occurredAt?: string; description?: string; envelopeId?: string },
+  patch: {
+    occurredAt?: string;
+    description?: string;
+    envelopeId?: string;
+    needWant?: NeedWant | '';
+  },
 ) {
-  return apiRequest<ApiTransaction>(
-    `/transactions/${encodeURIComponent(transactionId)}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    },
-  );
+  try {
+    return await apiRequest<ApiTransaction>(
+      `/transactions/${encodeURIComponent(transactionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      },
+    );
+  } catch (error) {
+    if (patch.needWant === undefined || !isUnknownNeedWantError(error)) {
+      throw error;
+    }
+    const { needWant: _ignored, ...legacy } = patch;
+    if (
+      legacy.occurredAt === undefined &&
+      legacy.description === undefined &&
+      legacy.envelopeId === undefined
+    ) {
+      throw error;
+    }
+    return apiRequest<ApiTransaction>(
+      `/transactions/${encodeURIComponent(transactionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(legacy),
+      },
+    );
+  }
+}
+
+function isUnknownNeedWantError(error: unknown) {
+  if (!(error instanceof ApiError) || error.status !== 400) return false;
+  return /needWant/i.test(error.message);
 }
 
 /** Ledger rows are immutable — amount/account corrections create an opposite refund entry. */

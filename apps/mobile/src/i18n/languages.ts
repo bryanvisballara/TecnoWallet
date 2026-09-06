@@ -59,6 +59,9 @@ type AuthCopy = {
   emailPlaceholder: string;
   passwordPlaceholder: string;
   namePlaceholder: string;
+  inviteBookLabel: string;
+  inviteBookHint: string;
+  inviteBookPlaceholder: string;
   signIn: string;
   signUp: string;
   signingIn: string;
@@ -129,6 +132,9 @@ const authEn: AuthCopy = {
   emailPlaceholder: 'you@email.com',
   passwordPlaceholder: 'At least 8 characters',
   namePlaceholder: 'Your name',
+  inviteBookLabel: 'Were you invited to a book or calendar?',
+  inviteBookHint: 'Optional. Sign up with that same email, or paste the invite code.',
+  inviteBookPlaceholder: 'Invite code (optional)',
   signIn: 'Sign in',
   signUp: 'Sign up',
   signingIn: 'Signing in…',
@@ -496,6 +502,10 @@ export const authCopy: Record<Locale, AuthCopy> = {
     emailPlaceholder: 'tu@correo.com',
     passwordPlaceholder: 'Mínimo 8 caracteres',
     namePlaceholder: 'Tu nombre',
+    inviteBookLabel: '¿Te invitaron a un libro o calendario?',
+    inviteBookHint:
+      'Opcional. Regístrate con ese mismo correo, o pega el código de la invitación.',
+    inviteBookPlaceholder: 'Código de invitación (opcional)',
     signIn: 'Iniciar sesión',
     signUp: 'Registrarme',
     signingIn: 'Entrando…',

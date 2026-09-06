@@ -835,74 +835,93 @@ export class CollaborationService {
     principal: AuthPrincipal,
   ) {
     const invite = await this.findPendingInvite(dto.token);
-    if (invite.expiresAt.getTime() <= Date.now()) {
-      await this.expireInvite(invite);
-      throw new BadRequestException('Invite has expired');
+    return this.fulfillInvite(invite, principal, { requireEmailMatch: true });
+  }
+
+  async acceptPendingInvitesForUser(principal: AuthPrincipal) {
+    const email = principal.email.trim().toLowerCase();
+    if (!email) return;
+    const pending = await this.invites
+      .find({
+        email,
+        status: 'pending',
+        expiresAt: { $gt: new Date() },
+      })
+      .lean();
+    for (const invite of pending) {
+      try {
+        await this.fulfillInvite(invite, principal, { requireEmailMatch: false });
+      } catch {
+        // One stale invite must not block billing status.
+      }
     }
-    if (invite.email !== principal.email.trim().toLowerCase()) {
-      throw new ForbiddenException(
-        'This invite belongs to a different email address',
-      );
+  }
+
+  async guestAccessFor(userId: string, email?: string) {
+    const emailNorm = email?.trim().toLowerCase();
+    const userOid = Types.ObjectId.isValid(userId)
+      ? new Types.ObjectId(userId)
+      : null;
+    const identity: Array<Record<string, unknown>> = [];
+    if (userOid) identity.push({ collaboratorUserId: userOid });
+    if (emailNorm) identity.push({ email: emailNorm });
+
+    const seats = identity.length
+      ? await this.seats
+          .find({
+            status: { $in: ['pending', 'active'] },
+            $or: identity,
+          })
+          .lean()
+      : [];
+    const pendingInvites = emailNorm
+      ? await this.invites
+          .find({
+            email: emailNorm,
+            status: 'pending',
+            expiresAt: { $gt: new Date() },
+          })
+          .lean()
+      : [];
+    const pendingRequests = userOid
+      ? await this.accessRequests
+          .find({
+            status: 'pending',
+            requesterUserId: userOid,
+          })
+          .lean()
+      : [];
+
+    let hasSharedAccess = false;
+    let invitedToSharedBook =
+      pendingInvites.length > 0 || pendingRequests.length > 0;
+    let sharedResourceName: string | null = null;
+
+    for (const seat of seats) {
+      if (!(await this.entitlements.isPlus(seat.sponsorUserId.toString()))) {
+        continue;
+      }
+      if (seat.status === 'active') hasSharedAccess = true;
+      else invitedToSharedBook = true;
+      const first = seat.resources?.[0];
+      if (!sharedResourceName && first) {
+        sharedResourceName = await this.resourceName(
+          first.resourceType,
+          first.resourceId.toString(),
+        );
+      }
     }
-    if (!(await this.entitlements.isPlus(invite.sponsorUserId.toString()))) {
-      throw this.paymentRequired(
-        'SHARING_REQUIRED',
-        'The sponsor no longer has Plus',
+    if (!sharedResourceName && pendingInvites[0]) {
+      sharedResourceName = await this.resourceName(
+        pendingInvites[0].resourceType,
+        pendingInvites[0].resourceId.toString(),
       );
     }
 
-    const userId = new Types.ObjectId(principal.userId);
-    const seat = await this.seats.findOne({
-      sponsorUserId: invite.sponsorUserId,
-      $or: [{ collaboratorUserId: userId }, { email: invite.email }],
-      status: { $in: ['pending', 'active'] },
-    });
-    if (!seat) {
-      throw new ConflictException('The sponsored seat is no longer available');
-    }
-
-    if (invite.resourceType === 'workspace') {
-      await this.memberships.updateOne(
-        { workspaceId: invite.resourceId, userId },
-        { $setOnInsert: { role: 'member' } },
-        { upsert: true },
-      );
-    } else {
-      await this.calendarMemberships.updateOne(
-        { calendarId: invite.resourceId, userId },
-        {
-          $set: {
-            role: invite.role,
-            sponsorUserId: invite.sponsorUserId,
-          },
-        },
-        { upsert: true },
-      );
-    }
-
-    const acceptedAt = new Date();
-    const accepted = await this.invites.findOneAndUpdate(
-      { _id: invite._id, status: 'pending' },
-      {
-        $set: {
-          status: 'accepted',
-          acceptedAt,
-          inviteeUserId: userId,
-        },
-      },
-      { new: true },
-    );
-    if (!accepted) throw new ConflictException('Invite was already used');
-
-    seat.collaboratorUserId = userId;
-    seat.email = invite.email;
-    seat.status = 'active';
-    await seat.save();
     return {
-      accepted: true,
-      resourceType: invite.resourceType,
-      resourceId: invite.resourceId,
-      role: invite.resourceType === 'workspace' ? 'member' : invite.role,
+      hasSharedAccess,
+      invitedToSharedBook,
+      sharedResourceName,
     };
   }
 
@@ -1255,6 +1274,94 @@ export class CollaborationService {
     }
   }
 
+  private async fulfillInvite(
+    invite: Pick<
+      CollaborationInvite,
+      | '_id'
+      | 'email'
+      | 'sponsorUserId'
+      | 'resourceType'
+      | 'resourceId'
+      | 'role'
+      | 'expiresAt'
+    >,
+    principal: AuthPrincipal,
+    options: { requireEmailMatch: boolean },
+  ) {
+    if (invite.expiresAt.getTime() <= Date.now()) {
+      await this.expireInvite(invite);
+      throw new BadRequestException('Invite has expired');
+    }
+    if (
+      options.requireEmailMatch &&
+      invite.email !== principal.email.trim().toLowerCase()
+    ) {
+      throw new ForbiddenException(
+        'This invite belongs to a different email address',
+      );
+    }
+    if (!(await this.entitlements.isPlus(invite.sponsorUserId.toString()))) {
+      throw this.paymentRequired(
+        'SHARING_REQUIRED',
+        'The sponsor no longer has Plus',
+      );
+    }
+
+    const userId = new Types.ObjectId(principal.userId);
+    const seat = await this.seats.findOne({
+      sponsorUserId: invite.sponsorUserId,
+      $or: [{ collaboratorUserId: userId }, { email: invite.email }],
+      status: { $in: ['pending', 'active'] },
+    });
+    if (!seat) {
+      throw new ConflictException('The sponsored seat is no longer available');
+    }
+
+    if (invite.resourceType === 'workspace') {
+      await this.memberships.updateOne(
+        { workspaceId: invite.resourceId, userId },
+        { $setOnInsert: { role: 'member' } },
+        { upsert: true },
+      );
+    } else {
+      await this.calendarMemberships.updateOne(
+        { calendarId: invite.resourceId, userId },
+        {
+          $set: {
+            role: invite.role,
+            sponsorUserId: invite.sponsorUserId,
+          },
+        },
+        { upsert: true },
+      );
+    }
+
+    const acceptedAt = new Date();
+    const accepted = await this.invites.findOneAndUpdate(
+      { _id: invite._id, status: 'pending' },
+      {
+        $set: {
+          status: 'accepted',
+          acceptedAt,
+          inviteeUserId: userId,
+        },
+      },
+      { new: true },
+    );
+    if (!accepted) throw new ConflictException('Invite was already used');
+
+    seat.collaboratorUserId = userId;
+    seat.email = invite.email;
+    seat.status = 'active';
+    await seat.save();
+    return {
+      accepted: true,
+      resourceType: invite.resourceType,
+      resourceId: invite.resourceId,
+      role: invite.resourceType === 'workspace' ? 'member' : invite.role,
+    };
+  }
+
   private findPendingInvite(rawToken: string) {
     return this.invites
       .findOne({ tokenHash: this.digest(rawToken), status: 'pending' })
@@ -1262,7 +1369,12 @@ export class CollaborationService {
       .orFail(() => new NotFoundException('Invite is invalid or expired'));
   }
 
-  private async expireInvite(invite: CollaborationInvite) {
+  private async expireInvite(
+    invite: Pick<
+      CollaborationInvite,
+      '_id' | 'email' | 'sponsorUserId' | 'resourceType' | 'resourceId'
+    >,
+  ) {
     await this.invites.updateOne(
       { _id: invite._id, status: 'pending' },
       { $set: { status: 'expired' } },

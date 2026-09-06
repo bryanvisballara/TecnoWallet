@@ -56,6 +56,10 @@ export default function MoreScreen() {
   const biometricsLockEnabled = usePreferencesStore((state) => state.biometricsLockEnabled);
   const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
   const plusAccess = usePlusStore((state) => state.access);
+  const guestPlan = usePlusStore((state) => ({
+    hasSharedAccess: Boolean(state.billing?.hasSharedAccess),
+    invitedToSharedBook: Boolean(state.billing?.invitedToSharedBook),
+  }));
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const setLedgerCurrency = useLedgerStore((state) => state.setLedgerCurrency);
   const { ledger } = useActiveLedger();
@@ -366,14 +370,14 @@ export default function MoreScreen() {
                       ? 'green'
                       : 'neutral'
                 }>
-                {planDisplayLabel(plusAccess, locale)}
+                {planDisplayLabel(plusAccess, locale, guestPlan)}
               </Pill>
             </View>
             <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
               {profile.email}
             </Text>
             <Text style={[styles.small, { color: theme.muted }]} numberOfLines={1}>
-              {planDisplaySubtitle(plusAccess, locale)}
+              {planDisplaySubtitle(plusAccess, locale, guestPlan)}
             </Text>
           </View>
           <AppIcon name="chevron" color={theme.muted} size={16} />

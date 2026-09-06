@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { needWantLabel } from '@/lib/need-want';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger } from '@/store/ledger';
@@ -149,7 +150,10 @@ export default function CashflowDetailScreen() {
               <View style={styles.rowCopy}>
                 <Text style={[styles.rowTitle, { color: theme.text }]}>{item.title}</Text>
                 <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                  {item.category} · {item.account} · {item.date}
+                  {item.category} · {item.account}
+                  {item.needWant ? ` · ${needWantLabel(item.needWant, locale)}` : ''}
+                  {' · '}
+                  {item.date}
                 </Text>
               </View>
               <Text style={[styles.rowAmount, { color: type === 'ingresos' ? theme.success : theme.text }]}>

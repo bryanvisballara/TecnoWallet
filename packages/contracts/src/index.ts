@@ -64,6 +64,8 @@ export interface FinancialTransaction extends VersionedEntity {
   occurredAt: string;
   location?: { latitude: number; longitude: number; label?: string };
   notes?: string;
+  /** Personal expenses: need vs want. `na` for business / does not apply. */
+  needWant?: "need" | "want" | "na";
   tags: string[];
   attachmentIds: string[];
   receiptId?: string;
