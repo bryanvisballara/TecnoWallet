@@ -67,6 +67,7 @@ export class CreateTransactionDto {
   private?: boolean;
 
   @IsOptional()
+  @IsString()
   @IsIn(needWantKinds)
   needWant?: NeedWant;
 
@@ -229,9 +230,16 @@ export class LedgerService {
       if (prior) return prior;
     }
     return this.transactions.create({
-      ...dto,
+      workspaceId: dto.workspaceId,
+      kind: dto.kind,
+      occurredAt: dto.occurredAt,
+      description: dto.description,
+      ...(dto.categoryId ? { categoryId: dto.categoryId } : {}),
+      ...(dto.idempotencyKey ? { idempotencyKey: dto.idempotencyKey } : {}),
+      ...(dto.kind === 'expense' && dto.needWant ? { needWant: dto.needWant } : {}),
       ownerId,
       privacy: dto.private ? 'private' : 'workspace',
+      entries: dto.entries,
     });
   }
 

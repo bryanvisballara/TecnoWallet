@@ -540,6 +540,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       icon: value.icon ?? (value.amount > 0 ? 'arrow.down.circle.fill' : 'banknote.fill'),
       envelopeId: envelope?.id,
       occurredAt,
+      needWant: created.needWant ?? value.needWant,
     };
 
     set((state) => {

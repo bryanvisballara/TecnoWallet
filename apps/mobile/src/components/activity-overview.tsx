@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppDateField } from '@/components/app-date-field';
 import { CategoryDonut } from '@/components/category-donut';
 import { WeeklyBars, type WeeklyMode } from '@/components/charts';
-import { AppIcon, Card, SectionTitle, useAppTheme } from '@/components/ui';
+import { AppIcon, Card, ScalePressable, SectionTitle, useAppTheme } from '@/components/ui';
 import { money, type Envelope, type Transaction } from '@/data/demo';
 import { parseDateKey, toDateKey } from '@/data/calendar';
 import { useAppCopy } from '@/i18n/app-copy';
@@ -151,6 +151,18 @@ export function ActivityOverview({
     { key: 'month', label: copy.home.periodMonth },
     { key: 'custom', label: copy.home.periodDates },
   ];
+
+  const openExpenses = (params?: { category?: string; needWant?: 'need' | 'want' }) => {
+    router.push({
+      pathname: '/(tabs)/cashflow/[type]',
+      params: {
+        type: 'gastos',
+        ...(params?.category ? { category: params.category } : {}),
+        ...(params?.category === 'Otros' ? { other: '1' } : {}),
+        ...(params?.needWant ? { needWant: params.needWant } : {}),
+      },
+    });
+  };
 
   return (
     <View style={styles.block}>
@@ -424,8 +436,14 @@ export function ActivityOverview({
               },
             ] as const
           ).map((item) => (
-            <View
+            <ScalePressable
               key={item.key}
+              haptic={false}
+              accessibilityRole="button"
+              accessibilityLabel={
+                item.key === 'need' ? copy.home.viewNeedA11y : copy.home.viewWantA11y
+              }
+              onPress={() => openExpenses({ needWant: item.key })}
               style={[styles.needWantCard, { backgroundColor: theme.surfaceSecondary }]}>
               <View style={[styles.needWantIcon, { backgroundColor: item.soft }]}>
                 <AppIcon name={item.icon} color={item.color} size={16} />
@@ -440,7 +458,7 @@ export function ActivityOverview({
                   {hidden ? '••••••' : money(item.amount)}
                 </Text>
               </View>
-            </View>
+            </ScalePressable>
           ))}
         </View>
         <View style={[styles.donutWrap, { borderTopColor: theme.border }]}>
@@ -451,9 +469,9 @@ export function ActivityOverview({
             label={copy.home.expenses}
             hidden={hidden}
             detailLabel={copy.home.viewBreakdown}
-            onDetail={() =>
-              router.push({ pathname: '/(tabs)/cashflow/[type]', params: { type: 'gastos' } })
-            }
+            onDetail={() => openExpenses()}
+            onSlicePress={(name) => openExpenses({ category: name })}
+            sliceA11y={copy.home.viewSliceA11y}
             emptyLabel={copy.home.noExpensesInPeriod}
           />
         </View>

@@ -613,7 +613,7 @@ export async function amendLedgerTransaction(
 
 function isUnknownNeedWantError(error: unknown) {
   if (!(error instanceof ApiError) || error.status !== 400) return false;
-  return /needWant/i.test(error.message);
+  return /property needWant should not exist/i.test(error.message);
 }
 
 /** Ledger rows are immutable — amount/account corrections create an opposite refund entry. */

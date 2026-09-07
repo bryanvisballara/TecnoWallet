@@ -90,6 +90,9 @@ export type AppCopy = {
     financialActivity: string;
     needExpenses: string;
     wantExpenses: string;
+    viewNeedA11y: string;
+    viewWantA11y: string;
+    viewSliceA11y: (name: string) => string;
     periodWeek: string;
     periodMonth: string;
     periodDates: string;
@@ -445,6 +448,11 @@ export type AppCopy = {
     movements: string;
     nMovements: (n: number) => string;
     viewAll: string;
+    viewCategoryA11y: (name: string) => string;
+    categoryMovements: (name: string) => string;
+    emptyFilter: string;
+    viewNeedA11y: string;
+    viewWantA11y: string;
   };
   more: {
     title: string;
@@ -584,6 +592,9 @@ const es: AppCopy = {
     financialActivity: 'Actividad financiera',
     needExpenses: 'Necesidad',
     wantExpenses: 'Deseo',
+    viewNeedA11y: 'Ver gastos marcados como necesidad',
+    viewWantA11y: 'Ver gastos marcados como deseo',
+    viewSliceA11y: (name) => `Ver gastos de ${name}`,
     periodWeek: 'Semanal',
     periodMonth: 'Mensual',
     periodDates: 'Fechas',
@@ -992,6 +1003,11 @@ const es: AppCopy = {
     movements: 'Movimientos',
     nMovements: (n) => `${n} movimientos`,
     viewAll: 'Ver todos los movimientos',
+    viewCategoryA11y: (name) => `Ver movimientos de ${name}`,
+    categoryMovements: (name) => `Movimientos · ${name}`,
+    emptyFilter: 'No hay gastos con ese filtro este mes',
+    viewNeedA11y: 'Filtrar gastos de necesidad',
+    viewWantA11y: 'Filtrar gastos de deseo',
   },
   more: {
     title: 'Más',
@@ -1187,6 +1203,9 @@ const en: AppCopy = {
     financialActivity: 'Financial activity',
     needExpenses: 'Need',
     wantExpenses: 'Want',
+    viewNeedA11y: 'View expenses marked as need',
+    viewWantA11y: 'View expenses marked as want',
+    viewSliceA11y: (name) => `View expenses in ${name}`,
     periodWeek: 'Weekly',
     periodMonth: 'Monthly',
     periodDates: 'Dates',
@@ -1590,6 +1609,11 @@ const en: AppCopy = {
     movements: 'Activity',
     nMovements: (n) => `${n} transactions`,
     viewAll: 'See all activity',
+    viewCategoryA11y: (name) => `View activity in ${name}`,
+    categoryMovements: (name) => `Activity · ${name}`,
+    emptyFilter: 'No expenses match that filter this month',
+    viewNeedA11y: 'Filter need expenses',
+    viewWantA11y: 'Filter want expenses',
   },
   more: {
     title: 'More',
