@@ -42,7 +42,9 @@ import {
   updateWorkspace,
 } from '@/services/ledgers-api';
 import { localStorage } from '@/services/persistence';
+import { isOwnedResourceLocked } from '@/lib/owned-resource-lock';
 import { recordActivity } from '@/store/notifications';
+import { usePlusStore } from '@/store/plus';
 
 type NewTransaction = Omit<Transaction, 'id' | 'date' | 'icon'> & {
   date?: string;
@@ -189,7 +191,7 @@ async function currentUserId() {
 }
 
 async function currencyFor(ledger: LedgerMeta | undefined) {
-  return (ledger?.baseCurrency || 'COP').toUpperCase();
+  return (ledger?.baseCurrency || 'USD').toUpperCase();
 }
 
 function syncDisplayCurrency(
@@ -197,7 +199,7 @@ function syncDisplayCurrency(
   activeLedgerId: string,
 ) {
   const active = ledgers.find((item) => item.id === activeLedgerId) ?? ledgers[0];
-  setActiveMoneyCurrency(active?.baseCurrency || 'COP');
+  setActiveMoneyCurrency(active?.baseCurrency || 'USD');
 }
 
 /** Serialize full hydrates so create + AppState poll never overlap on the JS thread. */
@@ -215,7 +217,7 @@ async function fetchLedgersFromApi(): Promise<{
     const created = await createWorkspace({
       name: 'Hogar',
       type: 'personal',
-      baseCurrency: 'COP',
+      baseCurrency: 'USD',
       color: '#F5C518',
       icon: 'house.fill',
     });
@@ -232,7 +234,7 @@ async function fetchLedgersFromApi(): Promise<{
     const membersRaw = await listMembers(id);
     const members = mapApiMembers(membersRaw, selfId);
     const meta = mapWorkspaceToLedger(workspace, members);
-    meta.baseCurrency = (workspace.baseCurrency || 'COP').toUpperCase();
+    meta.baseCurrency = (workspace.baseCurrency || 'USD').toUpperCase();
     ledgers.push(meta);
     const loaded = await loadWorkspaceSnapshot(id, meta.baseCurrency, {
       members,
@@ -349,7 +351,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       const selfId = await currentUserId();
       const membersRaw = await listMembers(ledgerId);
       const members = mapApiMembers(membersRaw, selfId);
-      const baseCurrency = (existing.baseCurrency || 'COP').toUpperCase();
+      const baseCurrency = (existing.baseCurrency || 'USD').toUpperCase();
       const loaded = await loadWorkspaceSnapshot(ledgerId, baseCurrency, {
         members,
         selfUserId: selfId,
@@ -377,7 +379,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       await createWorkspace({
         name: 'Hogar',
         type: 'personal',
-        baseCurrency: 'COP',
+        baseCurrency: 'USD',
         color: '#F5C518',
         icon: 'house.fill',
       });
@@ -400,15 +402,23 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
 
   setActiveLedger: async (id) => {
     if (!get().snapshots[id]) return;
+    const ledger = get().ledgers.find((item) => item.id === id);
+    const plus = usePlusStore.getState();
+    if (isOwnedResourceLocked(ledger, plus.access)) {
+      plus.openPaywall('UPGRADE');
+      return;
+    }
     syncDisplayCurrency(get().ledgers, id);
     set({ activeLedgerId: id });
   },
 
   createLedger: async (name, color) => {
+    const current =
+      get().ledgers.find((item) => item.id === get().activeLedgerId) ?? get().ledgers[0];
     const workspace = await createWorkspace({
       name: name.trim() || 'Nuevo libro',
       type: 'personal',
-      baseCurrency: 'COP',
+      baseCurrency: (current?.baseCurrency || 'USD').toUpperCase(),
       color: color ?? colors[get().ledgers.length % colors.length],
       icon: 'wallet.pass.fill',
     });

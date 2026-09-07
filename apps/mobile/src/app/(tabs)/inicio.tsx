@@ -66,7 +66,7 @@ export default function DashboardScreen() {
   const value = (amount: number, compact = false) => (hidden ? '••••••' : money(amount, compact));
   const amountOnly = (amount: number, compact = false) =>
     hidden ? '••••••' : moneyAmount(amount, compact);
-  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase();
+  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'USD').toUpperCase();
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   useEffect(() => {

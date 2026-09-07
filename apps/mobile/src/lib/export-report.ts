@@ -171,7 +171,7 @@ export function buildExportReport(options: {
   const selected = options.accounts.filter((account) => options.accountIds.includes(account.id));
   const selectedNames = new Set(selected.map((account) => account.name));
   const envelopes = options.envelopes ?? [];
-  const currency = options.currency || getActiveMoneyCurrency() || 'COP';
+  const currency = options.currency || getActiveMoneyCurrency() || 'USD';
   const recorder = options.recorder?.trim() || 'Usuario';
 
   const movements = options.transactions
@@ -287,7 +287,7 @@ export function buildExportReport(options: {
 }
 
 export function formatMoney(value: number, currency?: string) {
-  const code = currency || getActiveMoneyCurrency() || 'COP';
+  const code = currency || getActiveMoneyCurrency() || 'USD';
   try {
     return new Intl.NumberFormat('es-CO', {
       style: 'currency',
@@ -301,7 +301,7 @@ export function formatMoney(value: number, currency?: string) {
 
 /** ASCII-safe money for PDF (avoids NBSP / locale symbols that Helvetica drops). */
 export function formatPdfMoney(value: number, currency?: string) {
-  const code = currency || getActiveMoneyCurrency() || 'COP';
+  const code = currency || getActiveMoneyCurrency() || 'USD';
   const digits = new Intl.NumberFormat('es-CO', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,

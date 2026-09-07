@@ -115,6 +115,18 @@ export function filterTransactionsByRange(
   });
 }
 
+export function sumNeedWantExpenses(transactions: Transaction[]) {
+  let need = 0;
+  let want = 0;
+  for (const tx of transactions) {
+    if (tx.amount >= 0) continue;
+    const amount = Math.abs(tx.amount);
+    if (tx.needWant === 'need') need += amount;
+    else if (tx.needWant === 'want') want += amount;
+  }
+  return { need, want };
+}
+
 export function buildExpenseSlices(
   transactions: Transaction[],
   envelopes: Envelope[] = [],

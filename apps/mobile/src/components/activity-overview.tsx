@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppDateField } from '@/components/app-date-field';
 import { CategoryDonut } from '@/components/category-donut';
 import { WeeklyBars, type WeeklyMode } from '@/components/charts';
-import { Card, SectionTitle, useAppTheme } from '@/components/ui';
+import { AppIcon, Card, SectionTitle, useAppTheme } from '@/components/ui';
 import { money, type Envelope, type Transaction } from '@/data/demo';
 import { parseDateKey, toDateKey } from '@/data/calendar';
 import { useAppCopy } from '@/i18n/app-copy';
@@ -15,6 +15,7 @@ import {
   filterTransactionsByRange,
   periodRange,
   startOfWeekMonday,
+  sumNeedWantExpenses,
   type ActivityPeriod,
 } from '@/lib/activity-breakdown';
 import { parseTransactionDate } from '@/lib/dates';
@@ -94,6 +95,7 @@ export function ActivityOverview({
     () => slices.reduce((sum, item) => sum + item.amount, 0),
     [slices],
   );
+  const needWantTotals = useMemo(() => sumNeedWantExpenses(ranged), [ranged]);
   const buckets = useMemo(
     () => (period === 'week' ? [] : buildPeriodBuckets(ranged, range.start, range.end, locale)),
     [period, ranged, range.start, range.end, locale],
@@ -144,13 +146,6 @@ export function ActivityOverview({
         : selectedBucket.income - selectedBucket.expenseTotal
     : 0;
 
-  const title =
-    period === 'month'
-      ? copy.home.monthlyActivity
-      : period === 'custom'
-        ? copy.home.rangeActivity
-        : copy.home.weeklyActivity;
-
   const chips: Array<{ key: ActivityPeriod; label: string }> = [
     { key: 'week', label: copy.home.periodWeek },
     { key: 'month', label: copy.home.periodMonth },
@@ -159,7 +154,7 @@ export function ActivityOverview({
 
   return (
     <View style={styles.block}>
-      <SectionTitle>{title}</SectionTitle>
+      <SectionTitle>{copy.home.financialActivity}</SectionTitle>
       <View style={styles.chips}>
         {chips.map((item) => {
           const active = period === item.key;
@@ -408,6 +403,46 @@ export function ActivityOverview({
             ) : null}
           </View>
         )}
+        <View style={[styles.needWantRow, { borderTopColor: theme.border }]}>
+          {(
+            [
+              {
+                key: 'need' as const,
+                label: copy.home.needExpenses,
+                amount: needWantTotals.need,
+                icon: 'cart.fill',
+                color: theme.primary,
+                soft: theme.primarySoft,
+              },
+              {
+                key: 'want' as const,
+                label: copy.home.wantExpenses,
+                amount: needWantTotals.want,
+                icon: 'heart.fill',
+                color: theme.danger,
+                soft: `${theme.danger}18`,
+              },
+            ] as const
+          ).map((item) => (
+            <View
+              key={item.key}
+              style={[styles.needWantCard, { backgroundColor: theme.surfaceSecondary }]}>
+              <View style={[styles.needWantIcon, { backgroundColor: item.soft }]}>
+                <AppIcon name={item.icon} color={item.color} size={16} />
+              </View>
+              <View style={styles.needWantCopy}>
+                <Text style={[styles.needWantLabel, { color: theme.muted }]}>{item.label}</Text>
+                <Text
+                  style={[styles.needWantAmount, { color: theme.text }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}>
+                  {hidden ? '••••••' : money(item.amount)}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
         <View style={[styles.donutWrap, { borderTopColor: theme.border }]}>
           <CategoryDonut
             slices={slices}
@@ -488,6 +523,38 @@ const styles = StyleSheet.create({
   bucketRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 28 },
   bucketRowTitle: { flex: 1, fontSize: 13, fontWeight: '600' },
   bucketRowAmount: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  needWantRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  needWantCard: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  needWantIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  needWantCopy: { flex: 1, minWidth: 0, gap: 2 },
+  needWantLabel: { fontSize: 11, fontWeight: '700' },
+  needWantAmount: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
+  },
   donutWrap: {
     marginTop: 12,
     paddingTop: 18,

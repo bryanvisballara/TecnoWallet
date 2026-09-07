@@ -188,7 +188,7 @@ export class Workspace {
   @Prop({ required: true, index: true, type: MongooseSchema.Types.ObjectId })
   ownerId!: Types.ObjectId;
 
-  @Prop({ default: 'COP', uppercase: true })
+  @Prop({ default: 'USD', uppercase: true })
   baseCurrency!: string;
 
   /** UI accent for the book switcher (stored in Mongo, not local). */
@@ -486,7 +486,7 @@ export class AuthService {
         name: 'Hogar',
         type: 'personal',
         ownerId: user._id,
-        baseCurrency: 'COP',
+        baseCurrency: 'USD',
         color: '#F5C518',
         icon: 'house.fill',
         freeSlot: 1,
@@ -638,7 +638,7 @@ export class AuthService {
         name: 'Hogar',
         type: 'personal',
         ownerId: user._id,
-        baseCurrency: 'COP',
+        baseCurrency: 'USD',
         color: '#F5C518',
         icon: 'house.fill',
         freeSlot: 1,
@@ -726,7 +726,7 @@ export class AuthService {
         name: 'Hogar',
         type: 'personal',
         ownerId: user._id,
-        baseCurrency: 'COP',
+        baseCurrency: 'USD',
         color: '#F5C518',
         icon: 'house.fill',
         freeSlot: 1,

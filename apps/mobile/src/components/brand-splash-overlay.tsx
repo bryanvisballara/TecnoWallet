@@ -150,7 +150,7 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
             style={styles.mark}
             contentFit="contain"
             transition={0}
-            cachePolicy="memory-disk"
+            cachePolicy="none"
             priority="high"
           />
         </View>

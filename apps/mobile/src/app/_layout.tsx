@@ -28,7 +28,13 @@ import { deliverGoogleIdToken } from '@/lib/google-oauth-return';
 import { requestVoiceDictation, isVoiceCommandUrl, voiceTextFromUrl } from '@/lib/voice-intent';
 import { isGoogleReturnUrl, parseIdTokenFromUrl } from '@/services/google-auth';
 import { syncCalendarWidget } from '@/lib/sync-calendar-widget';
-import { hasLocalGuestAccess } from '@/lib/guest-access';
+import {
+  firstUnlockedCalendarId,
+  firstUnlockedLedgerId,
+  hasLocalGuestAccess,
+  isOwnedResourceLocked,
+} from '@/lib/guest-access';
+import { canUseSharedBooksWithoutPaying, hasPaidPlan } from '@/services/plus-api';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -122,9 +128,28 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!authenticated || !plusHydrated) return;
-    if (plusAccess !== 'free') return;
-    if (hasLocalGuestAccess()) {
+    if (hasPaidPlan(plusAccess)) return;
+    const billing = usePlusStore.getState().billing;
+    const guest =
+      plusAccess === 'sponsored_collaborator' ||
+      hasLocalGuestAccess() ||
+      canUseSharedBooksWithoutPaying(billing);
+    if (guest) {
       usePlusStore.getState().markSharedAccess();
+      const { ledgers, activeLedgerId } = useLedgerStore.getState();
+      const active = ledgers.find((item) => item.id === activeLedgerId);
+      if (isOwnedResourceLocked(active, plusAccess)) {
+        const unlockedId = firstUnlockedLedgerId(ledgers, plusAccess);
+        if (unlockedId) void useLedgerStore.getState().setActiveLedger(unlockedId);
+      }
+      const { calendars, activeCalendarId } = useCalendarStore.getState();
+      const activeCalendar = calendars.find((item) => item.id === activeCalendarId);
+      if (isOwnedResourceLocked(activeCalendar, plusAccess)) {
+        const unlockedCalendarId = firstUnlockedCalendarId(calendars, plusAccess);
+        if (unlockedCalendarId) {
+          void useCalendarStore.getState().setActiveCalendar(unlockedCalendarId);
+        }
+      }
       return;
     }
     usePlusStore.getState().maybePromptTrialPaywall();

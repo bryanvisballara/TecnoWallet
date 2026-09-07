@@ -23,7 +23,9 @@ import {
   type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
+import { useAppCopy } from '@/i18n/app-copy';
 import { isSelfOwner } from '@/lib/collaboration-roles';
+import { isOwnedResourceLocked } from '@/lib/guest-access';
 import {
   calendarAccessRequests,
   useAccessRequestsStore,
@@ -65,6 +67,7 @@ async function copyText(value: string) {
 
 export default function CalendarsScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const params = useLocalSearchParams<{ focus?: string; tab?: string }>();
   const shareMode = params.tab === 'share';
   const calendars = useCalendarStore((state) => state.calendars);
@@ -310,30 +313,46 @@ export default function CalendarsScreen() {
       <Card style={styles.listCard}>
         {calendars.map((calendar, index) => {
           const active = calendar.id === selectedId;
+          const locked = isOwnedResourceLocked(calendar, plusAccess);
           return (
             <ScalePressable
               key={calendar.id}
-              onPress={() => setSelectedId(calendar.id)}
+              onPress={() => {
+                if (locked) {
+                  openPaywall('UPGRADE');
+                  return;
+                }
+                setSelectedId(calendar.id);
+              }}
               style={[
                 styles.calendarRow,
                 index > 0 && {
                   borderTopWidth: StyleSheet.hairlineWidth,
                   borderTopColor: theme.border,
                 },
-                active && { backgroundColor: theme.primarySoft },
+                active && !locked && { backgroundColor: theme.primarySoft },
+                locked && { opacity: 0.48 },
               ]}>
               <View style={[styles.calendarIcon, { backgroundColor: `${calendar.color}22` }]}>
-                <AppIcon name={calendar.icon} color={calendar.color} />
+                <AppIcon name={calendar.icon} color={locked ? theme.muted : calendar.color} />
               </View>
               <View style={styles.copy}>
-                <Text style={[styles.calendarName, { color: theme.text }]}>{calendar.name}</Text>
+                <Text style={[styles.calendarName, { color: locked ? theme.muted : theme.text }]}>
+                  {calendar.name}
+                </Text>
                 <Text style={[styles.small, { color: theme.muted }]}>
-                  {calendar.members.length} miembro
-                  {calendar.members.length === 1 ? '' : 's'}
-                  {calendar.id === activeCalendarId ? ' · Activo' : ''}
+                  {locked
+                    ? copy.ledger.lockedMeta
+                    : `${calendar.members.length} miembro${calendar.members.length === 1 ? '' : 's'}${
+                        calendar.id === activeCalendarId ? ' · Activo' : ''
+                      }`}
                 </Text>
               </View>
-              {calendar.id === activeCalendarId ? <Pill tone="green">En uso</Pill> : null}
+              {locked ? (
+                <AppIcon name="lock.fill" color={theme.muted} size={16} />
+              ) : calendar.id === activeCalendarId ? (
+                <Pill tone="green">En uso</Pill>
+              ) : null}
             </ScalePressable>
           );
         })}
@@ -363,7 +382,13 @@ export default function CalendarsScreen() {
         </Card>
       ) : null}
 
-      {selected ? (
+      {isOwnedResourceLocked(selected, plusAccess) ? (
+        <Card style={styles.block}>
+          <Text style={[styles.section, { color: theme.text }]}>{selected?.name}</Text>
+          <Text style={[styles.hint, { color: theme.muted }]}>{copy.ledger.lockedMeta}</Text>
+          <PrimaryButton onPress={() => openPaywall('UPGRADE')}>Desbloquear</PrimaryButton>
+        </Card>
+      ) : selected ? (
         <>
           <Card style={styles.block}>
             <Text style={[styles.section, { color: theme.text }]}>Personas con acceso</Text>
@@ -581,6 +606,10 @@ export default function CalendarsScreen() {
             {selected.id !== activeCalendarId ? (
               <PrimaryButton
                 onPress={async () => {
+                  if (isOwnedResourceLocked(selected, plusAccess)) {
+                    openPaywall('UPGRADE');
+                    return;
+                  }
                   await setActiveCalendar(selected.id);
                   safeGoBack('/(tabs)/calendario');
                 }}>

@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
 import { isSelfOwner } from '@/lib/collaboration-roles';
+import { isOwnedResourceLocked } from '@/lib/guest-access';
 import { createAccessRequest } from '@/services/collaboration-api';
 import { useCalendarStore } from '@/store/calendar';
 import { useLanguageStore } from '@/store/language';
@@ -139,49 +140,64 @@ export function CalendarSwitcher({ compact = false }: Props) {
               const selected = calendar.id === activeCalendarId;
               const count = calendar.members.length;
               const name = displayCalendarName(calendar.name, locale);
+              const locked = isOwnedResourceLocked(calendar, plusAccess);
               return (
                 <View
                   key={calendar.id}
                   style={[
                     styles.row,
-                    selected && { backgroundColor: theme.primarySoft },
+                    selected && !locked && { backgroundColor: theme.primarySoft },
+                    locked && { opacity: 0.48 },
                   ]}>
-                  {selected ? (
+                  {selected && !locked ? (
                     <View style={[styles.activeBar, { backgroundColor: theme.success }]} />
                   ) : (
                     <View style={styles.activeBarSpacer} />
                   )}
                   <ScalePressable
                     style={styles.rowMain}
+                    accessibilityLabel={
+                      locked ? copy.ledger.lockedA11y(name) : undefined
+                    }
                     onPress={async () => {
+                      if (locked) {
+                        close();
+                        openPaywall('UPGRADE');
+                        return;
+                      }
                       await setActiveCalendar(calendar.id);
                       close();
                     }}>
                     <View style={[styles.icon, { backgroundColor: `${calendar.color}22` }]}>
-                      <AppIcon name={calendar.icon} color={calendar.color} size={18} />
+                      <AppIcon name={calendar.icon} color={locked ? theme.muted : calendar.color} size={18} />
                     </View>
                     <View style={styles.copy}>
-                      <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+                      <Text style={[styles.name, { color: locked ? theme.muted : theme.text }]}>{name}</Text>
                       <Text style={[styles.meta, { color: theme.muted }]}>
-                        {count > 1
-                          ? copy.calendar.sharedMeta(count)
-                          : copy.calendar.onlyYou}
+                        {locked
+                          ? copy.ledger.lockedMeta
+                          : count > 1
+                            ? copy.calendar.sharedMeta(count)
+                            : copy.calendar.onlyYou}
                       </Text>
                     </View>
+                    {locked ? (
+                      <AppIcon name="lock.fill" color={theme.muted} size={16} />
+                    ) : null}
                   </ScalePressable>
                   <ScalePressable
                     accessibilityLabel={copy.common.inviteTo(name)}
                     onPress={() => {
                       close();
+                      if (locked || !hasPaidPlan(plusAccess)) {
+                        openPaywall(locked ? 'UPGRADE' : 'SHARING_REQUIRED');
+                        return;
+                      }
                       if (!isSelfOwner(calendar.members)) {
                         Alert.alert(
                           'Solo el organizador',
                           'En un calendario compartido solo el organizador puede invitar a más personas.',
                         );
-                        return;
-                      }
-                      if (!hasPaidPlan(plusAccess)) {
-                        openPaywall('SHARING_REQUIRED');
                         return;
                       }
                       router.push({
@@ -196,6 +212,10 @@ export function CalendarSwitcher({ compact = false }: Props) {
                     accessibilityLabel={copy.calendar.settingsA11y(name)}
                     onPress={() => {
                       close();
+                      if (locked) {
+                        openPaywall('UPGRADE');
+                        return;
+                      }
                       router.push({ pathname: '/(tabs)/calendars', params: { focus: calendar.id } });
                     }}
                     style={styles.iconBtn}>

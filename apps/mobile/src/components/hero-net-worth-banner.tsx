@@ -73,7 +73,7 @@ export function HeroNetWorthBanner({
     const active = state.ledgers.find((item) => item.id === state.activeLedgerId);
     return (active?.baseCurrency || '').toUpperCase();
   });
-  const currency = (currencyProp || ledgerCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase();
+  const currency = (currencyProp || ledgerCurrency || getActiveMoneyCurrency() || 'USD').toUpperCase();
   const amountText = hidden ? '••••••' : moneyAmount(amount);
 
   return (

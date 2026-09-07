@@ -118,7 +118,7 @@ export function mapWorkspaceToLedger(
     color: workspace.color || '#F5C518',
     icon: workspace.icon || 'wallet.pass.fill',
     type: members.length > 1 ? 'shared' : workspace.type === 'shared' ? 'shared' : 'personal',
-    baseCurrency: (workspace.baseCurrency || 'COP').toUpperCase(),
+    baseCurrency: (workspace.baseCurrency || 'USD').toUpperCase(),
     shareCode: workspace.shareCode?.trim().toUpperCase() || undefined,
     members,
   };
@@ -390,7 +390,7 @@ export async function createWorkspace(input: {
     body: JSON.stringify({
       name: input.name,
       type: input.type ?? 'personal',
-      baseCurrency: input.baseCurrency ?? 'COP',
+      baseCurrency: input.baseCurrency ?? 'USD',
       color: input.color,
       icon: input.icon,
     }),

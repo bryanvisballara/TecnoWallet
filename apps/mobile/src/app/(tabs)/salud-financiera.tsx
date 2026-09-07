@@ -239,7 +239,7 @@ export default function SaludFinancieraScreen() {
   const { accounts, ledger, transactions, upcoming, planning } = useActiveLedger();
   const year = usePeriodStore((state) => state.year);
   const month = usePeriodStore((state) => state.month);
-  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'COP').toUpperCase();
+  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'USD').toUpperCase();
 
   const liquidAccounts = useMemo(
     () => accounts.filter((item) => isLiquidAccount(item.kind)),

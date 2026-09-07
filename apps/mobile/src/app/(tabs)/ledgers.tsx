@@ -14,6 +14,7 @@ import {
 
 import { CollaborationInvitesList } from '@/components/collaboration-invites-list';
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
+import { useAppCopy } from '@/i18n/app-copy';
 import {
   acceptAccessRequest,
   listCollaborationInvites,
@@ -23,6 +24,7 @@ import {
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
 import { isSelfOwner } from '@/lib/collaboration-roles';
+import { isOwnedResourceLocked } from '@/lib/guest-access';
 import { fetchWorkspaceShareCode } from '@/services/ledgers-api';
 import {
   useAccessRequestsStore,
@@ -82,6 +84,7 @@ const ledgerPalette = [
 
 export default function LedgersScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const params = useLocalSearchParams<{ focus?: string; tab?: string }>();
   const shareMode = params.tab === 'share';
   const ledgers = useLedgerStore((state) => state.ledgers);
@@ -173,9 +176,14 @@ export default function LedgersScreen() {
 
   useEffect(() => {
     if (params.focus && ledgers.some((item) => item.id === params.focus)) {
+      const focused = ledgers.find((item) => item.id === params.focus);
+      if (isOwnedResourceLocked(focused, plusAccess)) {
+        openPaywall('UPGRADE');
+        return;
+      }
       setSelectedId(params.focus);
     }
-  }, [params.focus, ledgers]);
+  }, [params.focus, ledgers, plusAccess, openPaywall]);
 
   useEffect(() => {
     void loadInvites(selected?.id);
@@ -351,7 +359,8 @@ export default function LedgersScreen() {
     : [{ name: icon, label: 'Actual' }, ...ledgerIcons];
   const visibleColors = ledgerPalette.includes(color) ? ledgerPalette : [color, ...ledgerPalette];
 
-  const settingsCard = selected ? (
+  const selectedLocked = isOwnedResourceLocked(selected, plusAccess);
+  const settingsCard = selected && !selectedLocked ? (
     <Card style={styles.block}>
       <View style={uiStyles.between}>
         <Text style={[styles.section, { color: theme.text }]}>Ajustes del libro</Text>
@@ -417,6 +426,10 @@ export default function LedgersScreen() {
       {selected.id !== activeLedgerId ? (
         <PrimaryButton
           onPress={async () => {
+            if (isOwnedResourceLocked(selected, plusAccess)) {
+              openPaywall('UPGRADE');
+              return;
+            }
             await setActiveLedger(selected.id);
             safeGoBack(shareMode ? '/(tabs)/inicio' : '/(tabs)/mas');
           }}>
@@ -460,32 +473,55 @@ export default function LedgersScreen() {
       <Card style={styles.listCard}>
         {ledgers.map((ledger, index) => {
           const active = ledger.id === selectedId;
+          const locked = isOwnedResourceLocked(ledger, plusAccess);
           return (
             <ScalePressable
               key={ledger.id}
-              onPress={() => setSelectedId(ledger.id)}
+              onPress={() => {
+                if (locked) {
+                  openPaywall('UPGRADE');
+                  return;
+                }
+                setSelectedId(ledger.id);
+              }}
               style={[
                 styles.ledgerRow,
                 index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-                active && { backgroundColor: theme.primarySoft },
+                active && !locked && { backgroundColor: theme.primarySoft },
+                locked && { opacity: 0.48 },
               ]}>
               <View style={[styles.ledgerIcon, { backgroundColor: `${ledger.color}22` }]}>
-                <AppIcon name={ledger.icon} color={ledger.color} />
+                <AppIcon name={ledger.icon} color={locked ? theme.muted : ledger.color} />
               </View>
               <View style={styles.copy}>
-                <Text style={[styles.ledgerName, { color: theme.text }]}>{ledger.name}</Text>
+                <Text style={[styles.ledgerName, { color: locked ? theme.muted : theme.text }]}>
+                  {ledger.name}
+                </Text>
                 <Text style={[styles.small, { color: theme.muted }]}>
-                  {ledger.members.length} miembro{ledger.members.length === 1 ? '' : 's'}
-                  {ledger.id === activeLedgerId ? ' · Activo' : ''}
+                  {locked
+                    ? copy.ledger.lockedMeta
+                    : `${ledger.members.length} miembro${ledger.members.length === 1 ? '' : 's'}${
+                        ledger.id === activeLedgerId ? ' · Activo' : ''
+                      }`}
                 </Text>
               </View>
-              {ledger.id === activeLedgerId ? <Pill tone="green">En uso</Pill> : null}
+              {locked ? (
+                <AppIcon name="lock.fill" color={theme.muted} size={16} />
+              ) : ledger.id === activeLedgerId ? (
+                <Pill tone="green">En uso</Pill>
+              ) : null}
             </ScalePressable>
           );
         })}
       </Card>
 
-      {selected ? (
+      {selectedLocked ? (
+        <Card style={styles.block}>
+          <Text style={[styles.section, { color: theme.text }]}>{selected?.name}</Text>
+          <Text style={[styles.hint, { color: theme.muted }]}>{copy.ledger.lockedMeta}</Text>
+          <PrimaryButton onPress={() => openPaywall('UPGRADE')}>Desbloquear</PrimaryButton>
+        </Card>
+      ) : selected ? (
         <>
           <Card style={styles.block}>
             <Text style={[styles.section, { color: theme.text }]}>Personas con acceso</Text>

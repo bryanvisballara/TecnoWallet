@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { isSelfOwner } from '@/lib/collaboration-roles';
+import { isOwnedResourceLocked } from '@/lib/guest-access';
 import { createAccessRequest } from '@/services/collaboration-api';
 import { useLanguageStore } from '@/store/language';
 import { useLedgerStore } from '@/store/ledger';
@@ -134,45 +135,60 @@ export function LedgerSwitcher({ compact = false }: Props) {
               const selected = ledger.id === activeLedgerId;
               const name = displayLedgerName(ledger.name, locale);
               const count = ledger.members.length;
+              const locked = isOwnedResourceLocked(ledger, plusAccess);
               return (
                 <View
                   key={ledger.id}
                   style={[
                     styles.row,
-                    selected && { backgroundColor: theme.primarySoft },
+                    selected && !locked && { backgroundColor: theme.primarySoft },
+                    locked && { opacity: 0.48 },
                   ]}>
-                  {selected ? <View style={[styles.activeBar, { backgroundColor: theme.success }]} /> : <View style={styles.activeBarSpacer} />}
+                  {selected && !locked ? <View style={[styles.activeBar, { backgroundColor: theme.success }]} /> : <View style={styles.activeBarSpacer} />}
                   <ScalePressable
                     style={styles.rowMain}
+                    accessibilityLabel={
+                      locked ? copy.ledger.lockedA11y(name) : undefined
+                    }
                     onPress={async () => {
+                      if (locked) {
+                        close();
+                        openPaywall('UPGRADE');
+                        return;
+                      }
                       await setActiveLedger(ledger.id);
                       close();
                     }}>
                     <View style={[styles.icon, { backgroundColor: `${ledger.color}22` }]}>
-                      <AppIcon name={ledger.icon} color={ledger.color} size={18} />
+                      <AppIcon name={ledger.icon} color={locked ? theme.muted : ledger.color} size={18} />
                     </View>
                     <View style={styles.copy}>
-                      <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+                      <Text style={[styles.name, { color: locked ? theme.muted : theme.text }]}>{name}</Text>
                       <Text style={[styles.meta, { color: theme.muted }]}>
-                        {count > 1
-                          ? copy.calendar.sharedMeta(count)
-                          : copy.common.personal}
+                        {locked
+                          ? copy.ledger.lockedMeta
+                          : count > 1
+                            ? copy.calendar.sharedMeta(count)
+                            : copy.common.personal}
                       </Text>
                     </View>
+                    {locked ? (
+                      <AppIcon name="lock.fill" color={theme.muted} size={16} />
+                    ) : null}
                   </ScalePressable>
                   <ScalePressable
                     accessibilityLabel={copy.ledger.shareA11y(name)}
                     onPress={() => {
                       close();
+                      if (locked || !hasPaidPlan(plusAccess)) {
+                        openPaywall(locked ? 'UPGRADE' : 'SHARING_REQUIRED');
+                        return;
+                      }
                       if (!isSelfOwner(ledger.members)) {
                         Alert.alert(
                           'Solo el organizador',
                           'En un libro compartido solo el organizador puede invitar a más personas.',
                         );
-                        return;
-                      }
-                      if (!hasPaidPlan(plusAccess)) {
-                        openPaywall('SHARING_REQUIRED');
                         return;
                       }
                       router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id, tab: 'share' } });
@@ -184,6 +200,10 @@ export function LedgerSwitcher({ compact = false }: Props) {
                     accessibilityLabel={`${copy.tabs.mas} ${name}`}
                     onPress={() => {
                       close();
+                      if (locked) {
+                        openPaywall('UPGRADE');
+                        return;
+                      }
                       router.push({ pathname: '/(tabs)/ledgers', params: { focus: ledger.id } });
                     }}
                     style={styles.iconBtn}>

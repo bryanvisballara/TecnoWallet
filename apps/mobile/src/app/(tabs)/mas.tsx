@@ -66,7 +66,7 @@ export default function MoreScreen() {
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const setLedgerCurrency = useLedgerStore((state) => state.setLedgerCurrency);
   const { ledger } = useActiveLedger();
-  const activeCurrency = (ledger?.baseCurrency || 'COP').toUpperCase();
+  const activeCurrency = (ledger?.baseCurrency || 'USD').toUpperCase();
   const [languageOpen, setLanguageOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);

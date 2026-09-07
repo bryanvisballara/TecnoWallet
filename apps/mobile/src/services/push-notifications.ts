@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 
 import { resolveCalendarReminderAt } from "@/data/calendar";
+import { getActiveMoneyCurrency } from "@/data/demo";
 import { localStorage } from "@/services/persistence";
 
 type ActivityKind =
@@ -492,7 +493,7 @@ export function notifyTransactionAdded(input: {
 }) {
   const amount = new Intl.NumberFormat("es-CO", {
     style: "currency",
-    currency: "COP",
+    currency: getActiveMoneyCurrency() || "USD",
     maximumFractionDigits: 0,
   }).format(input.amount);
 

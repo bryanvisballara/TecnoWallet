@@ -23,7 +23,9 @@ import {
   type ApiCalendarMember,
 } from '@/services/calendar-api';
 import { localStorage } from '@/services/persistence';
+import { isOwnedResourceLocked } from '@/lib/owned-resource-lock';
 import { useLedgerStore } from '@/store/ledger';
+import { usePlusStore } from '@/store/plus';
 import { recordActivity } from '@/store/notifications';
 import { syncCalendarWidget } from '@/lib/sync-calendar-widget';
 
@@ -394,6 +396,12 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   setActiveCalendar: async (id) => {
     if (!get().calendars.some((item) => item.id === id)) return;
+    const calendar = get().calendars.find((item) => item.id === id);
+    const plus = usePlusStore.getState();
+    if (isOwnedResourceLocked(calendar, plus.access)) {
+      plus.openPaywall('UPGRADE');
+      return;
+    }
     const next = {
       calendars: get().calendars,
       activeCalendarId: id,

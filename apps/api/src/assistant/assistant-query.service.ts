@@ -87,7 +87,7 @@ export class AssistantQueryService {
       .findById(workspaceId)
       .select('baseCurrency')
       .lean();
-    return (workspace?.baseCurrency || 'COP').toUpperCase();
+    return (workspace?.baseCurrency || 'USD').toUpperCase();
   }
 
   private privacyMatch(userId: string) {

@@ -1,6 +1,12 @@
 import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
 
+export {
+  firstUnlockedCalendarId,
+  firstUnlockedLedgerId,
+  isOwnedResourceLocked,
+} from '@/lib/owned-resource-lock';
+
 function isNonOwnerSelf(member: { id: string; role: string }) {
   return member.id === 'me' && member.role !== 'owner';
 }
@@ -19,3 +25,4 @@ export function hasLocalGuestAccess() {
     calendar.members.some(isNonOwnerSelf),
   );
 }
+

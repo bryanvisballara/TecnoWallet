@@ -165,7 +165,7 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
   },
 ];
 
-let activeMoneyCurrency = 'COP';
+let activeMoneyCurrency = 'USD';
 
 /** Sync display currency with the active ledger (Más → Divisa). */
 export function setActiveMoneyCurrency(code: string) {

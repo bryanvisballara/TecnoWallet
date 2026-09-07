@@ -48,6 +48,8 @@ export type AppCopy = {
     activeA11y: (name: string) => string;
     openHint: string;
     shareA11y: (name: string) => string;
+    lockedMeta: string;
+    lockedA11y: (name: string) => string;
   };
   home: {
     greetingMorning: string;
@@ -85,9 +87,9 @@ export type AppCopy = {
     viewGoalA11y: string;
     noGoalTitle: string;
     noGoalHint: string;
-    weeklyActivity: string;
-    monthlyActivity: string;
-    rangeActivity: string;
+    financialActivity: string;
+    needExpenses: string;
+    wantExpenses: string;
     periodWeek: string;
     periodMonth: string;
     periodDates: string;
@@ -539,6 +541,8 @@ const es: AppCopy = {
     activeA11y: (name) => `Libro activo ${name}. Cambiar libro`,
     openHint: 'Abre la lista de libros',
     shareA11y: (name) => `Compartir ${name}`,
+    lockedMeta: 'Bloqueado · empieza la prueba para usarlo',
+    lockedA11y: (name) => `${name} bloqueado. Abre TecnoWallet+ para usarlo`,
   },
   home: {
     greetingMorning: 'Buenos días',
@@ -577,9 +581,9 @@ const es: AppCopy = {
     viewGoalA11y: 'Ver detalle de la meta',
     noGoalTitle: 'Sin meta en este libro',
     noGoalHint: 'Cuando definas una meta, verás el progreso aquí.',
-    weeklyActivity: 'Actividad semanal',
-    monthlyActivity: 'Actividad mensual',
-    rangeActivity: 'Actividad por fechas',
+    financialActivity: 'Actividad financiera',
+    needExpenses: 'Necesidad',
+    wantExpenses: 'Deseo',
     periodWeek: 'Semanal',
     periodMonth: 'Mensual',
     periodDates: 'Fechas',
@@ -1138,6 +1142,8 @@ const en: AppCopy = {
     activeA11y: (name) => `Active book ${name}. Change book`,
     openHint: 'Opens the list of books',
     shareA11y: (name) => `Share ${name}`,
+    lockedMeta: 'Locked · start the trial to use it',
+    lockedA11y: (name) => `${name} locked. Open TecnoWallet+ to use it`,
   },
   home: {
     greetingMorning: 'Good morning',
@@ -1178,9 +1184,9 @@ const en: AppCopy = {
     viewGoalA11y: 'View goal detail',
     noGoalTitle: 'No goal in this book',
     noGoalHint: 'When you set a goal, you’ll see progress here.',
-    weeklyActivity: 'Weekly activity',
-    monthlyActivity: 'Monthly activity',
-    rangeActivity: 'Activity by dates',
+    financialActivity: 'Financial activity',
+    needExpenses: 'Need',
+    wantExpenses: 'Want',
     periodWeek: 'Weekly',
     periodMonth: 'Monthly',
     periodDates: 'Dates',
