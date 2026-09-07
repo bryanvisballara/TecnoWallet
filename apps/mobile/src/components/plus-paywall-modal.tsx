@@ -37,14 +37,26 @@ import {
   parseInviteInput,
   rememberInviteInput,
 } from '@/services/collaboration-api';
-import { canUseSharedBooksWithoutPaying } from '@/services/plus-api';
+import { hasLocalGuestAccess } from '@/lib/guest-access';
+import {
+  canUnlockApp,
+  canUseSharedBooksWithoutPaying,
+} from '@/services/plus-api';
 import { useAffiliateStore } from '@/store/affiliate';
+import { useAuthStore } from '@/store/auth';
 import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
 import {
   type PaywallPlan,
   usePlusStore,
 } from '@/store/plus';
+
+function isAlreadyMemberError(error: unknown) {
+  if (error instanceof ApiError && error.status === 409) {
+    return /already have access|already own/i.test(error.message);
+  }
+  return error instanceof Error && /already have access|already own/i.test(error.message);
+}
 
 const plusBenefitIcons = [
   'sparkles',
@@ -75,10 +87,15 @@ export function PlusPaywallModal() {
   );
   const couponCode = usePlusStore((state) => state.couponCode);
   const close = usePlusStore((state) => state.closePaywall);
+  const access = usePlusStore((state) => state.access);
+  const billing = usePlusStore((state) => state.billing);
+  const canDismiss = canUnlockApp(billing, access);
   const setBilling = usePlusStore((state) => state.setBilling);
   const setCoupon = usePlusStore((state) => state.setCoupon);
+  const setPaywallPlan = usePlusStore((state) => state.setPaywallPlan);
+  const signOut = useAuthStore((state) => state.signOut);
   const [working, setWorking] = useState<
-    'buy' | 'restore' | 'coupon' | 'invite' | null
+    'buy' | 'restore' | 'coupon' | 'invite' | 'signout' | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
@@ -143,6 +160,23 @@ export function PlusPaywallModal() {
     }
   };
 
+  const unlockIfAlreadyGuest = async () => {
+    await Promise.all([
+      usePlusStore.getState().hydrate(),
+      useLedgerStore.getState().hydrate(),
+      useCalendarStore.getState().hydrate(),
+    ]);
+    if (
+      canUnlockApp(usePlusStore.getState().billing) ||
+      hasLocalGuestAccess()
+    ) {
+      usePlusStore.getState().markSharedAccess();
+      setInviteNotice(copy.paywall.guestInviteOk);
+      return true;
+    }
+    return false;
+  };
+
   const applyGuestInvite = async () => {
     const parsed = parseInviteInput(inviteDraft);
     if (!parsed) {
@@ -155,23 +189,28 @@ export function PlusPaywallModal() {
     try {
       if (parsed.kind === 'share') {
         await createAccessRequest(parsed.value);
-        await usePlusStore.getState().hydrate();
-        setInviteNotice(copy.paywall.guestInvitePending);
-        if (canUseSharedBooksWithoutPaying(usePlusStore.getState().billing)) {
-          close();
+        await Promise.all([
+          usePlusStore.getState().hydrate(),
+          useLedgerStore.getState().hydrate(),
+        ]);
+        if (
+          canUseSharedBooksWithoutPaying(usePlusStore.getState().billing) ||
+          hasLocalGuestAccess()
+        ) {
+          usePlusStore.getState().markSharedAccess();
+          setInviteNotice(copy.paywall.guestInviteOk);
+          return;
         }
+        setInviteNotice(copy.paywall.guestInvitePending);
         return;
       }
       await rememberInviteInput(parsed.value);
       await acceptCollaborationInvite(parsed.value);
-      await Promise.all([
-        usePlusStore.getState().hydrate(),
-        useLedgerStore.getState().hydrate(),
-        useCalendarStore.getState().hydrate(),
-      ]);
-      setInviteNotice(copy.paywall.guestInviteOk);
-      close();
+      await unlockIfAlreadyGuest();
     } catch (inviteError) {
+      if (isAlreadyMemberError(inviteError) && (await unlockIfAlreadyGuest())) {
+        return;
+      }
       setError(
         inviteError instanceof Error
           ? inviteError.message
@@ -187,7 +226,7 @@ export function PlusPaywallModal() {
     setWorking('buy');
     const paywallReason = usePlusStore.getState().paywallReason;
     const appliedCode = usePlusStore.getState().couponCode;
-    close();
+    close({ force: true });
     await new Promise<void>((resolve) => {
       InteractionManager.runAfterInteractions(() => {
         setTimeout(resolve, 400);
@@ -217,6 +256,16 @@ export function PlusPaywallModal() {
     }
   };
 
+  const leave = async () => {
+    if (working) return;
+    setWorking('signout');
+    try {
+      await signOut();
+    } finally {
+      setWorking(null);
+    }
+  };
+
   const runRestore = async () => {
     setError(null);
     setWorking('restore');
@@ -241,13 +290,19 @@ export function PlusPaywallModal() {
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={close}>
+      onRequestClose={() => {
+        if (canDismiss) close();
+      }}>
       <View style={styles.overlay}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={close}
-          accessibilityLabel={copy.common.close}
-        />
+        {canDismiss ? (
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => close()}
+            accessibilityLabel={copy.common.close}
+          />
+        ) : (
+          <View style={StyleSheet.absoluteFill} />
+        )}
         <View
           style={[
             styles.sheet,
@@ -269,12 +324,16 @@ export function PlusPaywallModal() {
                 size={28}
               />
             </View>
-            <ScalePressable
-              accessibilityLabel={copy.common.close}
-              onPress={close}
-              style={[styles.close, { backgroundColor: theme.surfaceSecondary }]}>
-              <AppIcon name="xmark" color={theme.muted} size={18} />
-            </ScalePressable>
+            {canDismiss ? (
+              <ScalePressable
+                accessibilityLabel={copy.common.close}
+                onPress={() => close()}
+                style={[styles.close, { backgroundColor: theme.surfaceSecondary }]}>
+                <AppIcon name="xmark" color={theme.muted} size={18} />
+              </ScalePressable>
+            ) : (
+              <View style={styles.close} />
+            )}
           </View>
 
           <Text style={[styles.eyebrow, { color: theme.primary }]}>
@@ -282,6 +341,35 @@ export function PlusPaywallModal() {
           </Text>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.body, { color: theme.muted }]}>{reasonCopy.body}</Text>
+
+          {reason === 'SEAT_LIMIT' ? null : (
+            <View style={[styles.planSwitch, { backgroundColor: theme.surfaceSecondary }]}>
+              {(['plus', 'business'] as const).map((value) => {
+                const selected = isBusiness ? value === 'business' : value === 'plus';
+                return (
+                  <Pressable
+                    key={value}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => setPaywallPlan(value)}
+                    style={[
+                      styles.planOption,
+                      selected && { backgroundColor: theme.surface },
+                    ]}>
+                    <Text
+                      style={[
+                        styles.planOptionText,
+                        { color: selected ? theme.text : theme.muted },
+                      ]}>
+                      {value === 'business'
+                        ? copy.paywall.planBusiness
+                        : copy.paywall.planPlus}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
 
           <View style={styles.benefits}>
             {benefitLabels.map((label, index) => (
@@ -449,6 +537,19 @@ export function PlusPaywallModal() {
 
           <ScalePressable
             disabled={Boolean(working)}
+            onPress={() => void leave()}
+            style={styles.restore}>
+            {working === 'signout' ? (
+              <ActivityIndicator color={theme.muted} />
+            ) : (
+              <Text style={[styles.restoreText, { color: theme.muted }]}>
+                {copy.paywall.signOut}
+              </Text>
+            )}
+          </ScalePressable>
+
+          <ScalePressable
+            disabled={Boolean(working)}
             onPress={() => void runRestore()}
             style={styles.restore}>
             {working === 'restore' ? (
@@ -533,6 +634,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
   },
+  planSwitch: {
+    flexDirection: 'row',
+    padding: 4,
+    borderRadius: 14,
+  },
+  planOption: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  planOptionText: { fontSize: 14, fontWeight: '800' },
   benefits: { gap: 10, marginTop: 4 },
   benefit: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   check: {

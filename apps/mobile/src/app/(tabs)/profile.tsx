@@ -40,10 +40,13 @@ export default function ProfileScreen() {
   const updateProfile = useAuthStore((state) => state.updateProfile);
   const changePassword = useAuthStore((state) => state.changePassword);
   const plusAccess = usePlusStore((state) => state.access);
-  const guestPlan = usePlusStore((state) => ({
-    hasSharedAccess: Boolean(state.billing?.hasSharedAccess),
-    invitedToSharedBook: Boolean(state.billing?.invitedToSharedBook),
-  }));
+  const hasSharedAccess = usePlusStore((state) =>
+    Boolean(state.billing?.hasSharedAccess),
+  );
+  const invitedToSharedBook = usePlusStore((state) =>
+    Boolean(state.billing?.invitedToSharedBook),
+  );
+  const guestPlan = { hasSharedAccess, invitedToSharedBook };
   const openPaywall = usePlusStore((state) => state.openPaywall);
 
   const [name, setName] = useState(profile.name);

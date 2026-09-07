@@ -56,10 +56,13 @@ export default function MoreScreen() {
   const biometricsLockEnabled = usePreferencesStore((state) => state.biometricsLockEnabled);
   const weekStartsOn = usePreferencesStore((state) => state.weekStartsOn);
   const plusAccess = usePlusStore((state) => state.access);
-  const guestPlan = usePlusStore((state) => ({
-    hasSharedAccess: Boolean(state.billing?.hasSharedAccess),
-    invitedToSharedBook: Boolean(state.billing?.invitedToSharedBook),
-  }));
+  const hasSharedAccess = usePlusStore((state) =>
+    Boolean(state.billing?.hasSharedAccess),
+  );
+  const invitedToSharedBook = usePlusStore((state) =>
+    Boolean(state.billing?.invitedToSharedBook),
+  );
+  const guestPlan = { hasSharedAccess, invitedToSharedBook };
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const setLedgerCurrency = useLedgerStore((state) => state.setLedgerCurrency);
   const { ledger } = useActiveLedger();

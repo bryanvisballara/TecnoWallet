@@ -897,6 +897,46 @@ export class CollaborationService {
       pendingInvites.length > 0 || pendingRequests.length > 0;
     let sharedResourceName: string | null = null;
 
+    if (userOid) {
+      const memberships = await this.memberships
+        .find({ userId: userOid })
+        .select('workspaceId')
+        .lean();
+      if (memberships.length) {
+        const foreignBooks = await this.workspaces
+          .find({
+            _id: { $in: memberships.map((row) => row.workspaceId) },
+            ownerId: { $ne: userOid },
+            deletedAt: { $exists: false },
+          })
+          .select('name')
+          .lean();
+        if (foreignBooks.length) {
+          hasSharedAccess = true;
+          sharedResourceName = sharedResourceName ?? foreignBooks[0]?.name ?? null;
+        }
+      }
+      const calendarMemberships = await this.calendarMemberships
+        .find({ userId: userOid })
+        .select('calendarId')
+        .lean();
+      if (calendarMemberships.length) {
+        const foreignCalendars = await this.calendars
+          .find({
+            _id: { $in: calendarMemberships.map((row) => row.calendarId) },
+            ownerId: { $ne: userOid },
+            deletedAt: { $exists: false },
+          })
+          .select('name')
+          .lean();
+        if (foreignCalendars.length) {
+          hasSharedAccess = true;
+          sharedResourceName =
+            sharedResourceName ?? foreignCalendars[0]?.name ?? null;
+        }
+      }
+    }
+
     for (const seat of seats) {
       if (!(await this.entitlements.isPlus(seat.sponsorUserId.toString()))) {
         continue;

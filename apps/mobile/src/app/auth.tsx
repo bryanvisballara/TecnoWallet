@@ -23,10 +23,7 @@ import { LanguagePicker } from '@/components/language-picker';
 import { Card, PrimaryButton, useAppTheme } from '@/components/ui';
 import { authCopy } from '@/i18n/languages';
 import { ApiError } from '@/services/api';
-import {
-  PENDING_COLLABORATION_INVITE_KEY,
-  rememberInviteInput,
-} from '@/services/collaboration-api';
+import { PENDING_COLLABORATION_INVITE_KEY } from '@/services/collaboration-api';
 import { createAppleNonce } from '@/services/apple-auth';
 import {
   GOOGLE_WEB_CLIENT_ID,
@@ -74,7 +71,6 @@ export default function AuthScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -152,9 +148,6 @@ export default function AuthScreen() {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         await goHome();
         return;
-      }
-      if (inviteCode.trim()) {
-        await rememberInviteInput(inviteCode);
       }
       const result = await signUp(name, email, password);
       setEmail(result.email);
@@ -486,25 +479,6 @@ export default function AuthScreen() {
                   placeholderTextColor={theme.muted}
                   style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
                 />
-                {mode === 'register' ? (
-                  <>
-                    <Text style={[styles.label, { color: theme.text }]}>
-                      {copy.inviteBookLabel}
-                    </Text>
-                    <TextInput
-                      value={inviteCode}
-                      onChangeText={setInviteCode}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      placeholder={copy.inviteBookPlaceholder}
-                      placeholderTextColor={theme.muted}
-                      style={[styles.input, { color: theme.text, backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
-                    />
-                    <Text style={[styles.hint, { color: theme.muted }]}>
-                      {copy.inviteBookHint}
-                    </Text>
-                  </>
-                ) : null}
                 {error ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
                 <PrimaryButton onPress={loading ? undefined : () => void submit()}>
                   {loading

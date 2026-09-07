@@ -28,6 +28,7 @@ import { deliverGoogleIdToken } from '@/lib/google-oauth-return';
 import { requestVoiceDictation, isVoiceCommandUrl, voiceTextFromUrl } from '@/lib/voice-intent';
 import { isGoogleReturnUrl, parseIdTokenFromUrl } from '@/services/google-auth';
 import { syncCalendarWidget } from '@/lib/sync-calendar-widget';
+import { hasLocalGuestAccess } from '@/lib/guest-access';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -122,17 +123,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (!authenticated || !plusHydrated) return;
     if (plusAccess !== 'free') return;
-    const hasSharedBook = useLedgerStore
-      .getState()
-      .ledgers.some((item) => item.type === 'shared');
-    const hasSharedCalendar = useCalendarStore
-      .getState()
-      .calendars.some((calendar) =>
-        calendar.members.some(
-          (member) => member.id === 'me' && member.role !== 'owner',
-        ),
-      );
-    if (hasSharedBook || hasSharedCalendar) return;
+    if (hasLocalGuestAccess()) {
+      usePlusStore.getState().markSharedAccess();
+      return;
+    }
     usePlusStore.getState().maybePromptTrialPaywall();
   }, [authenticated, plusHydrated, plusAccess, ledgerHydrated, calendarHydrated]);
 

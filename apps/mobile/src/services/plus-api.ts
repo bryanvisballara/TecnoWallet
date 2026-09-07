@@ -24,6 +24,17 @@ export function canUseSharedBooksWithoutPaying(
   return Boolean(billing?.hasSharedAccess || billing?.invitedToSharedBook);
 }
 
+/** Paid, trial (Plus/Business entitlement), or invited guest. */
+export function canUnlockApp(
+  billing: BillingStatus | null | undefined,
+  access?: PlusAccess | null,
+) {
+  const plan = access ?? billing?.access;
+  if (hasPaidPlan(plan)) return true;
+  if (plan === 'sponsored_collaborator') return true;
+  return canUseSharedBooksWithoutPaying(billing);
+}
+
 export function hasPaidPlan(access: PlusAccess | null | undefined) {
   return access === 'plus' || access === 'business';
 }

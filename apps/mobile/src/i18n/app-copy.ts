@@ -286,6 +286,8 @@ export type AppCopy = {
     };
     unlockPlus: string;
     unlockBusiness: string;
+    planPlus: string;
+    planBusiness: string;
     upgradeBusinessSeat: string;
     plusBenefits: [string, string, string, string];
     businessBenefits: [string, string, string, string, string];
@@ -309,6 +311,7 @@ export type AppCopy = {
     guestInviteInvalid: string;
     guestInvitePending: string;
     guestInviteOk: string;
+    signOut: string;
     restore: string;
     purchaseFailed: string;
     restoreEmpty: string;
@@ -805,6 +808,8 @@ const es: AppCopy = {
     },
     unlockPlus: 'Desbloquea TecnoWallet+',
     unlockBusiness: 'Desbloquea TecnoWallet Business',
+    planPlus: 'Plus',
+    planBusiness: 'Business',
     upgradeBusinessSeat: 'Pasa a TecnoWallet Business',
     plusBenefits: [
       'Asistente IA financiero',
@@ -842,6 +847,7 @@ const es: AppCopy = {
     guestInvitePending:
       'Listo. El dueño tiene que aceptar tu solicitud.',
     guestInviteOk: 'Ya puedes usar lo que te compartieron. No necesitas pagar.',
+    signOut: 'Cerrar sesión',
     restore: 'Restaurar compras',
     purchaseFailed: 'No pudimos completar la compra.',
     restoreEmpty: 'No encontramos una suscripción activa para restaurar.',
@@ -1402,6 +1408,8 @@ const en: AppCopy = {
     },
     unlockPlus: 'Unlock TecnoWallet+',
     unlockBusiness: 'Unlock TecnoWallet Business',
+    planPlus: 'Plus',
+    planBusiness: 'Business',
     upgradeBusinessSeat: 'Upgrade to TecnoWallet Business',
     plusBenefits: [
       'Financial AI assistant',
@@ -1437,6 +1445,7 @@ const en: AppCopy = {
       'We couldn’t find that invite. Check the code or sign in with the email they invited.',
     guestInvitePending: 'Done. The owner still has to approve your request.',
     guestInviteOk: 'You can use what they shared. You don’t need to pay.',
+    signOut: 'Sign out',
     restore: 'Restore purchases',
     purchaseFailed: 'We couldn’t complete the purchase.',
     restoreEmpty: 'We couldn’t find an active subscription to restore.',

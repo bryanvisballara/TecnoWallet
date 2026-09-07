@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import {
+  canUnlockApp,
   canUseSharedBooksWithoutPaying,
   getBillingStatus,
   hasPaidPlan,
@@ -45,7 +46,8 @@ type PlusState = {
     reason?: PlusReason,
     options?: { plan?: PaywallPlan },
   ) => void;
-  closePaywall: () => void;
+  closePaywall: (options?: { force?: boolean }) => void;
+  setPaywallPlan: (plan: PaywallPlan) => void;
   maybePromptTrialPaywall: () => void;
   setPriceLabel: (price: string | null) => void;
   setBusinessPriceLabel: (price: string | null) => void;
@@ -53,6 +55,7 @@ type PlusState = {
   setListBusinessPriceLabel: (price: string | null) => void;
   setCoupon: (code: string | null, name?: string | null) => void;
   setBilling: (billing: BillingStatus) => void;
+  markSharedAccess: () => void;
 };
 
 export const usePlusStore = create<PlusState>((set, get) => ({
@@ -74,17 +77,27 @@ export const usePlusStore = create<PlusState>((set, get) => ({
     set({ loading: true });
     try {
       const billing = await getBillingStatus();
+      const unlocked = canUnlockApp(billing);
       set({
         billing,
         access: billing.access,
         hydrated: true,
         loading: false,
-        ...(canUseSharedBooksWithoutPaying(billing)
-          ? { paywallOpen: false }
-          : {}),
+        paywallOpen: unlocked ? false : true,
+        ...(unlocked
+          ? {}
+          : { paywallReason: 'UPGRADE' as const, paywallPlan: 'plus' as const }),
       });
     } catch {
-      set({ hydrated: true, loading: false, access: 'free', billing: null });
+      set({
+        hydrated: true,
+        loading: false,
+        access: 'free',
+        billing: null,
+        paywallOpen: true,
+        paywallReason: 'UPGRADE',
+        paywallPlan: 'plus',
+      });
     }
   },
   reset: () =>
@@ -113,12 +126,20 @@ export const usePlusStore = create<PlusState>((set, get) => ({
         : 'plus');
     set({ paywallOpen: true, paywallReason, paywallPlan: plan });
   },
-  closePaywall: () => set({ paywallOpen: false }),
+  setPaywallPlan: (paywallPlan) => set({ paywallPlan }),
+  closePaywall: (options) => {
+    if (options?.force) {
+      set({ paywallOpen: false });
+      return;
+    }
+    if (canUnlockApp(get().billing, get().access)) {
+      set({ paywallOpen: false });
+    }
+  },
   maybePromptTrialPaywall: () => {
     const state = get();
-    if (state.trialPaywallPrompted || state.paywallOpen) return;
-    if (state.access !== 'free') return;
-    if (canUseSharedBooksWithoutPaying(state.billing)) return;
+    if (canUnlockApp(state.billing, state.access)) return;
+    if (state.paywallOpen) return;
     set({
       trialPaywallPrompted: true,
       paywallOpen: true,
@@ -140,10 +161,20 @@ export const usePlusStore = create<PlusState>((set, get) => ({
     set({
       billing,
       access: billing.access,
-      ...(canUseSharedBooksWithoutPaying(billing)
-        ? { paywallOpen: false }
-        : {}),
+      ...(canUnlockApp(billing) ? { paywallOpen: false } : {}),
     }),
+  markSharedAccess: () =>
+    set((state) => ({
+      paywallOpen: false,
+      billing: state.billing
+        ? { ...state.billing, hasSharedAccess: true }
+        : {
+            access: 'free',
+            isPlus: false,
+            status: 'guest',
+            hasSharedAccess: true,
+          },
+    })),
 }));
 
 export { hasPaidPlan, planDisplayLabel, planDisplaySubtitle };
