@@ -328,6 +328,25 @@ class ResourceService {
     }
   }
 
+  /** Envelopes, accounts and goals belong to the book, not to whoever created them. */
+  private isTeamSharedKind(kind: string) {
+    return (
+      kind === 'envelope' ||
+      kind === 'account' ||
+      kind === 'goal' ||
+      kind === 'bill' ||
+      kind === 'subscription'
+    );
+  }
+
+  private resourcePrivacy(
+    kind: string,
+    requested?: 'workspace' | 'private',
+  ): 'workspace' | 'private' {
+    if (this.isTeamSharedKind(kind)) return 'workspace';
+    return requested === 'private' ? 'private' : 'workspace';
+  }
+
   async create(kind: string, dto: ResourceDto, principal: AuthPrincipal) {
     this.assertKind(kind);
     await this.access.assertMember(dto.workspaceId, principal.userId);
@@ -338,9 +357,12 @@ class ResourceService {
       return created;
     }
     const created = await this.resources.create({
-      ...dto,
+      workspaceId: dto.workspaceId,
+      name: dto.name,
+      data: dto.data,
       kind,
       ownerId: principal.userId,
+      privacy: this.resourcePrivacy(kind, dto.privacy),
     });
     this.notifyTeamResourceCreated(created, principal);
     return created;
@@ -497,16 +519,22 @@ class ResourceService {
     // book owner only — never block a teammate mid-create with a paywall.
     if (!requesterIsOwner) {
       return this.resources.create({
-        ...dto,
+        workspaceId: dto.workspaceId,
+        name: dto.name,
+        data: dto.data,
         kind: 'envelope',
         ownerId: principal.userId,
+        privacy: 'workspace',
       });
     }
     if (ownerIsPlus || envelopeKind === 'savings') {
       return this.resources.create({
-        ...dto,
+        workspaceId: dto.workspaceId,
+        name: dto.name,
+        data: dto.data,
         kind: 'envelope',
         ownerId: principal.userId,
+        privacy: 'workspace',
       });
     }
 
@@ -550,10 +578,12 @@ class ResourceService {
       if (occupied.has(slot)) continue;
       try {
         return await this.resources.create({
-          ...dto,
+          workspaceId: dto.workspaceId,
+          name: dto.name,
           data: { ...dto.data, freeQuotaSlot: slot },
           kind: 'envelope',
           ownerId: principal.userId,
+          privacy: 'workspace',
         });
       } catch (error) {
         if (!this.isDuplicateKey(error)) throw error;
@@ -589,12 +619,25 @@ class ResourceService {
   ) {
     this.assertKind(kind);
     await this.access.assertMember(workspaceId, principal.userId);
-    const privacy = {
-      $or: [
-        { privacy: 'workspace' },
-        { privacy: 'private', ownerId: principal.userId },
-      ],
-    };
+    if (this.isTeamSharedKind(kind)) {
+      await this.resources.updateMany(
+        {
+          workspaceId,
+          kind,
+          deletedAt: { $exists: false },
+          privacy: 'private',
+        },
+        { $set: { privacy: 'workspace' } },
+      );
+    }
+    const privacy = this.isTeamSharedKind(kind)
+      ? {}
+      : {
+          $or: [
+            { privacy: { $ne: 'private' } },
+            { privacy: 'private', ownerId: principal.userId },
+          ],
+        };
     const rows = await this.resources
       .find({
         workspaceId,
@@ -648,6 +691,7 @@ class ResourceService {
       });
     }
     if (
+      !this.isTeamSharedKind(kind) &&
       resource.privacy === 'private' &&
       resource.ownerId.toString() !== principal.userId
     ) {
@@ -657,7 +701,11 @@ class ResourceService {
     // `privacy: undefined` / etc., and Object.assign would wipe required paths
     // so Mongoose save() fails on every edit.
     if (dto.name !== undefined) resource.name = dto.name;
-    if (dto.privacy !== undefined) resource.privacy = dto.privacy;
+    if (dto.privacy !== undefined) {
+      resource.privacy = this.resourcePrivacy(kind, dto.privacy);
+    } else if (this.isTeamSharedKind(kind) && resource.privacy === 'private') {
+      resource.privacy = 'workspace';
+    }
     if (dto.data !== undefined) {
       resource.data = { ...(resource.data ?? {}), ...dto.data };
       resource.markModified('data');
