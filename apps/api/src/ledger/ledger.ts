@@ -26,6 +26,36 @@ export type TransactionKind = (typeof transactionKinds)[number];
 export const needWantKinds = ['need', 'want', 'na'] as const;
 export type NeedWant = (typeof needWantKinds)[number];
 
+const NEED_WANT_MARK = /\u2060#nw:(need|want|na)\s*$/;
+
+export function parseNeedWant(value: unknown): NeedWant | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'need' || normalized === 'want' || normalized === 'na') {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function embedNeedWant(
+  description: string,
+  needWant?: NeedWant | '' | null,
+) {
+  const base = (description ?? '').replace(NEED_WANT_MARK, '').trimEnd();
+  const parsed = parseNeedWant(needWant ?? undefined);
+  return parsed ? `${base}\u2060#nw:${parsed}` : base;
+}
+
+export function extractNeedWant(
+  description: string | undefined,
+  explicit?: unknown,
+): NeedWant | undefined {
+  return (
+    parseNeedWant(explicit) ??
+    parseNeedWant(description?.match(NEED_WANT_MARK)?.[1])
+  );
+}
+
 export class LedgerEntryDto {
   @IsString()
   accountId!: string;
@@ -229,18 +259,28 @@ export class LedgerService {
       });
       if (prior) return prior;
     }
-    return this.transactions.create({
+    const needWant =
+      dto.kind === 'expense'
+        ? parseNeedWant(dto.needWant) ?? extractNeedWant(dto.description)
+        : undefined;
+    const created = await this.transactions.create({
       workspaceId: dto.workspaceId,
       kind: dto.kind,
       occurredAt: dto.occurredAt,
-      description: dto.description,
+      description: embedNeedWant(dto.description, needWant),
       ...(dto.categoryId ? { categoryId: dto.categoryId } : {}),
       ...(dto.idempotencyKey ? { idempotencyKey: dto.idempotencyKey } : {}),
-      ...(dto.kind === 'expense' && dto.needWant ? { needWant: dto.needWant } : {}),
+      ...(needWant ? { needWant } : {}),
       ownerId,
       privacy: dto.private ? 'private' : 'workspace',
       entries: dto.entries,
     });
+    if (needWant && created.needWant !== needWant) {
+      created.needWant = needWant;
+      created.markModified('needWant');
+      await created.save();
+    }
+    return created;
   }
 
   async reverse(transactionId: string, userDescription?: string) {
@@ -304,6 +344,17 @@ export class LedgerService {
       }
       original.description = description;
     }
+    if (hasDescription || hasNeedWant) {
+      const nextNeedWant = hasNeedWant
+        ? parseNeedWant(patch.needWant)
+        : parseNeedWant(original.needWant) ??
+          extractNeedWant(original.description);
+      if (hasNeedWant) {
+        original.needWant = nextNeedWant;
+        original.markModified('needWant');
+      }
+      original.description = embedNeedWant(original.description, nextNeedWant);
+    }
     if (hasEnvelope) {
       const raw = (patch.envelopeId ?? '').trim();
       const envelopeObjectId = raw
@@ -322,11 +373,6 @@ export class LedgerService {
         entry.envelopeId = envelopeObjectId ?? undefined;
       }
       original.markModified('entries');
-    }
-    if (hasNeedWant) {
-      const raw = (patch.needWant ?? '').trim();
-      original.needWant = raw ? (raw as NeedWant) : undefined;
-      original.markModified('needWant');
     }
     return original.save();
   }

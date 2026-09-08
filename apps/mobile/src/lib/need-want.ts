@@ -3,9 +3,33 @@ export type NeedWant = (typeof needWantKinds)[number];
 
 const businessIcons = new Set(['briefcase.fill', 'building.columns.fill']);
 
+/** Invisible suffix so classification survives APIs that drop `needWant`. */
+const NEED_WANT_MARK = /\u2060#nw:(need|want|na)\s*$/;
+
 export function parseNeedWant(value: unknown): NeedWant | undefined {
-  if (value === 'need' || value === 'want' || value === 'na') return value;
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'need' || normalized === 'want' || normalized === 'na') {
+    return normalized;
+  }
   return undefined;
+}
+
+export function embedNeedWant(description: string, needWant?: NeedWant | '' | null) {
+  const base = (description ?? '').replace(NEED_WANT_MARK, '').trimEnd();
+  const parsed = parseNeedWant(needWant ?? undefined);
+  return parsed ? `${base}\u2060#nw:${parsed}` : base;
+}
+
+export function extractNeedWant(
+  description: string | undefined,
+  explicit?: unknown,
+): NeedWant | undefined {
+  return parseNeedWant(explicit) ?? parseNeedWant(description?.match(NEED_WANT_MARK)?.[1]);
+}
+
+export function displayNeedWantDescription(description: string | undefined) {
+  return (description ?? '').replace(NEED_WANT_MARK, '').trimEnd();
 }
 
 export function needWantLabel(value: NeedWant | undefined, locale = 'es') {

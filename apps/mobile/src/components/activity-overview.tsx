@@ -18,6 +18,7 @@ import {
   sumNeedWantExpenses,
   type ActivityPeriod,
 } from '@/lib/activity-breakdown';
+import { openCashflowDetalle } from '@/lib/cashflow-filter';
 import { parseTransactionDate } from '@/lib/dates';
 import { useLanguageStore } from '@/store/language';
 
@@ -95,7 +96,11 @@ export function ActivityOverview({
     () => slices.reduce((sum, item) => sum + item.amount, 0),
     [slices],
   );
-  const needWantTotals = useMemo(() => sumNeedWantExpenses(ranged), [ranged]);
+  const needWantTotals = useMemo(() => {
+    const start = new Date(year, month, 1);
+    const end = new Date(year, month + 1, 1);
+    return sumNeedWantExpenses(filterTransactionsByRange(transactions, start, end));
+  }, [transactions, year, month]);
   const buckets = useMemo(
     () => (period === 'week' ? [] : buildPeriodBuckets(ranged, range.start, range.end, locale)),
     [period, ranged, range.start, range.end, locale],
@@ -153,15 +158,7 @@ export function ActivityOverview({
   ];
 
   const openExpenses = (params?: { category?: string; needWant?: 'need' | 'want' }) => {
-    router.push({
-      pathname: '/(tabs)/cashflow/[type]',
-      params: {
-        type: 'gastos',
-        ...(params?.category ? { category: params.category } : {}),
-        ...(params?.category === 'Otros' ? { other: '1' } : {}),
-        ...(params?.needWant ? { needWant: params.needWant } : {}),
-      },
-    });
+    router.push(openCashflowDetalle({ type: 'gastos', ...params }));
   };
 
   return (

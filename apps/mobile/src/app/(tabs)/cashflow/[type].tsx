@@ -1,36 +1,18 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { safeGoBack } from '@/lib/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
-import { money, type Transaction } from '@/data/demo';
-import { needWantLabel, parseNeedWant } from '@/lib/need-want';
+import { money } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
+import { openCashflowDetalle } from '@/lib/cashflow-filter';
 import { filterTransactionsByMonth } from '@/lib/dates';
+import { needWantLabel, parseNeedWant } from '@/lib/need-want';
+import { safeGoBack } from '@/lib/navigation';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
-
-const DONUT_MAX_SLICES = 5;
-
-function categoryName(item: Pick<Transaction, 'category'>) {
-  return item.category.trim() || 'Otros';
-}
-
-function matchesCategory(
-  item: Pick<Transaction, 'category'>,
-  selected: string | null,
-  rankedNames: string[],
-  groupOthers = false,
-) {
-  if (!selected) return true;
-  const name = categoryName(item);
-  if (selected !== 'Otros' || !groupOthers) return name === selected;
-  const featured = rankedNames.filter((row) => row !== 'Otros').slice(0, DONUT_MAX_SLICES);
-  return !featured.includes(name);
-}
 
 type CashflowType = 'ingresos' | 'gastos';
 
@@ -42,12 +24,10 @@ export default function CashflowDetailScreen() {
     type: raw = 'gastos',
     category: categoryParam,
     needWant: needWantParam,
-    other: otherParam,
   } = useLocalSearchParams<{
     type: string;
     category?: string;
     needWant?: string;
-    other?: string;
   }>();
   const type: CashflowType = raw === 'ingresos' ? 'ingresos' : 'gastos';
   const isIncome = type === 'ingresos';
@@ -64,27 +44,22 @@ export default function CashflowDetailScreen() {
   const month = usePeriodStore((state) => state.month);
   const monthLabel = usePeriodStore((state) => state.label);
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
-  const initialCategory = Array.isArray(categoryParam) ? categoryParam[0] : categoryParam;
-  const initialNeedWantRaw = Array.isArray(needWantParam) ? needWantParam[0] : needWantParam;
-  const initialNeedWant = parseNeedWant(initialNeedWantRaw);
-  const groupOthers =
-    (Array.isArray(otherParam) ? otherParam[0] : otherParam) === '1';
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(
-    initialCategory?.trim() || null,
-  );
-  const [selectedNeedWant, setSelectedNeedWant] = useState<'need' | 'want' | null>(
-    initialNeedWant === 'need' || initialNeedWant === 'want' ? initialNeedWant : null,
+  const initialCategory = (Array.isArray(categoryParam) ? categoryParam[0] : categoryParam)?.trim();
+  const initialNeedWant = parseNeedWant(
+    Array.isArray(needWantParam) ? needWantParam[0] : needWantParam,
   );
 
   useEffect(() => {
-    setSelectedCategory(initialCategory?.trim() || null);
-  }, [initialCategory]);
-
-  useEffect(() => {
-    setSelectedNeedWant(
-      initialNeedWant === 'need' || initialNeedWant === 'want' ? initialNeedWant : null,
+    const needWant = initialNeedWant === 'need' || initialNeedWant === 'want' ? initialNeedWant : undefined;
+    if (!initialCategory && !needWant) return;
+    router.replace(
+      openCashflowDetalle({
+        type,
+        category: initialCategory || undefined,
+        needWant,
+      }),
     );
-  }, [initialNeedWant]);
+  }, [initialCategory, initialNeedWant, type]);
 
   const period = useMemo(() => ({ year, month }), [year, month]);
   const monthItems = useMemo(() => {
@@ -109,38 +84,12 @@ export default function CashflowDetailScreen() {
     return [...map.values()].sort((a, b) => b.amount - a.amount);
   }, [monthItems]);
 
-  const rankedNames = useMemo(() => categories.map((item) => item.name), [categories]);
-  const visibleItems = useMemo(() => {
-    return monthItems.filter((item) => {
-      if (selectedNeedWant && item.needWant !== selectedNeedWant) return false;
-      return matchesCategory(item, selectedCategory, rankedNames, groupOthers);
-    });
-  }, [monthItems, selectedCategory, selectedNeedWant, rankedNames, groupOthers]);
-  const visibleTotal = useMemo(
-    () => visibleItems.reduce((sum, item) => sum + Math.abs(item.amount), 0),
-    [visibleItems],
-  );
-  const hasFilter = Boolean(selectedCategory || selectedNeedWant);
-  const heroAmount = hasFilter ? visibleTotal : total;
-  const heroCount = hasFilter ? visibleItems.length : monthItems.length;
-  const heroLabel = [
-    selectedCategory,
-    selectedNeedWant ? needWantLabel(selectedNeedWant, locale) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ') || meta.heroLabel;
-  const listTitle = hasFilter
-    ? copy.cashflow.categoryMovements(
-        [selectedCategory, selectedNeedWant ? needWantLabel(selectedNeedWant, locale) : null]
-          .filter(Boolean)
-          .join(' · '),
-      )
-    : copy.cashflow.movements;
-  const emptyLabel =
-    monthItems.length === 0 ? meta.empty : hasFilter ? copy.cashflow.emptyFilter : meta.empty;
-
   const accent = type === 'ingresos' ? theme.success : theme.danger;
   const soft = type === 'ingresos' ? theme.successSoft : '#FDECEC';
+
+  const openDetalle = (params?: { category?: string; needWant?: 'need' | 'want' }) => {
+    router.push(openCashflowDetalle({ type, ...params }));
+  };
 
   return (
     <Screen
@@ -157,20 +106,26 @@ export default function CashflowDetailScreen() {
       }>
       <MonthSwitcher />
 
-      <Card style={[styles.hero, { backgroundColor: accent }]}>
-        <Text style={styles.heroLabel}>{heroLabel}</Text>
-        <Text
-          style={styles.heroValue}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.55}>
-          {money(heroAmount)}
-        </Text>
-        <View style={styles.heroMeta}>
-          <Pill tone={meta.tone}>{copy.cashflow.nMovements(heroCount)}</Pill>
-          <Text style={styles.heroHint}>{monthLabel}</Text>
-        </View>
-      </Card>
+      <ScalePressable
+        haptic={false}
+        accessibilityRole="button"
+        accessibilityLabel={copy.cashflow.nMovements(monthItems.length)}
+        onPress={() => openDetalle()}>
+        <Card style={[styles.hero, { backgroundColor: accent }]}>
+          <Text style={styles.heroLabel}>{meta.heroLabel}</Text>
+          <Text
+            style={styles.heroValue}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.55}>
+            {money(total)}
+          </Text>
+          <View style={styles.heroMeta}>
+            <Pill tone={meta.tone}>{copy.cashflow.nMovements(monthItems.length)}</Pill>
+            <Text style={styles.heroHint}>{monthLabel}</Text>
+          </View>
+        </Card>
+      </ScalePressable>
 
       <PrimaryButton
         icon="plus"
@@ -192,36 +147,29 @@ export default function CashflowDetailScreen() {
                 { key: 'need' as const, label: needWantLabel('need', locale), a11y: copy.cashflow.viewNeedA11y },
                 { key: 'want' as const, label: needWantLabel('want', locale), a11y: copy.cashflow.viewWantA11y },
               ] as const
-            ).map((item) => {
-              const selected = selectedNeedWant === item.key;
-              return (
-                <ScalePressable
-                  key={item.key}
-                  haptic={false}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={item.a11y}
-                  onPress={() =>
-                    setSelectedNeedWant((current) => (current === item.key ? null : item.key))
-                  }
-                  style={[
-                    styles.needWantChip,
-                    {
-                      backgroundColor: selected ? theme.surfaceSecondary : theme.surface,
-                      borderColor: selected ? accent : theme.border,
-                    },
-                  ]}>
-                  <AppIcon
-                    name={item.key === 'need' ? 'cart.fill' : 'heart.fill'}
-                    color={selected ? accent : theme.muted}
-                    size={16}
-                  />
-                  <Text style={[styles.needWantChipText, { color: selected ? theme.text : theme.muted }]}>
-                    {item.label}
-                  </Text>
-                </ScalePressable>
-              );
-            })}
+            ).map((item) => (
+              <ScalePressable
+                key={item.key}
+                haptic={false}
+                accessibilityRole="button"
+                accessibilityLabel={item.a11y}
+                onPress={() => openDetalle({ needWant: item.key })}
+                style={[
+                  styles.needWantChip,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.border,
+                  },
+                ]}>
+                <AppIcon
+                  name={item.key === 'need' ? 'cart.fill' : 'heart.fill'}
+                  color={theme.muted}
+                  size={16}
+                />
+                <Text style={[styles.needWantChipText, { color: theme.muted }]}>{item.label}</Text>
+                <AppIcon name="chevron.right" color={theme.muted} size={14} />
+              </ScalePressable>
+            ))}
           </View>
         ) : null}
         {categories.length === 0 ? (
@@ -229,32 +177,26 @@ export default function CashflowDetailScreen() {
         ) : (
           categories.map((category) => {
             const ratio = total > 0 ? category.amount / total : 0;
-            const selected = selectedCategory === category.name;
             return (
               <ScalePressable
                 key={category.name}
                 haptic={false}
                 accessibilityRole="button"
-                accessibilityState={{ selected }}
                 accessibilityLabel={copy.cashflow.viewCategoryA11y(category.name)}
-                onPress={() =>
-                  setSelectedCategory((current) =>
-                    current === category.name ? null : category.name,
-                  )
-                }
-                style={[
-                  styles.categoryRow,
-                  selected && { backgroundColor: theme.surfaceSecondary, borderRadius: 14 },
-                ]}>
+                onPress={() => openDetalle({ category: category.name })}
+                style={styles.categoryRow}>
                 <View style={[styles.categoryIcon, { backgroundColor: soft }]}>
                   <AppIcon name={category.icon} color={accent} />
                 </View>
                 <View style={styles.categoryCopy}>
                   <View style={uiStyles.between}>
                     <Text style={[styles.categoryName, { color: theme.text }]}>{category.name}</Text>
-                    <Text style={[styles.categoryAmount, { color: theme.text }]}>
-                      {money(category.amount)}
-                    </Text>
+                    <View style={styles.categoryAmountRow}>
+                      <Text style={[styles.categoryAmount, { color: theme.text }]}>
+                        {money(category.amount)}
+                      </Text>
+                      <AppIcon name="chevron.right" color={theme.muted} size={14} />
+                    </View>
                   </View>
                   <ProgressBar
                     value={ratio}
@@ -269,48 +211,6 @@ export default function CashflowDetailScreen() {
               </ScalePressable>
             );
           })
-        )}
-      </Card>
-
-      <Text style={[styles.section, { color: theme.text }]}>{listTitle}</Text>
-      <Card style={styles.listCard}>
-        {visibleItems.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.muted }]}>{emptyLabel}</Text>
-        ) : (
-          visibleItems.map((item, index) => (
-            <ScalePressable
-              key={item.id}
-              haptic={false}
-              accessibilityRole="button"
-              accessibilityLabel={`Editar ${item.title}`}
-              onPress={() =>
-                router.push({
-                  pathname: '/add-transaction',
-                  params: { id: item.id },
-                })
-              }
-              style={[
-                styles.row,
-                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
-              ]}>
-              <View style={[styles.rowIcon, { backgroundColor: soft }]}>
-                <AppIcon name={item.icon} color={accent} />
-              </View>
-              <View style={styles.rowCopy}>
-                <Text style={[styles.rowTitle, { color: theme.text }]}>{item.title}</Text>
-                <Text style={[styles.rowMeta, { color: theme.muted }]}>
-                  {item.category} · {item.account}
-                  {item.needWant ? ` · ${needWantLabel(item.needWant, locale)}` : ''}
-                  {' · '}
-                  {item.date}
-                </Text>
-              </View>
-              <Text style={[styles.rowAmount, { color: type === 'ingresos' ? theme.success : theme.text }]}>
-                {type === 'ingresos' ? '+' : ''}
-                {money(item.amount)}
-              </Text>
-            </ScalePressable>
-          ))
         )}
       </Card>
 
@@ -348,6 +248,7 @@ const styles = StyleSheet.create({
   categoryIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   categoryCopy: { flex: 1, gap: 6 },
   categoryName: { fontSize: 14, fontWeight: '600' },
+  categoryAmountRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   categoryAmount: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
   categoryShare: { fontSize: 11 },
   needWantFilters: { flexDirection: 'row', gap: 8, marginTop: 12 },
@@ -363,12 +264,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   needWantChipText: { fontSize: 13, fontWeight: '700' },
-  listCard: { paddingVertical: 4 },
-  row: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rowIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  rowCopy: { flex: 1, gap: 3 },
-  rowTitle: { fontSize: 14, fontWeight: '600' },
-  rowMeta: { fontSize: 11, lineHeight: 15 },
-  rowAmount: { fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
   link: { textAlign: 'center', fontSize: 14, fontWeight: '600', paddingVertical: 4 },
 });

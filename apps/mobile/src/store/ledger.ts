@@ -42,6 +42,7 @@ import {
   updateWorkspace,
 } from '@/services/ledgers-api';
 import { localStorage } from '@/services/persistence';
+import { embedNeedWant } from '@/lib/need-want';
 import { isOwnedResourceLocked } from '@/lib/owned-resource-lock';
 import { recordActivity } from '@/store/notifications';
 import { usePlusStore } from '@/store/plus';
@@ -560,6 +561,25 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     });
 
     await get().refreshLedger(ledgerId);
+    if (kind === 'expense' && value.needWant) {
+      set((state) => {
+        const snap = state.snapshots[ledgerId];
+        if (!snap) return state;
+        let changed = false;
+        const transactions = snap.transactions.map((item) => {
+          if (item.id !== result.id || item.needWant) return item;
+          changed = true;
+          return { ...item, needWant: value.needWant };
+        });
+        if (!changed) return state;
+        return {
+          snapshots: {
+            ...state.snapshots,
+            [ledgerId]: projectSnapshot(snap, { transactions }),
+          },
+        };
+      });
+    }
     const isIncome = value.amount >= 0;
     void recordActivity({
       kind: isIncome ? 'income' : 'expense',
@@ -592,7 +612,10 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       try {
         await amendLedgerTransaction(id, {
           occurredAt,
-          description: value.title.trim() || existing.title,
+          description: embedNeedWant(
+            value.title.trim() || existing.title,
+            value.amount < 0 ? value.needWant : undefined,
+          ),
           envelopeId: envelope?.id ?? value.envelopeId ?? '',
           needWant:
             value.amount < 0 ? value.needWant ?? '' : '',

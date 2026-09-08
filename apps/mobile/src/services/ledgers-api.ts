@@ -11,7 +11,13 @@ import {
 } from '@/data/ledgers';
 import { applyLedgerAccountBalances } from '@/lib/accounts';
 import { applyLedgerEnvelopeSpent, resolveEnvelopeForTransaction } from '@/lib/envelope-match';
-import { parseNeedWant, type NeedWant } from '@/lib/need-want';
+import {
+  displayNeedWantDescription,
+  embedNeedWant,
+  extractNeedWant,
+  parseNeedWant,
+  type NeedWant,
+} from '@/lib/need-want';
 
 type ResourceKind = 'account' | 'envelope' | 'bill' | 'subscription';
 
@@ -318,7 +324,7 @@ export function mapTransaction(
     : undefined;
   return {
     id: objectId(tx),
-    title: tx.description,
+    title: displayNeedWantDescription(tx.description),
     category: envelope?.name ?? '',
     account: account?.name ?? 'Cuenta del equipo',
     amount: fromMinor(amountMinor),
@@ -328,7 +334,7 @@ export function mapTransaction(
     occurredAt: Number.isNaN(occurred.getTime()) ? undefined : occurred.toISOString(),
     createdBy,
     createdByUserId,
-    needWant: parseNeedWant(tx.needWant),
+    needWant: extractNeedWant(tx.description, tx.needWant),
   };
 }
 
@@ -533,15 +539,14 @@ export async function createLedgerTransaction(input: {
 }) {
   const amountMinor = toMinor(Math.abs(input.amountMajor));
   const signed = input.kind === 'income' ? amountMinor : -amountMinor;
+  const needWant = input.kind === 'expense' ? parseNeedWant(input.needWant) : undefined;
   const body = {
     workspaceId: input.workspaceId,
     kind: input.kind,
     occurredAt: input.occurredAt,
-    description: input.description,
+    description: embedNeedWant(input.description, needWant),
     idempotencyKey: input.idempotencyKey,
-    ...(input.kind === 'expense' && input.needWant
-      ? { needWant: input.needWant }
-      : {}),
+    ...(needWant ? { needWant } : {}),
     entries: [
       {
         accountId: input.accountId,

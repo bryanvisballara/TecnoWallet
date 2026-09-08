@@ -237,6 +237,13 @@ export default function AddTransactionScreen() {
       );
       return;
     }
+    if (type === 'expense' && !needWant) {
+      notifyUser(
+        'Tipo de gasto',
+        'Elige si es necesidad, deseo o no aplica antes de guardar.',
+      );
+      return;
+    }
     setSaving(true);
     try {
       const occurredAt = /^\d{4}-\d{2}-\d{2}$/.test(dateKey)

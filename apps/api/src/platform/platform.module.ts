@@ -56,6 +56,7 @@ import { CollaborationService } from '../collaboration/collaboration.service';
 import {
   AmendTransactionDto,
   CreateTransactionDto,
+  extractNeedWant,
   LedgerService,
   LedgerTransaction,
   LedgerTransactionSchema,
@@ -1204,7 +1205,7 @@ class TransactionController {
     await this.access.assertMember(workspaceId, user.userId);
     const limit = Math.min(Math.max(Number(limitRaw) || 250, 1), 500);
     const offset = Math.max(Number(offsetRaw) || 0, 0);
-    return this.transactions
+    const rows = await this.transactions
       .find({
         workspaceId,
         $or: [
@@ -1217,7 +1218,12 @@ class TransactionController {
       })
       .sort({ occurredAt: -1, _id: -1 })
       .skip(offset)
-      .limit(limit);
+      .limit(limit)
+      .lean();
+    return rows.map((row) => ({
+      ...row,
+      needWant: extractNeedWant(row.description, row.needWant),
+    }));
   }
 
   @Patch(':id')

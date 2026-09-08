@@ -38,6 +38,7 @@ const hiddenTabs = [
   'envelope/[id]',
   'account/[id]',
   'cashflow/[type]',
+  'cashflow/detalle',
   'goal/[id]',
   ...(FEATURE_RECAUDOS_ENABLED ? [] : (['recaudos'] as const)),
   'recaudo/[id]',
