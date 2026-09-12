@@ -1,3 +1,4 @@
+import { InteractionManager } from 'react-native';
 import { ApiError } from '@/services/api';
 import { create } from 'zustand';
 
@@ -44,6 +45,7 @@ import {
 import { localStorage } from '@/services/persistence';
 import { embedNeedWant } from '@/lib/need-want';
 import { isOwnedResourceLocked } from '@/lib/owned-resource-lock';
+import { yieldToUi } from '@/lib/yield-to-ui';
 import { recordActivity } from '@/store/notifications';
 import { usePlusStore } from '@/store/plus';
 
@@ -84,9 +86,9 @@ type LedgerState = {
   clearingIds: Record<string, string>;
   pendingIds: string[];
   hydrated: boolean;
-  hydrate: () => Promise<void>;
+  hydrate: (options?: { all?: boolean }) => Promise<void>;
   /** Reload a single book into memory (avoids full multi-workspace hydrate on create). */
-  refreshLedger: (ledgerId: string) => Promise<void>;
+  refreshLedger: (ledgerId: string, options?: { force?: boolean }) => Promise<void>;
   resetToDefaultHogar: () => Promise<void>;
   setActiveLedger: (id: string) => Promise<void>;
   createLedger: (name: string, color?: string) => Promise<string>;
@@ -205,56 +207,39 @@ function syncDisplayCurrency(
 
 /** Serialize full hydrates so create + AppState poll never overlap on the JS thread. */
 let hydrateChain: Promise<void> = Promise.resolve();
+const lastRefreshAt = new Map<string, number>();
+const REFRESH_MIN_MS = 12_000;
 
-async function fetchLedgersFromApi(): Promise<{
-  ledgers: LedgerMeta[];
-  snapshots: Record<string, LedgerSnapshot>;
-  clearingIds: Record<string, string>;
-  activeLedgerId: string;
-}> {
-  const selfId = await currentUserId();
-  const workspaces = await listWorkspaces();
-  if (!workspaces.length) {
-    const created = await createWorkspace({
-      name: 'Hogar',
-      type: 'personal',
-      baseCurrency: 'USD',
-      color: '#F5C518',
-      icon: 'house.fill',
-    });
-    workspaces.push(created);
+function markLedgerRefreshed(ledgerId: string) {
+  lastRefreshAt.set(ledgerId, Date.now());
+}
+
+const ACTIVE_LEDGER_KEY = 'ledger-active';
+const EMPTY_SNAPSHOT = emptySnapshot();
+
+function pickActiveLedgerId(
+  metas: LedgerMeta[],
+  previousActive: string,
+  access: ReturnType<typeof usePlusStore.getState>['access'],
+) {
+  const unlocked = metas.filter((item) => !isOwnedResourceLocked(item, access));
+  if (previousActive && unlocked.some((item) => item.id === previousActive)) {
+    return previousActive;
   }
-
-  const ledgers: LedgerMeta[] = [];
-  const snapshots: Record<string, LedgerSnapshot> = {};
-  const clearingIds: Record<string, string> = {};
-
-  for (const workspace of workspaces) {
-    const id = objectId(workspace);
-    if (!id) continue;
-    const membersRaw = await listMembers(id);
-    const members = mapApiMembers(membersRaw, selfId);
-    const meta = mapWorkspaceToLedger(workspace, members);
-    meta.baseCurrency = (workspace.baseCurrency || 'USD').toUpperCase();
-    ledgers.push(meta);
-    const loaded = await loadWorkspaceSnapshot(id, meta.baseCurrency, {
-      members,
-      selfUserId: selfId,
-    });
-    snapshots[id] = loaded.snapshot;
-    clearingIds[id] = loaded.clearingId;
+  if (unlocked[0]) return unlocked[0].id;
+  if (previousActive && metas.some((item) => item.id === previousActive)) {
+    return previousActive;
   }
+  return metas[0].id;
+}
 
-  if (!ledgers.length) {
-    throw new Error('No pudimos cargar tus libros desde el servidor.');
-  }
-
-  return {
-    ledgers,
-    snapshots,
-    clearingIds,
-    activeLedgerId: ledgers[0].id,
-  };
+async function loadSnapshotForMeta(meta: LedgerMeta, selfId: string | null) {
+  const loaded = await loadWorkspaceSnapshot(meta.id, meta.baseCurrency || 'USD', {
+    members: meta.members,
+    selfUserId: selfId,
+  });
+  markLedgerRefreshed(meta.id);
+  return loaded;
 }
 
 export const useLedgerStore = create<LedgerState>((set, get) => ({
@@ -265,7 +250,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   pendingIds: [],
   hydrated: false,
 
-  hydrate: async () => {
+  hydrate: async (options) => {
     const run = async () => {
       const demo = await localStorage.get('demo-session', false);
       if (demo) {
@@ -301,22 +286,95 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       }
 
       try {
-        const next = await fetchLedgersFromApi();
-        const previousActive = get().activeLedgerId;
-        const activeLedgerId = next.ledgers.some((item) => item.id === previousActive)
-          ? previousActive
-          : next.activeLedgerId;
-        syncDisplayCurrency(next.ledgers, activeLedgerId);
-        set({ ...next, activeLedgerId, pendingIds: [], hydrated: true });
+        const workspaces = await listWorkspaces();
+        if (!workspaces.length) {
+          workspaces.push(
+            await createWorkspace({
+              name: 'Hogar',
+              type: 'personal',
+              baseCurrency: 'USD',
+              color: '#F5C518',
+              icon: 'house.fill',
+            }),
+          );
+        }
+
+        const packed = (
+          await Promise.all(
+            workspaces.map(async (workspace) => {
+              const id = objectId(workspace);
+              if (!id) return null;
+              const members = mapApiMembers(
+                await listMembers(id).catch(() => []),
+                userId,
+              );
+              const meta = mapWorkspaceToLedger(workspace, members);
+              meta.baseCurrency = (workspace.baseCurrency || 'USD').toUpperCase();
+              return meta;
+            }),
+          )
+        ).filter((item): item is LedgerMeta => Boolean(item));
+        if (!packed.length) {
+          throw new Error('No pudimos cargar tus libros desde el servidor.');
+        }
+
+        const storedActive = (await localStorage.get(ACTIVE_LEDGER_KEY, '')) || '';
+        const previousActive = get().activeLedgerId || storedActive;
+        const plusAccess = usePlusStore.getState().access;
+        const activeLedgerId = pickActiveLedgerId(packed, previousActive, plusAccess);
+        const activeMeta = packed.find((item) => item.id === activeLedgerId) ?? packed[0];
+        const first = await loadSnapshotForMeta(activeMeta, userId);
+
+        syncDisplayCurrency(packed, activeMeta.id);
+        set({
+          ledgers: packed,
+          snapshots: { [activeMeta.id]: first.snapshot },
+          clearingIds: { [activeMeta.id]: first.clearingId },
+          activeLedgerId: activeMeta.id,
+          pendingIds: [],
+          hydrated: true,
+        });
+        void localStorage.set(ACTIVE_LEDGER_KEY, activeMeta.id);
         void import('@/store/notifications').then(({ useNotificationsStore }) =>
           useNotificationsStore.getState().syncBadge(),
         );
-        void import('@/services/collaboration-api').then(
-          ({ notifyNewTeamTransactions, notifyNewTeamEnvelopes }) => {
-            notifyNewTeamTransactions().catch(() => undefined);
-            notifyNewTeamEnvelopes().catch(() => undefined);
-          },
-        );
+
+        const rest = packed.filter((item) => item.id !== activeMeta.id);
+        const loadRest = async () => {
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              resolve();
+            };
+            const handle = InteractionManager.runAfterInteractions(finish);
+            setTimeout(() => {
+              handle.cancel?.();
+              finish();
+            }, 1200);
+          });
+          for (const meta of rest) {
+            await yieldToUi();
+            try {
+              const loaded = await loadSnapshotForMeta(meta, userId);
+              set((state) => ({
+                snapshots: { ...state.snapshots, [meta.id]: loaded.snapshot },
+                clearingIds: { ...state.clearingIds, [meta.id]: loaded.clearingId },
+              }));
+            } catch {
+              // Other books must never block the active book.
+            }
+          }
+          void import('@/services/collaboration-api').then(
+            ({ notifyNewTeamTransactions, notifyNewTeamEnvelopes }) => {
+              notifyNewTeamTransactions().catch(() => undefined);
+              notifyNewTeamEnvelopes().catch(() => undefined);
+            },
+          );
+        };
+        if (options?.all) await loadRest();
+        else void loadRest();
       } catch (error) {
         const status =
           error && typeof error === 'object' && 'status' in error
@@ -344,10 +402,15 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     await queued;
   },
 
-  refreshLedger: async (ledgerId) => {
+  refreshLedger: async (ledgerId, options) => {
     if (!ledgerId) return;
     const existing = get().ledgers.find((item) => item.id === ledgerId);
     if (!existing) return;
+    const now = Date.now();
+    if (!options?.force && now - (lastRefreshAt.get(ledgerId) ?? 0) < REFRESH_MIN_MS) {
+      return;
+    }
+    lastRefreshAt.set(ledgerId, now);
     try {
       const selfId = await currentUserId();
       const membersRaw = await listMembers(ledgerId);
@@ -369,6 +432,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         clearingIds: { ...state.clearingIds, [ledgerId]: loaded.clearingId },
       }));
     } catch {
+      lastRefreshAt.delete(ledgerId);
       // Soft refresh must never undo a successful local create.
     }
   },
@@ -402,8 +466,8 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   },
 
   setActiveLedger: async (id) => {
-    if (!get().snapshots[id]) return;
     const ledger = get().ledgers.find((item) => item.id === id);
+    if (!ledger) return;
     const plus = usePlusStore.getState();
     if (isOwnedResourceLocked(ledger, plus.access)) {
       plus.openPaywall('UPGRADE');
@@ -411,6 +475,10 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     }
     syncDisplayCurrency(get().ledgers, id);
     set({ activeLedgerId: id });
+    void localStorage.set(ACTIVE_LEDGER_KEY, id);
+    if (!get().snapshots[id]) {
+      await get().refreshLedger(id, { force: true });
+    }
   },
 
   createLedger: async (name, color) => {
@@ -424,7 +492,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       icon: 'wallet.pass.fill',
     });
     const id = objectId(workspace);
-    await get().hydrate();
+    await get().hydrate({ all: true });
     if (id) set({ activeLedgerId: id });
     return id;
   },
@@ -434,7 +502,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       throw new Error('Debes conservar al menos un libro.');
     }
     await deleteWorkspace(ledgerId);
-    await get().hydrate();
+    await get().hydrate({ all: true });
     return get().activeLedgerId;
   },
 
@@ -445,7 +513,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       pendingSignup?: boolean;
       delivered?: boolean;
     };
-    await get().hydrate();
+    await get().hydrate({ all: true });
     set({ activeLedgerId: ledgerId });
     return {
       pendingSignup: Boolean(result?.pendingSignup),
@@ -456,7 +524,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   removeMember: async (ledgerId, memberId) => {
     if (memberId === 'me') return;
     await removeWorkspaceMember(ledgerId, memberId);
-    await get().hydrate();
+    await get().hydrate({ all: true });
     set({ activeLedgerId: ledgerId });
   },
 
@@ -505,7 +573,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     if (!account) throw new Error('Selecciona una cuenta válida.');
     if (!clearingId) {
       await ensureWorkspaceDefaults(ledgerId, currency);
-      await get().refreshLedger(ledgerId);
+      await get().refreshLedger(ledgerId, { force: true });
       clearingId = get().clearingIds[ledgerId];
     }
     if (!clearingId) throw new Error('El libro aún no está listo. Recarga e intenta de nuevo.');
@@ -560,7 +628,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       };
     });
 
-    await get().refreshLedger(ledgerId);
+    await get().refreshLedger(ledgerId, { force: true });
     if (kind === 'expense' && value.needWant) {
       set((state) => {
         const snap = state.snapshots[ledgerId];
@@ -654,7 +722,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
           },
         };
       });
-      await get().refreshLedger(ledgerId);
+      await get().refreshLedger(ledgerId, { force: true });
       return (
         get().snapshots[ledgerId]?.transactions.find((item) => item.id === id) ?? {
           ...existing,
@@ -697,7 +765,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         },
       };
     });
-    await get().refreshLedger(ledgerId);
+    await get().refreshLedger(ledgerId, { force: true });
   },
 
   addAccount: async (value) => {
@@ -833,7 +901,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         [ledgerId]: projectSnapshot(slice, { accounts, transactions }),
       },
     }));
-    await get().refreshLedger(ledgerId);
+    await get().refreshLedger(ledgerId, { force: true });
     void recordActivity({
       kind: 'account',
       title: `${label} eliminada`,
@@ -908,7 +976,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       activeLedgerId: ledgerId,
       snapshots: { ...state.snapshots, [ledgerId]: nextSlice },
     }));
-    void get().refreshLedger(ledgerId);
+    void get().refreshLedger(ledgerId, { force: true });
     // Goal flow already notifies for the meta; skip duplicate envelope ping.
     if (!value.goalId) {
       void recordActivity({
@@ -981,7 +1049,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         },
       },
     }));
-    void get().refreshLedger(ledgerId);
+    void get().refreshLedger(ledgerId, { force: true });
     return updated;
   },
 
@@ -1004,7 +1072,7 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
         },
       },
     }));
-    void get().refreshLedger(ledgerId);
+    void get().refreshLedger(ledgerId, { force: true });
     void recordActivity({
       kind: 'envelope',
       title: 'Sobre eliminado',
@@ -1120,10 +1188,14 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
 
 export function useActiveLedger() {
   const activeLedgerId = useLedgerStore((state) => state.activeLedgerId);
-  const ledgers = useLedgerStore((state) => state.ledgers);
-  const snapshots = useLedgerStore((state) => state.snapshots);
-  const ledger =
-    ledgers.find((item) => item.id === activeLedgerId) ?? ledgers[0] ?? emptyLedger;
-  const data = snapshots[activeLedgerId] ?? emptySnapshot();
+  const ledger = useLedgerStore(
+    (state) =>
+      state.ledgers.find((item) => item.id === state.activeLedgerId) ??
+      state.ledgers[0] ??
+      emptyLedger,
+  );
+  const data = useLedgerStore(
+    (state) => state.snapshots[state.activeLedgerId] ?? EMPTY_SNAPSHOT,
+  );
   return { ledger, ...data, activeLedgerId };
 }

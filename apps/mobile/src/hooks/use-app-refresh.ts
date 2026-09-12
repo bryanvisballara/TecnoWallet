@@ -17,7 +17,7 @@ export async function refreshAppData() {
   }
 
   await Promise.all([
-    useLedgerStore.getState().hydrate().catch(() => undefined),
+    useLedgerStore.getState().hydrate({ all: true }).catch(() => undefined),
     useCalendarStore.getState().hydrate().catch(() => undefined),
     useRecaudosStore.getState().refresh().catch(() => undefined),
     useGoalsStore.getState().hydrate().catch(() => undefined),

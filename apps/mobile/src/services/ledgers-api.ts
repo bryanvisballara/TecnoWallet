@@ -18,6 +18,7 @@ import {
   parseNeedWant,
   type NeedWant,
 } from '@/lib/need-want';
+import { yieldToUi } from '@/lib/yield-to-ui';
 
 type ResourceKind = 'account' | 'envelope' | 'bill' | 'subscription';
 
@@ -264,6 +265,13 @@ function entryId(value: unknown) {
   return objectId(value as { _id?: string; id?: string } | string | null | undefined);
 }
 
+const txDateFormatter = new Intl.DateTimeFormat('es', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 export function mapTransaction(
   tx: ApiTransaction,
   accountsById: Map<string, Account>,
@@ -312,12 +320,7 @@ export function mapTransaction(
   const occurred = new Date(tx.occurredAt);
   const dateLabel = Number.isNaN(occurred.getTime())
     ? tx.occurredAt
-    : occurred.toLocaleString('es', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+    : txDateFormatter.format(occurred);
   const createdByUserId = tx.ownerId ? String(tx.ownerId) : undefined;
   const createdBy = createdByUserId
     ? authorByUserId?.get(createdByUserId)?.trim() || undefined
@@ -507,6 +510,7 @@ export async function listTransactions(workspaceId: string) {
   const all: ApiTransaction[] = [];
   const seen = new Set<string>();
   for (let offset = 0; offset < 4000; offset += pageSize) {
+    if (offset > 0) await yieldToUi();
     const page = await apiRequest<ApiTransaction[]>(
       `/transactions?workspaceId=${encodeURIComponent(workspaceId)}&limit=${pageSize}&offset=${offset}`,
     );
@@ -638,11 +642,21 @@ export async function reverseLedgerTransaction(
 }
 
 /** Ensure cash + envelopes + clearing exist in Mongo for a book. */
-export async function ensureWorkspaceDefaults(workspaceId: string, currency: string) {
-  const [accounts, envelopes] = await Promise.all([
-    listResources('account', workspaceId),
-    listResources('envelope', workspaceId),
-  ]);
+export async function ensureWorkspaceDefaults(
+  workspaceId: string,
+  currency: string,
+  preloaded?: { accounts?: ApiResource[]; envelopes?: ApiResource[] },
+) {
+  let accounts = preloaded?.accounts;
+  let envelopes = preloaded?.envelopes;
+  if (!accounts || !envelopes) {
+    const fetched = await Promise.all([
+      accounts ? Promise.resolve(accounts) : listResources('account', workspaceId),
+      envelopes ? Promise.resolve(envelopes) : listResources('envelope', workspaceId),
+    ]);
+    accounts = fetched[0];
+    envelopes = fetched[1];
+  }
 
   let clearing = accounts.find(
     (item) => item.name === CLEARING_NAME || item.data?.system === true,
@@ -657,13 +671,14 @@ export async function ensureWorkspaceDefaults(workspaceId: string, currency: str
       color: '#98A2B3',
       lastFour: '—',
     });
+    accounts = [...accounts, clearing];
   }
 
   const userAccounts = accounts.filter(
     (item) => item.name !== CLEARING_NAME && item.data?.system !== true,
   );
   if (userAccounts.length === 0) {
-    await createResource('account', workspaceId, 'Efectivo', {
+    const created = await createResource('account', workspaceId, 'Efectivo', {
       balanceMinor: 0,
       currency,
       kind: 'Efectivo',
@@ -671,10 +686,11 @@ export async function ensureWorkspaceDefaults(workspaceId: string, currency: str
       color: '#F79009',
       lastFour: '—',
     });
+    accounts = [...accounts, created];
   }
 
   if (envelopes.length === 0) {
-    await Promise.all([
+    const created = await Promise.all([
       createResource('envelope', workspaceId, 'Ingresos', {
         kind: 'income',
         budgetMinor: 0,
@@ -698,9 +714,10 @@ export async function ensureWorkspaceDefaults(workspaceId: string, currency: str
         rule: 'Presupuesto inicial',
       }),
     ]);
+    envelopes = [...envelopes, ...created];
   }
 
-  return { clearingId: objectId(clearing) };
+  return { clearingId: objectId(clearing), accounts, envelopes };
 }
 
 /** Resolve display names for transaction authors (API ownerId → name). */
@@ -729,7 +746,6 @@ export async function loadWorkspaceSnapshot(
     selfUserId?: string | null;
   },
 ): Promise<{ snapshot: LedgerSnapshot; clearingId: string }> {
-  const { clearingId } = await ensureWorkspaceDefaults(workspaceId, currency);
   const [accountResources, envelopeResources, billResources, subscriptionResources, transactions] =
     await Promise.all([
       listResources('account', workspaceId),
@@ -738,12 +754,17 @@ export async function loadWorkspaceSnapshot(
       listResources('subscription', workspaceId),
       listTransactions(workspaceId),
     ]);
+  const { clearingId, accounts: ensuredAccounts, envelopes: ensuredEnvelopes } =
+    await ensureWorkspaceDefaults(workspaceId, currency, {
+      accounts: accountResources,
+      envelopes: envelopeResources,
+    });
 
   const authors = authorNameByUserId(
     options?.members ?? [],
     options?.selfUserId,
   );
-  const accounts = accountResources
+  const accounts = ensuredAccounts
     .map(mapAccountResource)
     .filter((item): item is Account => Boolean(item))
     .map((item) => ({
@@ -753,7 +774,7 @@ export async function loadWorkspaceSnapshot(
         : undefined,
     }));
   const accountsById = new Map(accounts.map((item) => [item.id, item]));
-  const envelopes = envelopeResources.map((resource) => {
+  const envelopes = ensuredEnvelopes.map((resource) => {
     const mapped = mapEnvelopeResource(resource);
     const authorId = mapped.createdByUserId;
     return {
@@ -779,16 +800,21 @@ export async function loadWorkspaceSnapshot(
       ? authors.get(item.createdByUserId)?.trim() || undefined
       : undefined,
   }));
-  const mappedTx = transactions
-    .filter((tx) => {
-      if (tx.reversedById) return false;
-      if (tx.kind === 'refund') return false;
-      if (tx.entries.every((entry) => entryId(entry.accountId) === clearingId)) {
-        return false;
-      }
-      return tx.entries.some((entry) => entryId(entry.accountId) !== clearingId);
-    })
-    .map((tx) => mapTransaction(tx, accountsById, envelopesById, authors, clearingId, envelopes));
+  const visibleTx = transactions.filter((tx) => {
+    if (tx.reversedById) return false;
+    if (tx.kind === 'refund') return false;
+    if (tx.entries.every((entry) => entryId(entry.accountId) === clearingId)) {
+      return false;
+    }
+    return tx.entries.some((entry) => entryId(entry.accountId) !== clearingId);
+  });
+  const mappedTx: Transaction[] = [];
+  for (let index = 0; index < visibleTx.length; index += 1) {
+    mappedTx.push(
+      mapTransaction(visibleTx[index], accountsById, envelopesById, authors, clearingId, envelopes),
+    );
+    if (index > 0 && index % 40 === 0) await yieldToUi();
+  }
 
   const money = rebuildLedgerMoney(accounts, envelopes, mappedTx);
 

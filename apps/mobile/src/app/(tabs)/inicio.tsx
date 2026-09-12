@@ -38,9 +38,7 @@ export default function DashboardScreen() {
   const plusAccess = usePlusStore((state) => state.access);
   const [authUserId, setAuthUserId] = useState('');
   const { summary, transactions, upcoming, ledger, accounts, envelopes } = useActiveLedger();
-  const ledgers = useLedgerStore((state) => state.ledgers);
   const refreshLedger = useLedgerStore((state) => state.refreshLedger);
-  const snapshots = useLedgerStore((state) => state.snapshots);
   const readIds = useNotificationsStore((state) => state.readIds);
   const dismissedIds = useNotificationsStore((state) => state.dismissedIds);
   const activities = useNotificationsStore((state) => state.activities);
@@ -95,13 +93,24 @@ export default function DashboardScreen() {
     if (!profile?.name) return 0;
     const feed = buildNotificationFeed({
       activities,
-      ledgers,
-      snapshots,
+      ledgers: ledger ? [ledger] : [],
+      snapshots: ledger
+        ? { [ledger.id]: { transactions, envelopes } }
+        : {},
       selfName: profile.name,
       selfUserId: authUserId,
     });
     return unreadCount(feed, readIds, dismissedIds);
-  }, [activities, ledgers, snapshots, profile?.name, authUserId, readIds, dismissedIds]);
+  }, [
+    activities,
+    ledger,
+    transactions,
+    envelopes,
+    profile?.name,
+    authUserId,
+    readIds,
+    dismissedIds,
+  ]);
 
   const weekAnchor = useMemo(
     () => (isCurrentMonth ? new Date() : new Date(year, month + 1, 0, 12, 0, 0)),

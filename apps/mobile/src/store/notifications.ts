@@ -268,12 +268,17 @@ export function buildNotificationFeed(input: {
   const self = input.selfName.trim().toLowerCase();
   const selfId = input.selfUserId?.trim() || '';
 
+  const teamTxCutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  let teamTxCount = 0;
   input.ledgers
     .filter((ledger) => ledger.type === 'shared')
     .forEach((ledger) => {
       const slice = input.snapshots[ledger.id];
       const txs = slice?.transactions ?? [];
       txs.forEach((tx) => {
+        if (teamTxCount >= 80) return;
+        const occurred = tx.occurredAt ? Date.parse(tx.occurredAt) : NaN;
+        if (Number.isFinite(occurred) && occurred < teamTxCutoff) return;
         const authorId = tx.createdByUserId?.trim();
         if (selfId && authorId && authorId === selfId) return;
         const author = tx.createdBy?.trim();
@@ -282,6 +287,7 @@ export function buildNotificationFeed(input: {
 
         const isIncome = tx.amount > 0;
         const who = author || 'Un colaborador';
+        teamTxCount += 1;
         feed.push({
           id: `tx-${ledger.id}-${tx.id}`,
           kind: isIncome ? 'income' : 'expense',

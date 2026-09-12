@@ -95,14 +95,12 @@ export default function RootLayout() {
           );
         });
 
+        // Billing first so a Free guest is routed to a shared book, not locked Hogar.
+        await hydratePlus();
         await hydrateLedger();
-        await Promise.all([
-          hydratePlus(),
-          hydrateCalendar(),
-          hydrateFinance(),
-          hydrateGoals(),
-          hydrateRecaudos(),
-        ]);
+        void hydrateCalendar();
+        void hydrateGoals();
+        void hydrateRecaudos();
       } else {
         usePlusStore.getState().reset();
         await hydrateFinance();
@@ -166,8 +164,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!appReady) return;
-    // Mount heavier chrome only after the first interactive shell is ready.
-    setBootExtras(true);
+    // Give older phones a beat to take the first scroll/tap before extra chrome.
+    const extra = setTimeout(() => setBootExtras(true), 1200);
+    return () => clearTimeout(extra);
   }, [appReady]);
 
   useEffect(() => {
@@ -240,8 +239,13 @@ export default function RootLayout() {
       if (!force && now - lastSharedPollAt < SHARED_POLL_MIN_MS) return;
       sharedPollInFlight = true;
       lastSharedPollAt = now;
+      const { activeLedgerId, ledgers, refreshLedger } = useLedgerStore.getState();
+      const active = ledgers.find((item) => item.id === activeLedgerId);
+      const shouldRefreshActive = Boolean(activeLedgerId) && active?.type === 'shared';
       void Promise.all([
-        hydrateLedger(),
+        shouldRefreshActive
+          ? refreshLedger(activeLedgerId)
+          : Promise.resolve(),
         hydrateCalendar(),
         refreshRecaudos(),
       ])
@@ -256,10 +260,9 @@ export default function RootLayout() {
         });
     };
 
-    // Defer boot poll so it never competes with first paint.
+    // Access-request ping only — a second full ledger hydrate freezes older phones.
     const bootPoll = setTimeout(() => {
       pollAccessRequests();
-      pollSharedCollaborators(true);
     }, 2500);
 
     const subscription = AppState.addEventListener('change', (state) => {
@@ -281,9 +284,8 @@ export default function RootLayout() {
         const hasShared = useLedgerStore
           .getState()
           .ledgers.some((item) => item.type === 'shared');
-        // Shared books must refetch when the app comes back — otherwise a
-        // teammate's expense stays invisible until a manual refresh.
-        pollSharedCollaborators(hasShared);
+        // Shared books refetch the active book only — never every workspace.
+        if (hasShared) pollSharedCollaborators(false);
       }
       if (state === 'background' || state === 'inactive') {
         void useNotificationsStore.getState().syncBadge();
@@ -293,7 +295,7 @@ export default function RootLayout() {
       clearTimeout(bootPoll);
       subscription.remove();
     };
-  }, [hydrated, authenticated, refreshRecaudos, hydrateLedger, hydrateCalendar]);
+  }, [hydrated, authenticated, refreshRecaudos, hydrateCalendar]);
 
   useEffect(() => {
     let lastVoiceUrlAt = 0;

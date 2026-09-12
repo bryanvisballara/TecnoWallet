@@ -24,6 +24,7 @@ import {
 } from '@/services/calendar-api';
 import { localStorage } from '@/services/persistence';
 import { isOwnedResourceLocked } from '@/lib/owned-resource-lock';
+import { yieldToUi } from '@/lib/yield-to-ui';
 import { useLedgerStore } from '@/store/ledger';
 import { usePlusStore } from '@/store/plus';
 import { recordActivity } from '@/store/notifications';
@@ -236,159 +237,184 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
       let remoteCalendars = await listCalendars();
       const selfUserId = (await localStorage.get<string>('auth-user-id', '')) || '';
-      const ownsAny = selfUserId
-        ? remoteCalendars.some(
-            (calendar) => String(calendar.ownerId) === String(selfUserId),
-          )
-        : remoteCalendars.some((calendar) => !calendar.migrationSourceId);
-      // Collaborators joining a shared calendar must still keep their own default.
-      if (!ownsAny || remoteCalendars.length === 0) {
-        const homeWs = ownedWorkspaceId();
-        if (homeWs) {
-          try {
-            const created = await createCalendarApi({
-              workspaceId: homeWs,
-              name: 'Mi calendario',
-              color: '#0878F9',
-              icon: 'calendar',
-              migrationSourceId: 'personal',
-            });
-            remoteCalendars = [...remoteCalendars, created];
-          } catch {
-            // Shared-book members without an owned workspace cannot create yet.
-          }
-        }
-      }
-      if (
-        remoteCalendars.length === 0 ||
-        remoteCalendars.some((calendar) => calendar.migrationSourceId)
-      ) {
-        for (const legacy of legacyCalendars) {
-          if (
-            remoteCalendars.some(
-              (calendar) => calendar.migrationSourceId === legacy.id,
-            )
-          ) {
-            continue;
-          }
-          if (
-            selfUserId &&
-            remoteCalendars.some(
-              (calendar) =>
-                String(calendar.ownerId) === String(selfUserId) &&
-                calendar.name.trim().toLowerCase() === legacy.name.trim().toLowerCase(),
-            )
-          ) {
-            continue;
-          }
-          try {
-            const created = await createCalendarApi({
-              workspaceId: ownedWorkspaceId() || ws,
-              name: legacy.name,
-              color: legacy.color,
-              icon: legacy.icon,
-              migrationSourceId: legacy.id,
-            });
-            remoteCalendars = [...remoteCalendars, created];
-          } catch {
-            // A shared-workspace collaborator cannot migrate owner metadata.
-          }
-        }
-      }
-
-      const legacyToRemote = new Map(
-        remoteCalendars
-          .filter((calendar) => calendar.migrationSourceId)
-          .map((calendar) => [calendar.migrationSourceId as string, calendar._id]),
-      );
-      let items = (
-        await Promise.all(
-          remoteCalendars.map((calendar) =>
-            listCalendarItems(calendar._id).catch(() => []),
-          ),
-        )
-      ).flat();
-      const existingIds = new Set(items.map((item) => item.id));
-      for (const legacy of legacyItems) {
-        const calendarId = legacyToRemote.get(
-          legacy.calendarId ?? data.activeCalendarId ?? 'personal',
-        );
-        if (!calendarId) continue;
-        const id = deterministicObjectId(`${ws}:${legacy.id}`);
-        if (existingIds.has(id)) continue;
-        try {
-          const migrated = await createCalendarItem({
-            ...legacy,
-            id,
-            calendarId,
-          });
-          items = [...items, migrated];
-          existingIds.add(id);
-        } catch {
-          // Duplicate retries are harmless; the next hydration reads MongoDB.
-        }
-      }
 
       const nameByUserId = new Map<string, string>();
-      const calendars = await Promise.all(
-        remoteCalendars.map(async (calendar) => {
-          const members = await listCalendarMembers(calendar._id).catch(() => []);
-          for (const member of members) {
-            const userId = String(member.userId ?? '').trim();
-            const label =
-              member.name?.trim() || member.email?.split('@')[0] || '';
-            if (userId && label) nameByUserId.set(userId, label);
-          }
-          return calendarBook(calendar, mapCalendarMembers(members, selfUserId));
-        }),
-      );
-      // Own calendars first, then shared — keeps the default personal calendar visible.
-      calendars.sort((a, b) => {
-        const aOwned = a.members.some(
-          (member) => member.role === 'owner' && member.id === 'me',
+      const calendarsFromRemote = async (list: ApiCalendar[]) => {
+        const next = await Promise.all(
+          list.map(async (calendar) => {
+            const members = await listCalendarMembers(calendar._id).catch(() => []);
+            for (const member of members) {
+              const userId = String(member.userId ?? '').trim();
+              const label =
+                member.name?.trim() || member.email?.split('@')[0] || '';
+              if (userId && label) nameByUserId.set(userId, label);
+            }
+            return calendarBook(calendar, mapCalendarMembers(members, selfUserId));
+          }),
         );
-        const bOwned = b.members.some(
-          (member) => member.role === 'owner' && member.id === 'me',
-        );
-        if (aOwned === bOwned) return a.name.localeCompare(b.name, 'es');
-        return aOwned ? -1 : 1;
-      });
-      items = items.map((item) => {
-        const authorId = item.createdByUserId?.trim();
-        if (!authorId) return item;
-        return {
-          ...item,
-          createdBy: nameByUserId.get(authorId) ?? item.createdBy,
-        };
-      });
+        next.sort((a, b) => {
+          const aOwned = a.members.some(
+            (member) => member.role === 'owner' && member.id === 'me',
+          );
+          const bOwned = b.members.some(
+            (member) => member.role === 'owner' && member.id === 'me',
+          );
+          if (aOwned === bOwned) return a.name.localeCompare(b.name, 'es');
+          return aOwned ? -1 : 1;
+        });
+        return next;
+      };
+
+      let calendars = await calendarsFromRemote(remoteCalendars);
       const savedActive =
         (await localStorage.get('calendar-active', '')) ||
         (await localStorage.get(`calendar-active-${ws}`, ''));
-      const migratedActive = legacyToRemote.get(
-        data.activeCalendarId ?? 'personal',
-      );
+      const plusAccess = usePlusStore.getState().access;
+      const unlockedId = calendars.find(
+        (calendar) => !isOwnedResourceLocked(calendar, plusAccess),
+      )?.id;
       const preferredOwn = calendars.find((calendar) =>
         calendar.members.some(
           (member) => member.role === 'owner' && member.id === 'me',
         ),
       );
-      const activeCalendarId = calendars.some(
-        (calendar) => calendar.id === savedActive,
-      )
+      const activeCalendarId = calendars.some((calendar) => calendar.id === savedActive)
         ? savedActive
-        : calendars.some((calendar) => calendar.id === migratedActive)
-          ? (migratedActive as string)
+        : unlockedId && isOwnedResourceLocked(preferredOwn, plusAccess)
+          ? unlockedId
           : preferredOwn?.id ?? calendars[0]?.id ?? '';
-      set({ calendars, activeCalendarId, items, hydrated: true });
-      syncCalendarWidget(items);
-      void import('@/services/collaboration-api').then(
-        ({ notifyNewTeamCalendarItems }) =>
-          notifyNewTeamCalendarItems().catch(() => undefined),
-      );
-      void import('@/services/push-notifications').then(
-        ({ syncCalendarReminders }) =>
-          syncCalendarReminders(items).catch(() => undefined),
-      );
+
+      const labelItems = (rows: CalendarItem[]) =>
+        rows.map((item) => {
+          const authorId = item.createdByUserId?.trim();
+          if (!authorId) return item;
+          return {
+            ...item,
+            createdBy: nameByUserId.get(authorId) ?? item.createdBy,
+          };
+        });
+
+      const firstItems = activeCalendarId
+        ? labelItems(await listCalendarItems(activeCalendarId).catch(() => []))
+        : [];
+      set({
+        calendars: calendars.length ? calendars : defaultCalendars,
+        activeCalendarId: activeCalendarId || 'personal',
+        items: firstItems,
+        hydrated: true,
+      });
+      syncCalendarWidget(firstItems);
+
+      void (async () => {
+        await yieldToUi();
+        const ownsAny = selfUserId
+          ? remoteCalendars.some(
+              (calendar) => String(calendar.ownerId) === String(selfUserId),
+            )
+          : remoteCalendars.some((calendar) => !calendar.migrationSourceId);
+        if (!ownsAny || remoteCalendars.length === 0) {
+          const homeWs = ownedWorkspaceId();
+          if (homeWs) {
+            try {
+              const created = await createCalendarApi({
+                workspaceId: homeWs,
+                name: 'Mi calendario',
+                color: '#0878F9',
+                icon: 'calendar',
+                migrationSourceId: 'personal',
+              });
+              remoteCalendars = [...remoteCalendars, created];
+            } catch {
+              // Shared-book members without an owned workspace cannot create yet.
+            }
+          }
+        }
+        if (
+          remoteCalendars.length === 0 ||
+          remoteCalendars.some((calendar) => calendar.migrationSourceId)
+        ) {
+          for (const legacy of legacyCalendars) {
+            if (
+              remoteCalendars.some(
+                (calendar) => calendar.migrationSourceId === legacy.id,
+              )
+            ) {
+              continue;
+            }
+            if (
+              selfUserId &&
+              remoteCalendars.some(
+                (calendar) =>
+                  String(calendar.ownerId) === String(selfUserId) &&
+                  calendar.name.trim().toLowerCase() === legacy.name.trim().toLowerCase(),
+              )
+            ) {
+              continue;
+            }
+            try {
+              const created = await createCalendarApi({
+                workspaceId: ownedWorkspaceId() || ws,
+                name: legacy.name,
+                color: legacy.color,
+                icon: legacy.icon,
+                migrationSourceId: legacy.id,
+              });
+              remoteCalendars = [...remoteCalendars, created];
+            } catch {
+              // A shared-workspace collaborator cannot migrate owner metadata.
+            }
+          }
+        }
+
+        const legacyToRemote = new Map(
+          remoteCalendars
+            .filter((calendar) => calendar.migrationSourceId)
+            .map((calendar) => [calendar.migrationSourceId as string, calendar._id]),
+        );
+        calendars = await calendarsFromRemote(remoteCalendars);
+        const restIds = remoteCalendars
+          .map((calendar) => calendar._id)
+          .filter((id) => id && id !== activeCalendarId);
+        const extraItems = (
+          await Promise.all(
+            restIds.map((id) => listCalendarItems(id).catch(() => [])),
+          )
+        ).flat();
+        let items = labelItems([...firstItems, ...extraItems]);
+        const existingIds = new Set(items.map((item) => item.id));
+        for (const legacy of legacyItems) {
+          const calendarId = legacyToRemote.get(
+            legacy.calendarId ?? data.activeCalendarId ?? 'personal',
+          );
+          if (!calendarId) continue;
+          const id = deterministicObjectId(`${ws}:${legacy.id}`);
+          if (existingIds.has(id)) continue;
+          try {
+            const migrated = await createCalendarItem({
+              ...legacy,
+              id,
+              calendarId,
+            });
+            items = [...items, migrated];
+            existingIds.add(id);
+          } catch {
+            // Duplicate retries are harmless; the next hydration reads MongoDB.
+          }
+        }
+        set({
+          calendars: calendars.length ? calendars : defaultCalendars,
+          items,
+        });
+        syncCalendarWidget(items);
+        void import('@/services/collaboration-api').then(
+          ({ notifyNewTeamCalendarItems }) =>
+            notifyNewTeamCalendarItems().catch(() => undefined),
+        );
+        void import('@/services/push-notifications').then(
+          ({ syncCalendarReminders }) =>
+            syncCalendarReminders(items).catch(() => undefined),
+        );
+      })();
     } catch {
       set({ hydrated: true });
     }

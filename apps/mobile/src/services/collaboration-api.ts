@@ -316,9 +316,12 @@ export async function notifyNewTeamTransactions() {
   const teamKeys: string[] = [];
   const candidates: SharedPushCandidate[] = [];
 
+  const teamTxCutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
   for (const ledger of shared) {
     const txs = snapshots[ledger.id]?.transactions ?? [];
     for (const tx of txs) {
+      const occurred = tx.occurredAt ? Date.parse(tx.occurredAt) : NaN;
+      if (Number.isFinite(occurred) && occurred < teamTxCutoff) continue;
       const authorId = tx.createdByUserId?.trim();
       if (!authorId || authorId === selfUserId) continue;
       const key = `tx-${ledger.id}-${tx.id}`;
