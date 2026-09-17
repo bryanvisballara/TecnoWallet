@@ -149,6 +149,9 @@ async function persistAuthSession(
   await usePlusStore.getState().hydrate();
   const { useAppTutorialStore } = await import('@/store/app-tutorial');
   await useAppTutorialStore.getState().hydrate();
+  if (options?.freshAccount) {
+    await localStorage.remove(`app-tutorial-done-${auth.user.id}`);
+  }
   // Product data lives in Mongo. Reload books (and dependents) after auth.
   if (options?.freshAccount) {
     await useLedgerStore.getState().resetToDefaultHogar();

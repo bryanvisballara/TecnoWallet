@@ -333,9 +333,13 @@ export type AppCopy = {
     videoCoachTitle: string;
     videoCoachBody: string;
     videoCoachAction: string;
-    videoTitle: string;
-    videoSubtitle: string;
-    videoBody: string;
+    guideTitle: string;
+    guideSubtitle: string;
+    guideIntro: string;
+    sectionSpanish: string;
+    sectionEnglish: string;
+    moduleCount: string;
+    videoMissing: string;
     videoOpen: string;
     videoDone: string;
   };
@@ -888,19 +892,22 @@ const es: AppCopy = {
   },
   tutorial: {
     masTabHint: 'Más',
-    masTitle: 'Empieza con el tutorial',
+    masTitle: 'Empieza con la guía',
     masBody:
-      'Toca la pestaña Más (⋯) abajo a la derecha. Ahí encontrarás el video para entender TecnoWallet.',
+      'Toca la pestaña Más (⋯) abajo a la derecha. Ahí encontrarás Cómo usar TecnoWallet con 12 módulos en video.',
     masAction: 'Ir a Más',
-    videoCoachTitle: 'Mira el video tutorial',
+    videoCoachTitle: 'Mira la guía en video',
     videoCoachBody:
-      'En Datos y utilidades, abre Video tutorial para ver cómo usar libros, sobres y movimientos.',
-    videoCoachAction: 'Abrir video tutorial',
-    videoTitle: 'Video tutorial',
-    videoSubtitle: 'Aprende TecnoWallet en pocos minutos',
-    videoBody:
-      'Te mostramos cómo organizar tu dinero con libros, sobres, cuentas y calendario compartido.',
-    videoOpen: 'Reproducir video',
+      'En Datos y utilidades, abre Cómo usar TecnoWallet. Elige español o inglés y toca un módulo para ver el video.',
+    videoCoachAction: 'Abrir guía',
+    guideTitle: 'Como usar TecnoWallet',
+    guideSubtitle: '12 módulos en español e inglés',
+    guideIntro: 'Elige un idioma y luego toca un módulo para ver el video.',
+    sectionSpanish: 'Español',
+    sectionEnglish: 'Inglés',
+    moduleCount: '12 módulos',
+    videoMissing: 'Este video aún no está disponible.',
+    videoOpen: 'Abrir video',
     videoDone: 'Listo, entendí',
   },
   accounts: {
@@ -1076,8 +1083,8 @@ const es: AppCopy = {
         badge: 'Pronto',
       },
       'video-tutorial': {
-        title: 'Video tutorial',
-        subtitle: 'Aprende a usar TecnoWallet',
+        title: 'Como usar TecnoWallet',
+        subtitle: '12 módulos en español e inglés',
       },
       datos: {
         title: 'Exportar',
@@ -1517,19 +1524,22 @@ const en: AppCopy = {
   },
   tutorial: {
     masTabHint: 'More',
-    masTitle: 'Start with the tutorial',
+    masTitle: 'Start with the guide',
     masBody:
-      'Tap the More tab (⋯) at the bottom right. There you’ll find the video to learn TecnoWallet.',
+      'Tap the More tab (⋯) at the bottom right. There you’ll find How to use TecnoWallet with 12 video modules.',
     masAction: 'Go to More',
-    videoCoachTitle: 'Watch the tutorial video',
+    videoCoachTitle: 'Watch the video guide',
     videoCoachBody:
-      'Under Data & utilities, open Video tutorial to learn books, envelopes, and transactions.',
-    videoCoachAction: 'Open video tutorial',
-    videoTitle: 'Video tutorial',
-    videoSubtitle: 'Learn TecnoWallet in a few minutes',
-    videoBody:
-      'We show you how to organize money with books, envelopes, accounts, and shared calendars.',
-    videoOpen: 'Play video',
+      'Under Data & utilities, open How to use TecnoWallet. Pick Spanish or English and tap a module to play the video.',
+    videoCoachAction: 'Open guide',
+    guideTitle: 'How to use TecnoWallet',
+    guideSubtitle: '12 modules in Spanish and English',
+    guideIntro: 'Pick a language, then tap a module to watch the video.',
+    sectionSpanish: 'Spanish',
+    sectionEnglish: 'English',
+    moduleCount: '12 modules',
+    videoMissing: 'This video is not available yet.',
+    videoOpen: 'Open video',
     videoDone: 'Done, got it',
   },
   accounts: {
@@ -1696,8 +1706,8 @@ const en: AppCopy = {
     },
     items: {
       'video-tutorial': {
-        title: 'Video tutorial',
-        subtitle: 'Learn how to use TecnoWallet',
+        title: 'How to use TecnoWallet',
+        subtitle: '12 modules in Spanish and English',
       },
       divisa: { title: 'Currency', subtitle: 'Active book currency' },
       idioma: { title: 'Language', subtitle: 'English' },

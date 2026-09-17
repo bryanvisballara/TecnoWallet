@@ -346,7 +346,13 @@ export function PlusPaywallModal() {
             </View>
             <ScalePressable
               accessibilityLabel={copy.common.close}
-              onPress={() => close({ force: true })}
+              onPress={() => {
+                close({ force: true });
+                setTimeout(
+                  () => void useAppTutorialStore.getState().startAfterTrial(),
+                  500,
+                );
+              }}
               style={[styles.close, { backgroundColor: theme.surfaceSecondary }]}>
               <AppIcon name="xmark" color={theme.muted} size={18} />
             </ScalePressable>

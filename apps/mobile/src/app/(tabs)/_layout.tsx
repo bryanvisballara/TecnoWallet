@@ -1,4 +1,5 @@
 import { Redirect, Tabs } from 'expo-router';
+import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { AppTutorialMasLayer } from '@/components/app-tutorial-coach';
@@ -9,7 +10,9 @@ import { useAppCopy } from '@/i18n/app-copy';
 import { authHref } from '@/lib/auth-entry';
 import { FEATURE_RECAUDOS_ENABLED } from '@/lib/feature-flags';
 import { useAuthStore } from '@/store/auth';
+import { useAppTutorialStore } from '@/store/app-tutorial';
 import { useLedgerStore } from '@/store/ledger';
+import { usePlusStore } from '@/store/plus';
 
 const tabDefs = [
   { name: 'inicio', key: 'inicio' as const, icon: 'house.fill' },
@@ -55,6 +58,17 @@ export default function TabsLayout() {
   const authenticated = useAuthStore((state) => state.authenticated);
   const ledgerHydrated = useLedgerStore((state) => state.hydrated);
   const ledgerCount = useLedgerStore((state) => state.ledgers.length);
+  const plusHydrated = usePlusStore((state) => state.hydrated);
+  const paywallOpen = usePlusStore((state) => state.paywallOpen);
+
+  useEffect(() => {
+    if (!authenticated || !ledgerHydrated || !plusHydrated) return;
+    if (paywallOpen) return;
+    const timer = setTimeout(() => {
+      void useAppTutorialStore.getState().startAfterTrial();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [authenticated, ledgerHydrated, plusHydrated, paywallOpen]);
 
   if (!hydrated || (authenticated && !ledgerHydrated)) {
     return (
