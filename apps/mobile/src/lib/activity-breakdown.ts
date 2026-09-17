@@ -145,7 +145,17 @@ export function buildExpenseSlices(
   const head = ranked.slice(0, maxSlices);
   const rest = ranked.slice(maxSlices);
   const otherAmount = rest.reduce((sum, [, amount]) => sum + amount, 0);
-  const rows = otherAmount > 0 ? [...head, ['Otros', otherAmount] as const] : head;
+  let rows = head;
+  if (otherAmount > 0) {
+    const otrosIndex = head.findIndex(([name]) => name === 'Otros');
+    if (otrosIndex >= 0) {
+      rows = head.map(([name, amount], index) =>
+        index === otrosIndex ? ([name, amount + otherAmount] as const) : ([name, amount] as const),
+      );
+    } else {
+      rows = [...head, ['Otros', otherAmount] as const];
+    }
+  }
   const total = rows.reduce((sum, [, amount]) => sum + amount, 0);
   const usedColors = new Set<string>();
 

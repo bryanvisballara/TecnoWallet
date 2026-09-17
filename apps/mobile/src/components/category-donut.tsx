@@ -82,13 +82,14 @@ export function CategoryDonut({
                 stroke={theme.surfaceSecondary}
                 strokeWidth={stroke}
               />
-              {arcs.map((slice) => {
+              {arcs.map((slice, index) => {
                 if (slice.sweep <= 0) return null;
+                const sliceKey = `${slice.name}-${index}`;
                 const a11y = sliceA11y?.(slice.name) ?? slice.name;
                 if (slice.sweep >= 359.5) {
                   return (
                     <Circle
-                      key={slice.name}
+                      key={sliceKey}
                       cx={CX}
                       cy={CY}
                       r={radius}
@@ -103,7 +104,7 @@ export function CategoryDonut({
                 }
                 return (
                   <Path
-                    key={slice.name}
+                    key={sliceKey}
                     d={describeArc(radius, slice.start, slice.end)}
                     fill="none"
                     stroke={slice.color}
@@ -133,7 +134,8 @@ export function CategoryDonut({
           {slices.length === 0 ? (
             <Text style={[styles.empty, { color: theme.muted }]}>{emptyLabel}</Text>
           ) : (
-            slices.map((slice) => {
+            slices.map((slice, index) => {
+              const sliceKey = `${slice.name}-${index}`;
               const row = (
                 <>
                   <View style={[styles.dot, { backgroundColor: slice.color }]} />
@@ -147,14 +149,14 @@ export function CategoryDonut({
               );
               if (!onSlicePress) {
                 return (
-                  <View key={slice.name} style={styles.legendRow}>
+                  <View key={sliceKey} style={styles.legendRow}>
                     {row}
                   </View>
                 );
               }
               return (
                 <Pressable
-                  key={slice.name}
+                  key={sliceKey}
                   accessibilityRole="button"
                   accessibilityLabel={sliceA11y?.(slice.name) ?? slice.name}
                   onPress={() => onSlicePress(slice.name)}

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -65,7 +66,7 @@ export class AdminController {
 
   @Get('users')
   searchUsers(@Query() query: AdminUserSearchQueryDto) {
-    return this.admin.searchUsers(query.q, query.plan);
+    return this.admin.searchUsers(query.q, query.plan, query.page, query.limit);
   }
 
   @Get('users/:id')
@@ -76,5 +77,10 @@ export class AdminController {
   @Post('users/:id/upgrade')
   upgradeUser(@Param('id') id: string, @Body() body: ManualUpgradeDto) {
     return this.admin.upgradeUser(id, body);
+  }
+
+  @Delete('users/:id')
+  deleteUser(@Param('id') id: string, @CurrentUser() actor: AuthPrincipal) {
+    return this.admin.deleteUser(id, actor.userId);
   }
 }

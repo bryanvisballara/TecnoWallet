@@ -187,15 +187,34 @@ export function markAdminCommissionsPaid(input: {
   });
 }
 
+export type AdminUsersPage = {
+  users: AdminUserRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+};
+
 export function searchAdminUsers(
   q?: string,
   plan?: 'all' | AdminPlan,
+  page = 1,
+  limit = 20,
 ) {
   const query = new URLSearchParams();
   if (q?.trim()) query.set('q', q.trim());
   if (plan && plan !== 'all') query.set('plan', plan);
-  const suffix = query.toString() ? `?${query.toString()}` : '';
-  return apiRequest<{ users: AdminUserRow[] }>(`/admin/users${suffix}`);
+  query.set('page', String(Math.max(1, page)));
+  query.set('limit', String(Math.min(Math.max(limit, 1), 20)));
+  return apiRequest<AdminUsersPage>(`/admin/users?${query.toString()}`);
+}
+
+export function deleteAdminUser(userId: string) {
+  return apiRequest<{ deleted: boolean; userId: string }>(
+    `/admin/users/${encodeURIComponent(userId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 export function getAdminUserDetail(userId: string) {

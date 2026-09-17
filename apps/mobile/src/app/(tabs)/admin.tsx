@@ -15,6 +15,7 @@ import { AppIcon, Card, Pill, PrimaryButton, Screen, useAppTheme } from '@/compo
 import { copyText } from '@/lib/copy-text';
 import { safeGoBack } from '@/lib/navigation';
 import {
+  deleteAdminUser,
   getAdminAffiliatePayouts,
   getAdminUserDetail,
   getAdminUserStats,
@@ -300,6 +301,9 @@ export default function AdminPortalScreen() {
   const [payoutTotals, setPayoutTotals] = useState<AdminPayoutTotals | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersTotalPages, setUsersTotalPages] = useState(1);
+  const [usersTotal, setUsersTotal] = useState(0);
   const [userQuery, setUserQuery] = useState('');
   const [planFilter, setPlanFilter] = useState<PlanFilter>('all');
   const [usersLoading, setUsersLoading] = useState(false);
@@ -380,19 +384,72 @@ export default function AdminPortalScreen() {
     }
   }, [loadPayouts]);
 
-  const loadUsers = useCallback(async (q?: string, plan?: PlanFilter) => {
-    setUsersLoading(true);
-    setError(null);
-    try {
-      const result = await searchAdminUsers(q, plan ?? planFilter);
-      setUsers(result.users);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar usuarios.');
-      setUsers([]);
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [planFilter]);
+  const loadUsers = useCallback(
+    async (q?: string, plan?: PlanFilter, page = 1) => {
+      setUsersLoading(true);
+      setError(null);
+      try {
+        const result = await searchAdminUsers(q, plan ?? planFilter, page, 20);
+        setUsers(result.users);
+        setUsersPage(result.page);
+        setUsersTotalPages(result.totalPages);
+        setUsersTotal(result.total);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'No se pudieron cargar usuarios.');
+        setUsers([]);
+        setUsersTotal(0);
+        setUsersTotalPages(1);
+      } finally {
+        setUsersLoading(false);
+      }
+    },
+    [planFilter],
+  );
+
+  const deleteUser = useCallback(
+    async (user: AdminUserRow) => {
+      if (user.platformRole === 'admin') {
+        Alert.alert('No permitido', 'No se puede borrar una cuenta admin.');
+        return;
+      }
+      Alert.alert(
+        'Borrar usuario',
+        `¿Eliminar la cuenta de ${user.name} (${user.email})? Se revocará el acceso y se borrarán sus libros.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Borrar',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                setBusyId(`delete-${user.id}`);
+                try {
+                  await deleteAdminUser(user.id);
+                  if (selectedUserId === user.id) {
+                    setSelectedUserId(null);
+                    setUserDetail(null);
+                  }
+                  Alert.alert('Listo', 'Usuario eliminado.');
+                  await Promise.all([
+                    loadUsers(userQuery, planFilter, usersPage),
+                    loadStats(),
+                  ]);
+                } catch (cause) {
+                  Alert.alert(
+                    'No se borró',
+                    cause instanceof Error ? cause.message : 'Inténtalo de nuevo.',
+                  );
+                } finally {
+                  setBusyId(null);
+                }
+              })();
+            },
+          },
+        ],
+      );
+    },
+    [loadStats, loadUsers, planFilter, selectedUserId, userQuery, usersPage],
+  );
 
   const openUserDetail = useCallback(async (userId: string) => {
     setSelectedUserId(userId);
@@ -436,15 +493,15 @@ export default function AdminPortalScreen() {
         setBusyId(null);
       }
     },
-    [loadStats, loadUsers, openUserDetail, planFilter, userQuery],
+    [loadStats, loadUsers, openUserDetail, planFilter, userQuery, usersPage],
   );
 
   useEffect(() => {
     if (!isAdmin) return;
     if (tab === 'resumen') void loadStats();
     if (tab === 'pagos') void loadPayouts();
-    if (tab === 'usuarios') void loadUsers(userQuery, planFilter);
-  }, [isAdmin, tab, planFilter, loadStats, loadPayouts, loadUsers]);
+    if (tab === 'usuarios') void loadUsers(userQuery, planFilter, usersPage);
+  }, [isAdmin, tab, planFilter, usersPage, loadStats, loadPayouts, loadUsers, userQuery]);
 
   if (!isAdmin) {
     return <Redirect href="/(tabs)/mas" />;
@@ -665,7 +722,10 @@ export default function AdminPortalScreen() {
                 return (
                   <Pressable
                     key={filter.id}
-                    onPress={() => setPlanFilter(filter.id)}
+                    onPress={() => {
+                      setPlanFilter(filter.id);
+                      setUsersPage(1);
+                    }}
                     style={[
                       styles.chip,
                       {
@@ -700,15 +760,24 @@ export default function AdminPortalScreen() {
                 },
               ]}
             />
-            <PrimaryButton onPress={() => void loadUsers(userQuery, planFilter)}>
+            <PrimaryButton
+              onPress={() => {
+                setUsersPage(1);
+                void loadUsers(userQuery, planFilter, 1);
+              }}>
               {usersLoading ? 'Buscando…' : 'Buscar'}
             </PrimaryButton>
+            <Text style={[styles.hint, { color: theme.muted }]}>
+              {usersTotal > 0
+                ? `${usersTotal} usuario${usersTotal === 1 ? '' : 's'} · página ${usersPage} de ${usersTotalPages}`
+                : 'Sin resultados'}
+            </Text>
             {users.map((user) => {
               const selected = selectedUserId === user.id;
+              const deleting = busyId === `delete-${user.id}`;
               return (
-                <Pressable
+                <View
                   key={user.id}
-                  onPress={() => void openUserDetail(user.id)}
                   style={[
                     styles.userRow,
                     {
@@ -719,30 +788,88 @@ export default function AdminPortalScreen() {
                       paddingBottom: selected ? 10 : 0,
                     },
                   ]}>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={[styles.memberName, { color: theme.text }]}>{user.name}</Text>
-                    <Text style={[styles.hint, { color: theme.muted }]}>
-                      {user.email} · {user.plan}
-                      {user.provider ? ` · ${user.provider}` : ''}
-                    </Text>
-                  </View>
-                  <Pill
-                    tone={
-                      user.plan === 'business'
-                        ? 'green'
-                        : user.plan === 'plus'
-                          ? 'blue'
-                          : 'neutral'
-                    }>
-                    {user.plan}
-                  </Pill>
-                </Pressable>
+                  <Pressable
+                    onPress={() => void openUserDetail(user.id)}
+                    style={[styles.userRowMain, { flex: 1 }]}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={[styles.memberName, { color: theme.text }]}>{user.name}</Text>
+                      <Text style={[styles.hint, { color: theme.muted }]}>
+                        {user.email} · {user.plan}
+                        {user.provider ? ` · ${user.provider}` : ''}
+                      </Text>
+                    </View>
+                    <Pill
+                      tone={
+                        user.plan === 'business'
+                          ? 'green'
+                          : user.plan === 'plus'
+                            ? 'blue'
+                            : 'neutral'
+                      }>
+                      {user.plan}
+                    </Pill>
+                  </Pressable>
+                  {user.platformRole !== 'admin' ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Borrar ${user.name}`}
+                      disabled={deleting}
+                      onPress={() => void deleteUser(user)}
+                      hitSlop={8}
+                      style={({ pressed }) => [
+                        styles.deleteUserBtn,
+                        {
+                          backgroundColor: pressed ? `${theme.danger}22` : theme.surfaceSecondary,
+                          opacity: deleting ? 0.5 : 1,
+                        },
+                      ]}>
+                      <AppIcon name="trash" color={theme.danger} size={16} />
+                    </Pressable>
+                  ) : null}
+                </View>
               );
             })}
             {!usersLoading && users.length === 0 ? (
               <Text style={[styles.hint, { color: theme.muted }]}>
                 No hay usuarios para este filtro.
               </Text>
+            ) : null}
+            {usersTotalPages > 1 ? (
+              <View style={styles.pagination}>
+                <Pressable
+                  disabled={usersPage <= 1 || usersLoading}
+                  onPress={() => setUsersPage((current) => Math.max(1, current - 1))}
+                  style={[
+                    styles.pageBtn,
+                    {
+                      borderColor: theme.border,
+                      opacity: usersPage <= 1 || usersLoading ? 0.45 : 1,
+                    },
+                  ]}>
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }}>
+                    Anterior
+                  </Text>
+                </Pressable>
+                <Text style={[styles.hint, { color: theme.muted }]}>
+                  {usersPage} / {usersTotalPages}
+                </Text>
+                <Pressable
+                  disabled={usersPage >= usersTotalPages || usersLoading}
+                  onPress={() =>
+                    setUsersPage((current) => Math.min(usersTotalPages, current + 1))
+                  }
+                  style={[
+                    styles.pageBtn,
+                    {
+                      borderColor: theme.border,
+                      opacity: usersPage >= usersTotalPages || usersLoading ? 0.45 : 1,
+                    },
+                  ]}>
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }}>
+                    Siguiente
+                  </Text>
+                </Pressable>
+              </View>
             ) : null}
           </Card>
 
@@ -797,6 +924,34 @@ export default function AdminPortalScreen() {
                   </View>
 
                   <Text style={[styles.label, { color: theme.text }]}>Upgrade manual</Text>
+                  {userDetail.user.platformRole !== 'admin' ? (
+                    <Pressable
+                      disabled={Boolean(busyId)}
+                      onPress={() =>
+                        void deleteUser({
+                          id: userDetail.user.id,
+                          name: userDetail.user.name,
+                          email: userDetail.user.email,
+                          platformRole: userDetail.user.platformRole,
+                          plan: userDetail.plan,
+                          expiresAt: userDetail.subscription?.expiresAt ?? null,
+                          provider: userDetail.subscription?.provider ?? null,
+                        })
+                      }
+                      style={({ pressed }) => [
+                        styles.deleteAccountBtn,
+                        {
+                          borderColor: theme.danger,
+                          backgroundColor: pressed ? `${theme.danger}16` : 'transparent',
+                        },
+                      ]}>
+                      <AppIcon name="trash" color={theme.danger} size={16} />
+                      <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
+                        Borrar usuario
+                      </Text>
+                    </Pressable>
+                  ) : null}
+
                   <View style={styles.rowWrap}>
                     {([
                       { plan: 'free' as const, label: '→ Free', color: theme.muted },
@@ -980,8 +1135,44 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 12,
     flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  userRowMain: {
+    flexDirection: 'row',
     gap: 12,
     alignItems: 'center',
+    minWidth: 0,
+  },
+  deleteUserBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  pagination: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingTop: 8,
+  },
+  pageBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   detailGrid: { gap: 6 },
   historyRow: {

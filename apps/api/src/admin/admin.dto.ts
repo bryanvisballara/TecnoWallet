@@ -98,4 +98,17 @@ export class AdminUserSearchQueryDto {
   @IsOptional()
   @IsIn(['all', 'free', 'plus', 'business'])
   plan?: 'all' | 'free' | 'plus' | 'business';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  limit?: number;
 }

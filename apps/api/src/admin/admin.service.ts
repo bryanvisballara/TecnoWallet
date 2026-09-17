@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,7 +13,7 @@ import {
   UserAttribution,
   type CommissionEventStatus,
 } from '../affiliate/affiliate.schemas';
-import { User } from '../auth/auth.module';
+import { RefreshSession, User, Workspace } from '../auth/auth.module';
 import { Subscription } from '../billing/billing.schemas';
 import { EntitlementService } from '../billing/entitlement.service';
 import { BrevoMailer } from '../mail/brevo';
@@ -109,6 +110,9 @@ function simReferralName(index: number) {
 export class AdminService {
   constructor(
     @InjectModel(User.name) private readonly users: Model<User>,
+    @InjectModel(RefreshSession.name)
+    private readonly refreshSessions: Model<RefreshSession>,
+    @InjectModel(Workspace.name) private readonly workspaces: Model<Workspace>,
     @InjectModel(Subscription.name)
     private readonly subscriptions: Model<Subscription>,
     @InjectModel(CommissionEvent.name)
@@ -457,51 +461,167 @@ export class AdminService {
     };
   }
 
-  async searchUsers(
-    q?: string,
-    planFilter: 'all' | 'free' | 'plus' | 'business' = 'all',
-  ) {
+  private userSearchFilter(q?: string) {
     const query = q?.trim().toLowerCase() ?? '';
-    const filter = query
-      ? {
-          active: true,
-          $or: [
-            { email: { $regex: query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') } },
-            { name: { $regex: query, $options: 'i' } },
-          ],
-        }
-      : { active: true };
-    const users = await this.users
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .limit(80)
-      .select('name email platformRole createdAt')
-      .lean();
-    const ids = users.map((u) => u._id);
-    const subscriptions = ids.length
-      ? await this.subscriptions.find({ userId: { $in: ids } }).lean()
-      : [];
+    if (!query) return { active: true };
+    return {
+      active: true,
+      $or: [
+        { email: { $regex: query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') } },
+        { name: { $regex: query, $options: 'i' } },
+      ],
+    };
+  }
+
+  private mapUsersWithPlans(
+    users: Array<{
+      _id: Types.ObjectId;
+      name: string;
+      email: string;
+      platformRole?: string;
+      createdAt?: Date;
+    }>,
+    subscriptions: Subscription[],
+  ) {
     const subByUser = new Map(
       subscriptions.map((sub) => [sub.userId.toString(), sub]),
     );
-    const mapped = users.map((user) => {
+    return users.map((user) => {
       const sub = subByUser.get(user._id.toString());
       return {
         id: user._id.toString(),
         name: user.name,
         email: user.email,
-        platformRole: user.platformRole === 'admin' ? 'admin' : 'user',
+        platformRole: user.platformRole === 'admin' ? ('admin' as const) : ('user' as const),
         plan: this.entitlements.planFromSubscription(sub),
         expiresAt: sub?.expiresAt ?? null,
         provider: sub?.provider ?? null,
         createdAt: user.createdAt ?? null,
       };
     });
+  }
+
+  async searchUsers(
+    q?: string,
+    planFilter: 'all' | 'free' | 'plus' | 'business' = 'all',
+    page = 1,
+    limit = 20,
+  ) {
+    const pageSize = Math.min(Math.max(limit, 1), 20);
+    const safePage = Math.max(page, 1);
+    const skip = (safePage - 1) * pageSize;
+    const filter = this.userSearchFilter(q);
     const plan = planFilter || 'all';
+
+    if (plan === 'all') {
+      const [users, total] = await Promise.all([
+        this.users
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(pageSize)
+          .select('name email platformRole createdAt')
+          .lean(),
+        this.users.countDocuments(filter),
+      ]);
+      const ids = users.map((u) => u._id);
+      const subscriptions = ids.length
+        ? await this.subscriptions.find({ userId: { $in: ids } }).lean()
+        : [];
+      const mapped = this.mapUsersWithPlans(users, subscriptions);
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      return {
+        users: mapped,
+        total,
+        page: safePage,
+        pageSize,
+        totalPages,
+        hasNextPage: safePage < totalPages,
+      };
+    }
+
+    const users = await this.users
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .select('name email platformRole createdAt')
+      .lean();
+    const ids = users.map((u) => u._id);
+    const subscriptions = ids.length
+      ? await this.subscriptions.find({ userId: { $in: ids } }).lean()
+      : [];
+    const filtered = this.mapUsersWithPlans(users, subscriptions).filter(
+      (row) => row.plan === plan,
+    );
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const currentPage = Math.min(safePage, totalPages);
+    const pageRows = filtered.slice(
+      (currentPage - 1) * pageSize,
+      currentPage * pageSize,
+    );
     return {
-      users:
-        plan === 'all' ? mapped : mapped.filter((row) => row.plan === plan),
+      users: pageRows,
+      total,
+      page: currentPage,
+      pageSize,
+      totalPages,
+      hasNextPage: currentPage < totalPages,
     };
+  }
+
+  async deleteUser(userId: string, actorUserId: string) {
+    if (!isValidObjectId(userId)) {
+      throw new BadRequestException('Invalid user id');
+    }
+    if (userId === actorUserId) {
+      throw new BadRequestException('No puedes borrar tu propia cuenta admin.');
+    }
+    const user = await this.users.findById(userId);
+    if (!user?.active) throw new NotFoundException('User not found');
+    if (user.platformRole === 'admin') {
+      throw new ForbiddenException('No se puede borrar una cuenta admin.');
+    }
+
+    const now = new Date();
+    await this.refreshSessions.updateMany(
+      { userId: user._id, revokedAt: { $exists: false } },
+      { $set: { revokedAt: now } },
+    );
+    await this.users.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          active: false,
+          email: `deleted+${user._id.toString()}@deleted.tecnowallet.invalid`,
+          name: 'Cuenta eliminada',
+        },
+        $unset: {
+          googleId: 1,
+          appleId: 1,
+          passwordHash: 1,
+          emailVerificationCodeHash: 1,
+          emailVerificationExpiresAt: 1,
+          accountDeletionCodeHash: 1,
+          accountDeletionExpiresAt: 1,
+        },
+      },
+    );
+    await this.workspaces.updateMany(
+      { ownerId: user._id, deletedAt: { $exists: false } },
+      { $set: { deletedAt: now } },
+    );
+    await this.subscriptions.updateMany(
+      { userId: user._id },
+      {
+        $set: {
+          status: 'cancelled',
+          expiresAt: now,
+          willRenew: false,
+        },
+      },
+    );
+
+    return { deleted: true, userId };
   }
 
   async userDetail(userId: string) {

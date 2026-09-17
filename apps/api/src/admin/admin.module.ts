@@ -8,7 +8,15 @@ import {
   UserAttribution,
   UserAttributionSchema,
 } from '../affiliate/affiliate.schemas';
-import { AuthModule, User, UserSchema } from '../auth/auth.module';
+import {
+  AuthModule,
+  RefreshSession,
+  RefreshSessionSchema,
+  User,
+  UserSchema,
+  Workspace,
+  WorkspaceSchema,
+} from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import {
   Subscription,
@@ -26,6 +34,8 @@ import { AdminService } from './admin.service';
     MailModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
+      { name: RefreshSession.name, schema: RefreshSessionSchema },
+      { name: Workspace.name, schema: WorkspaceSchema },
       { name: Subscription.name, schema: SubscriptionSchema },
       { name: CommissionEvent.name, schema: CommissionEventSchema },
       { name: Affiliate.name, schema: AffiliateSchema },
