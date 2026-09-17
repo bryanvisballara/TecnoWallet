@@ -168,13 +168,22 @@ async function ensureIndexes(db) {
   });
 }
 
+async function migrationAlreadyApplied(db) {
+  const indexes = await db.collection('workspaces').indexes();
+  return indexes.some((index) => index.name === 'one_free_workspace_slot');
+}
+
 async function main() {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error('MONGODB_URI is required for freemium migration');
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 10_000 });
   const db = mongoose.connection.db;
   if (!db) throw new Error('MongoDB connection is unavailable');
-  await backfillFreeSlots(db);
+  if (await migrationAlreadyApplied(db)) {
+    console.log('[freemium] backfill skipped — migration already applied');
+  } else {
+    await backfillFreeSlots(db);
+  }
   await ensureIndexes(db);
   await mongoose.disconnect();
   console.log('[freemium] migration complete');
