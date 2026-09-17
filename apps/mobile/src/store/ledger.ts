@@ -21,6 +21,7 @@ import { isLiquidAccount, isWealthAsset, isWealthDebt } from '@/lib/accounts';
 import {
   addWorkspaceMember,
   amendLedgerTransaction,
+  leaveWorkspace,
   removeWorkspaceMember,
   buildSummary,
   createLedgerTransaction,
@@ -99,6 +100,7 @@ type LedgerState = {
     name?: string,
   ) => Promise<{ pendingSignup?: boolean; delivered?: boolean }>;
   removeMember: (ledgerId: string, memberId: string) => Promise<void>;
+  leaveLedger: (ledgerId: string) => Promise<void>;
   renameLedger: (ledgerId: string, name: string) => Promise<void>;
   updateLedger: (
     ledgerId: string,
@@ -526,6 +528,11 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
     await removeWorkspaceMember(ledgerId, memberId);
     await get().hydrate({ all: true });
     set({ activeLedgerId: ledgerId });
+  },
+
+  leaveLedger: async (ledgerId) => {
+    await leaveWorkspace(ledgerId);
+    await get().hydrate({ all: true });
   },
 
   renameLedger: async (ledgerId, name) => {

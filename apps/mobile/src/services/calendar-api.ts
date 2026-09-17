@@ -95,6 +95,13 @@ export function removeCalendarMember(calendarId: string, userId: string) {
   );
 }
 
+export function leaveCalendar(calendarId: string) {
+  return apiRequest<{ left: boolean }>(
+    `/calendars/${encodeURIComponent(calendarId)}/members/me`,
+    { method: 'DELETE' },
+  );
+}
+
 export function inviteCalendarMember(input: {
   calendarId: string;
   email: string;

@@ -208,6 +208,11 @@ export class CalendarController {
     return this.calendars.members(params.id, user.userId);
   }
 
+  @Delete(':id/members/me')
+  leaveMember(@Param() params: MongoIdParamDto, @CurrentUser() user: AuthPrincipal) {
+    return this.calendars.leave(params.id, user.userId);
+  }
+
   @Delete(':id/members/:userId')
   removeMember(
     @Param('id') id: string,

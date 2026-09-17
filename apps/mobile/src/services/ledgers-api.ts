@@ -459,6 +459,13 @@ export async function removeWorkspaceMember(
   );
 }
 
+export async function leaveWorkspace(workspaceId: string) {
+  return apiRequest<{ left: boolean }>(
+    `/workspaces/${workspaceId}/members/me`,
+    { method: 'DELETE' },
+  );
+}
+
 export async function listResources(kind: ResourceKind, workspaceId: string) {
   return apiRequest<ApiResource[]>(
     `/resources/${kind}?workspaceId=${encodeURIComponent(workspaceId)}&limit=100`,

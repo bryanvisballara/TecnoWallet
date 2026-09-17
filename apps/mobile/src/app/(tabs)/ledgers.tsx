@@ -93,6 +93,7 @@ export default function LedgersScreen() {
   const deleteLedger = useLedgerStore((state) => state.deleteLedger);
   const inviteMember = useLedgerStore((state) => state.inviteMember);
   const removeMember = useLedgerStore((state) => state.removeMember);
+  const leaveLedger = useLedgerStore((state) => state.leaveLedger);
   const updateLedger = useLedgerStore((state) => state.updateLedger);
   const hydrateLedgers = useLedgerStore((state) => state.hydrate);
   const plusAccess = usePlusStore((state) => state.access);
@@ -288,6 +289,34 @@ export default function LedgersScreen() {
         error instanceof Error ? error.message : 'Inténtalo de nuevo.',
       );
     }
+  };
+
+  const onLeaveLedger = () => {
+    if (!selected || isSelfOwner(selected.members)) return;
+    Alert.alert(
+      'Salir del libro',
+      `¿Quieres dejar de colaborar en «${selected.name}»? Ya no verás sus cuentas ni movimientos.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Salir',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                await leaveLedger(selected.id);
+                setSelectedId(useLedgerStore.getState().activeLedgerId);
+              } catch (error) {
+                Alert.alert(
+                  'No se pudo salir',
+                  error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+                );
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   const onAcceptRequest = async (request: CollaborationAccessRequest) => {
@@ -539,7 +568,11 @@ export default function LedgersScreen() {
                     {member.email} · {member.role}
                   </Text>
                 </View>
-                {member.id === 'me' ? (
+                {member.id === 'me' && member.role !== 'owner' ? (
+                  <Pressable onPress={onLeaveLedger}>
+                    <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>Salir</Text>
+                  </Pressable>
+                ) : member.id === 'me' ? (
                   <Pill tone="green">Tú</Pill>
                 ) : member.role !== 'owner' ? (
                   <Pressable onPress={() => void onRemoveMember(member.id, member.name)}>

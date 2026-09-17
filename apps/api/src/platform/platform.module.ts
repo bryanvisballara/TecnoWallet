@@ -1120,6 +1120,14 @@ class WorkspaceController {
     };
   }
 
+  @Delete(':id/members/me')
+  async leaveMember(
+    @Param('id') workspaceId: string,
+    @CurrentUser() user: AuthPrincipal,
+  ) {
+    return this.collaboration.leaveWorkspace(workspaceId, user);
+  }
+
   @Delete(':id/members/:userId')
   async removeMember(
     @Param('id') workspaceId: string,

@@ -577,23 +577,16 @@ export class CollaborationService {
         { upsert: true },
       );
 
-      await this.seats.updateOne(
-        {
-          sponsorUserId: principal.userId,
-          $or: [
-            { collaboratorUserId: request.requesterUserId },
-            { email },
-          ],
-          status: { $in: ['pending', 'active'] },
-        },
-        {
-          $set: {
-            collaboratorUserId: request.requesterUserId,
-            email,
-            status: 'active',
-          },
-        },
+      const seat = await this.findAndConsolidateSeat(
+        new Types.ObjectId(principal.userId),
+        email,
+        request.requesterUserId,
+        resource,
       );
+      if (seat) {
+        seat.status = 'active';
+        await seat.save();
+      }
 
       request.status = 'accepted';
       request.resolvedAt = new Date();
@@ -660,23 +653,16 @@ export class CollaborationService {
       { upsert: true },
     );
 
-    await this.seats.updateOne(
-      {
-        sponsorUserId: principal.userId,
-        $or: [
-          { collaboratorUserId: request.requesterUserId },
-          { email },
-        ],
-        status: { $in: ['pending', 'active'] },
-      },
-      {
-        $set: {
-          collaboratorUserId: request.requesterUserId,
-          email,
-          status: 'active',
-        },
-      },
+    const seat = await this.findAndConsolidateSeat(
+      new Types.ObjectId(principal.userId),
+      email,
+      request.requesterUserId,
+      resource,
     );
+    if (seat) {
+      seat.status = 'active';
+      await seat.save();
+    }
 
     request.status = 'accepted';
     request.resolvedAt = new Date();
@@ -1116,6 +1102,54 @@ export class CollaborationService {
     return { removed: true };
   }
 
+  async leaveWorkspace(workspaceId: string, principal: AuthPrincipal) {
+    const membership = await this.memberships.findOne({
+      workspaceId,
+      userId: principal.userId,
+      role: { $ne: 'owner' },
+    });
+    if (!membership) throw new NotFoundException('Member not found');
+
+    await this.memberships.deleteOne({ _id: membership._id });
+
+    const user = await this.users
+      .findById(principal.userId)
+      .select('email')
+      .lean();
+    const emailNorm = user?.email?.trim().toLowerCase();
+    const identityOr: Array<Record<string, unknown>> = [
+      { collaboratorUserId: new Types.ObjectId(principal.userId) },
+    ];
+    if (emailNorm) identityOr.push({ email: emailNorm });
+
+    const seats = await this.seats.find({
+      status: { $in: ['pending', 'active'] },
+      $or: identityOr,
+      resources: {
+        $elemMatch: {
+          resourceType: 'workspace',
+          resourceId: new Types.ObjectId(workspaceId),
+        },
+      },
+    });
+    for (const seat of seats) {
+      seat.resources = seat.resources.filter(
+        (item) =>
+          !(
+            item.resourceType === 'workspace' &&
+            item.resourceId.toString() === workspaceId
+          ),
+      );
+      if (seat.resources.length === 0) {
+        seat.status = 'revoked';
+        seat.slot = undefined;
+      }
+      await seat.save();
+    }
+
+    return { left: true };
+  }
+
   async revokeSeat(seatId: string, sponsorUserId: string) {
     const seat = await this.seats.findOne({
       _id: seatId,
@@ -1160,6 +1194,88 @@ export class CollaborationService {
     return { revoked: true };
   }
 
+  private resourceMatches(
+    a: Pick<CollaborationResourceRef, 'resourceType' | 'resourceId'>,
+    b: Pick<CollaborationResourceRef, 'resourceType' | 'resourceId'>,
+  ) {
+    return (
+      a.resourceType === b.resourceType &&
+      a.resourceId.toString() === b.resourceId.toString()
+    );
+  }
+
+  /**
+   * Email invites can create an email-only seat while ID joins create a
+   * userId seat. Merge duplicates so calendar access checks see the resource.
+   */
+  private async findAndConsolidateSeat(
+    sponsorUserId: Types.ObjectId,
+    email: string,
+    collaboratorUserId?: Types.ObjectId,
+    resource?: CollaborationResourceRef,
+  ): Promise<CollaborationSeatDocument | null> {
+    const emailNorm = email.trim().toLowerCase();
+    const identityOr: Array<Record<string, unknown>> = [{ email: emailNorm }];
+    if (collaboratorUserId) identityOr.unshift({ collaboratorUserId });
+
+    const seats = await this.seats
+      .find({
+        sponsorUserId,
+        status: { $in: ['pending', 'active'] },
+        $or: identityOr,
+      })
+      .exec();
+    if (!seats.length) return null;
+
+    let primary =
+      (resource
+        ? seats.find((seat) =>
+            seat.resources.some((row) => this.resourceMatches(row, resource)),
+          )
+        : undefined) ??
+      seats.find(
+        (seat) =>
+          collaboratorUserId &&
+          seat.collaboratorUserId?.equals(collaboratorUserId) &&
+          seat.status === 'active',
+      ) ??
+      seats.find(
+        (seat) =>
+          collaboratorUserId &&
+          seat.collaboratorUserId?.equals(collaboratorUserId),
+      ) ??
+      seats.find((seat) => seat.status === 'active') ??
+      seats[0]!;
+
+    const duplicates = seats.filter((seat) => !seat._id.equals(primary._id));
+    for (const dup of duplicates) {
+      for (const row of dup.resources) {
+        if (
+          !primary.resources.some((existing) =>
+            this.resourceMatches(existing, row),
+          )
+        ) {
+          primary.resources.push(row);
+        }
+      }
+      dup.status = 'revoked';
+      dup.slot = undefined;
+      dup.resources = [];
+      await dup.save();
+    }
+
+    if (collaboratorUserId) primary.collaboratorUserId = collaboratorUserId;
+    primary.email = emailNorm;
+    if (
+      resource &&
+      !primary.resources.some((row) => this.resourceMatches(row, resource))
+    ) {
+      primary.resources.push(resource);
+    }
+    await primary.save();
+    return primary;
+  }
+
   private async reserveSeat(
     sponsorUserId: string,
     email: string,
@@ -1173,6 +1289,18 @@ export class CollaborationService {
       : { email };
     let seat = await this.seats.findOne({ sponsorUserId, ...identity });
     if (seat && seat.status !== 'revoked') {
+      if (collaboratorUserId) {
+        const consolidated = await this.findAndConsolidateSeat(
+          new Types.ObjectId(sponsorUserId),
+          email,
+          collaboratorUserId,
+          resource,
+        );
+        if (!consolidated) {
+          throw new ConflictException('Seat changed concurrently');
+        }
+        return consolidated;
+      }
       await this.seats.updateOne(
         { _id: seat._id },
         { $addToSet: { resources: resource } },
@@ -1348,11 +1476,17 @@ export class CollaborationService {
     }
 
     const userId = new Types.ObjectId(principal.userId);
-    const seat = await this.seats.findOne({
-      sponsorUserId: invite.sponsorUserId,
-      $or: [{ collaboratorUserId: userId }, { email: invite.email }],
-      status: { $in: ['pending', 'active'] },
-    });
+    const resource: CollaborationResourceRef = {
+      resourceType: invite.resourceType,
+      resourceId: invite.resourceId,
+      role: invite.role,
+    };
+    const seat = await this.findAndConsolidateSeat(
+      invite.sponsorUserId,
+      invite.email,
+      userId,
+      resource,
+    );
     if (!seat) {
       throw new ConflictException('The sponsored seat is no longer available');
     }
@@ -1390,8 +1524,6 @@ export class CollaborationService {
     );
     if (!accepted) throw new ConflictException('Invite was already used');
 
-    seat.collaboratorUserId = userId;
-    seat.email = invite.email;
     seat.status = 'active';
     await seat.save();
     return {
@@ -1580,20 +1712,7 @@ export class CalendarService {
         allowedIds.push(membership.calendarId);
         continue;
       }
-      if (
-        (await this.entitlements.isPlus(membership.sponsorUserId.toString())) &&
-        (await this.seats.exists({
-          sponsorUserId: membership.sponsorUserId,
-          collaboratorUserId: userId,
-          status: 'active',
-          resources: {
-            $elemMatch: {
-              resourceType: 'calendar',
-              resourceId: membership.calendarId,
-            },
-          },
-        }))
-      ) {
+      if (await this.hasActiveSponsoredCalendarSeat(membership, userId)) {
         allowedIds.push(membership.calendarId);
       }
     }
@@ -1671,6 +1790,21 @@ export class CalendarService {
     ownerId: string,
   ) {
     await this.assertAccess(calendarId, ownerId, ['owner']);
+    await this.leaveMembership(calendarId, memberUserId);
+    return { removed: true };
+  }
+
+  async leave(calendarId: string, userId: string) {
+    const membership = await this.memberships.findOne({
+      calendarId,
+      userId,
+      role: { $ne: 'owner' },
+    });
+    if (!membership) throw new NotFoundException('Calendar member not found');
+    return this.leaveMembership(calendarId, userId);
+  }
+
+  private async leaveMembership(calendarId: string, memberUserId: string) {
     const membership = await this.memberships.findOne({
       calendarId,
       userId: memberUserId,
@@ -1679,12 +1813,13 @@ export class CalendarService {
     if (!membership) throw new NotFoundException('Calendar member not found');
     await membership.deleteOne();
     if (membership.sponsorUserId) {
-      const seat = await this.seats.findOne({
+      const identityOr = await this.collaboratorSeatIdentity(memberUserId);
+      const seats = await this.seats.find({
         sponsorUserId: membership.sponsorUserId,
-        collaboratorUserId: memberUserId,
         status: { $in: ['active', 'pending'] },
+        $or: identityOr,
       });
-      if (seat) {
+      for (const seat of seats) {
         seat.resources = seat.resources.filter(
           (resource) =>
             !(
@@ -1699,7 +1834,7 @@ export class CalendarService {
         await seat.save();
       }
     }
-    return { removed: true };
+    return { left: true };
   }
 
   async listItems(calendarId: string, userId: string) {
@@ -1956,12 +2091,33 @@ export class CalendarService {
     if (!membership) throw new ForbiddenException('Calendar access denied');
     if (!membership.sponsorUserId) return membership;
 
+    if (!(await this.hasActiveSponsoredCalendarSeat(membership, userId))) {
+      throw this.suspendedAccess();
+    }
+    return membership;
+  }
+
+  private async collaboratorSeatIdentity(userId: string) {
+    const user = await this.users.findById(userId).select('email').lean();
+    const identity: Array<Record<string, unknown>> = [
+      { collaboratorUserId: userId },
+    ];
+    const email = user?.email?.trim().toLowerCase();
+    if (email) identity.push({ email });
+    return identity;
+  }
+
+  private async hasActiveSponsoredCalendarSeat(
+    membership: Pick<CalendarMembership, 'sponsorUserId' | 'calendarId'>,
+    userId: string,
+  ) {
+    if (!membership.sponsorUserId) return true;
     const [sponsorIsPlus, activeSeat] = await Promise.all([
       this.entitlements.isPlus(membership.sponsorUserId.toString()),
       this.seats.exists({
         sponsorUserId: membership.sponsorUserId,
-        collaboratorUserId: userId,
         status: 'active',
+        $or: await this.collaboratorSeatIdentity(userId),
         resources: {
           $elemMatch: {
             resourceType: 'calendar',
@@ -1970,10 +2126,7 @@ export class CalendarService {
         },
       }),
     ]);
-    if (!sponsorIsPlus || !activeSeat) {
-      throw this.suspendedAccess();
-    }
-    return membership;
+    return sponsorIsPlus && Boolean(activeSeat);
   }
 
   private suspendedAccess() {

@@ -76,6 +76,7 @@ export default function CalendarsScreen() {
   const createCalendar = useCalendarStore((state) => state.createCalendar);
   const inviteMember = useCalendarStore((state) => state.inviteMember);
   const removeMember = useCalendarStore((state) => state.removeMember);
+  const leaveCalendar = useCalendarStore((state) => state.leaveCalendar);
   const renameCalendar = useCalendarStore((state) => state.renameCalendar);
   const hydrateCalendars = useCalendarStore((state) => state.hydrate);
   const plusAccess = usePlusStore((state) => state.access);
@@ -272,6 +273,38 @@ export default function CalendarsScreen() {
     }
   };
 
+  const onLeaveCalendar = () => {
+    if (!selected || isSelfOwner(selected.members)) return;
+    Alert.alert(
+      'Salir del calendario',
+      `¿Quieres dejar de colaborar en «${selected.name}»? Ya no verás sus eventos.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Salir',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                await leaveCalendar(selected.id);
+                setSelectedId(
+                  useCalendarStore.getState().activeCalendarId ||
+                    useCalendarStore.getState().calendars[0]?.id ||
+                    '',
+                );
+              } catch (error) {
+                Alert.alert(
+                  'No se pudo salir',
+                  error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+                );
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   const onRejectRequest = async (request: CollaborationAccessRequest) => {
     try {
       await rejectAccessRequest(request.id);
@@ -407,7 +440,13 @@ export default function CalendarsScreen() {
                     {member.email} · {roleLabels[member.role]}
                   </Text>
                 </View>
-                {member.id === 'me' ? (
+                {member.id === 'me' && member.role !== 'owner' ? (
+                  <Pressable onPress={onLeaveCalendar}>
+                    <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>
+                      Salir
+                    </Text>
+                  </Pressable>
+                ) : member.id === 'me' ? (
                   <Pill tone="green">Tú</Pill>
                 ) : member.role !== 'owner' ? (
                   <Pressable onPress={() => void removeMember(selected.id, member.id)}>

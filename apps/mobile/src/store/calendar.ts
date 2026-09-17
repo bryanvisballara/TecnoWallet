@@ -16,6 +16,7 @@ import {
   listCalendarItems,
   listCalendarMembers,
   listCalendars,
+  leaveCalendar as leaveCalendarApi,
   removeCalendarMember,
   updateCalendar,
   updateCalendarItem,
@@ -66,6 +67,7 @@ type CalendarState = PersistedCalendarState & {
     name?: string,
   ) => Promise<void>;
   removeMember: (calendarId: string, memberId: string) => Promise<void>;
+  leaveCalendar: (calendarId: string) => Promise<void>;
   addItem: (item: Omit<CalendarItem, 'id'> & { id?: string }) => Promise<string>;
   updateItem: (item: CalendarItem) => Promise<void>;
   toggleTask: (id: string) => void;
@@ -506,6 +508,31 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       items: get().items,
     };
     set({ calendars });
+    await persist(next);
+  },
+
+  leaveCalendar: async (calendarId) => {
+    await leaveCalendarApi(calendarId);
+    const calendars = get().calendars.filter((calendar) => calendar.id !== calendarId);
+    const previousActive = get().activeCalendarId;
+    const activeCalendarId =
+      previousActive === calendarId
+        ? (calendars.find((calendar) =>
+            calendar.members.some(
+              (member) => member.role === 'owner' && member.id === 'me',
+            ),
+          )?.id ??
+          calendars[0]?.id ??
+          '')
+        : previousActive;
+    const items = !activeCalendarId
+      ? []
+      : activeCalendarId !== previousActive
+        ? await listCalendarItems(activeCalendarId).catch(() => [])
+        : get().items;
+    const next = { calendars, activeCalendarId, items };
+    set(next);
+    syncCalendarWidget(items);
     await persist(next);
   },
 
