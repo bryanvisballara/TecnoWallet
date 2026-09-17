@@ -25,7 +25,9 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { CalendarShareSheet } from '@/components/calendar-share-sheet';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
+import { usePaidCalendarGuard } from '@/hooks/use-paid-access-guard';
 import { attachmentKind, isImageAttachment, persistCalendarAttachments } from '@/lib/open-attachment';
+import { guardPaidCalendarAction } from '@/lib/require-paid-access';
 import {
   CALENDAR_REMINDER_CUSTOM,
   CALENDAR_REMINDER_NONE,
@@ -105,6 +107,7 @@ function pickOption(title: string, options: readonly string[], onPick: (value: s
 }
 
 export default function AddCalendarItemScreen() {
+  usePaidCalendarGuard();
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);
@@ -427,6 +430,7 @@ export default function AddCalendarItemScreen() {
   };
 
   const save = async (options?: { dismiss?: boolean }) => {
+    if (!guardPaidCalendarAction('UPGRADE')) return false;
     if (saving) return false;
     if (!title.trim()) {
       Alert.alert('Falta el título', 'Escribe un nombre para esta entrada.');

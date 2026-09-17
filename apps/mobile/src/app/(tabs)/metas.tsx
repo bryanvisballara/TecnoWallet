@@ -10,6 +10,7 @@ import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { goalPeriodLabels, useGoalsStore, type GoalPeriod, type UserGoal } from '@/store/goals';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 
 const periodOrder: GoalPeriod[] = ['week', 'month', 'year', 'date'];
 
@@ -30,7 +31,9 @@ function GoalCard({ goal }: { goal: UserGoal }) {
   const surface = goal.completed ? theme.successSoft : theme.surface;
 
   const onEdit = () => {
-    router.push({ pathname: '/add-goal', params: { id: goal.id } });
+    withPaidLedgerAccess(() =>
+      router.push({ pathname: '/add-goal', params: { id: goal.id } }),
+    );
   };
 
   const onDelete = () => {
@@ -180,7 +183,7 @@ export default function MetasScreen() {
           </Pressable>
           <Pressable
             accessibilityLabel="Nueva meta"
-            onPress={() => router.push('/add-goal')}
+            onPress={() => withPaidLedgerAccess(() => router.push('/add-goal'))}
             style={[styles.back, { backgroundColor: theme.primarySoft }]}>
             <AppIcon name="plus" color={theme.primary} />
           </Pressable>
@@ -206,7 +209,7 @@ export default function MetasScreen() {
             {copy.goals.empty}
           </Text>
           <ScalePressable
-            onPress={() => router.push('/add-goal')}
+            onPress={() => withPaidLedgerAccess(() => router.push('/add-goal'))}
             style={[styles.createCta, { backgroundColor: theme.primary }]}>
             <View style={styles.createCtaIcon}>
               <AppIcon name="plus" color={theme.primary} size={14} />

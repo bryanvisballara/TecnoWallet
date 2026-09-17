@@ -16,6 +16,7 @@ import {
 import { RefreshSession, User, Workspace } from '../auth/auth.module';
 import { Subscription } from '../billing/billing.schemas';
 import { EntitlementService } from '../billing/entitlement.service';
+import { CollaborationService } from '../collaboration/collaboration.service';
 import { BrevoMailer } from '../mail/brevo';
 import type {
   AdminPayoutsQueryDto,
@@ -122,6 +123,7 @@ export class AdminService {
     @InjectModel(UserAttribution.name)
     private readonly attributions: Model<UserAttribution>,
     private readonly entitlements: EntitlementService,
+    private readonly collaboration: CollaborationService,
     private readonly config: ConfigService,
     private readonly mailer: BrevoMailer,
   ) {}
@@ -583,6 +585,11 @@ export class AdminService {
     }
 
     const now = new Date();
+    const originalEmail = user.email.trim().toLowerCase();
+    await this.collaboration.clearCollaborationIdentityForEmail(
+      originalEmail,
+      userId,
+    );
     await this.refreshSessions.updateMany(
       { userId: user._id, revokedAt: { $exists: false } },
       { $set: { revokedAt: now } },

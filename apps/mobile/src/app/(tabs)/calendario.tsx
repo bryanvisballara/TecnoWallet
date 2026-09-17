@@ -40,6 +40,10 @@ import { useLanguageStore } from '@/store/language';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { usePreferencesStore, weekStartsOnJsDay } from '@/store/preferences';
 import { isSelfOwner } from '@/lib/collaboration-roles';
+import {
+  guardPaidCalendarAction,
+  withPaidCalendarAccess,
+} from '@/lib/require-paid-access';
 import { hasPaidPlan, usePlusStore } from '@/store/plus';
 
 const AnimatedScrollView = Animated.ScrollView;
@@ -146,19 +150,29 @@ export default function CalendarScreen() {
   }, [expandedItems]);
 
   const openCompose = (type: CalendarItemType, hour?: number) => {
-    setFabOpen(false);
-    const params: { type: string; date: string; hour?: string } = {
-      type,
-      date: selectedKey,
-    };
-    if (hour != null && Number.isFinite(hour)) {
-      params.hour = String(Math.floor(hour));
-    }
-    router.push({ pathname: '/add-calendar-item', params });
+    withPaidCalendarAccess(() => {
+      setFabOpen(false);
+      const params: { type: string; date: string; hour?: string } = {
+        type,
+        date: selectedKey,
+      };
+      if (hour != null && Number.isFinite(hour)) {
+        params.hour = String(Math.floor(hour));
+      }
+      router.push({ pathname: '/add-calendar-item', params });
+    });
   };
 
   const openItem = (id: string) => {
-    router.push({ pathname: '/add-calendar-item', params: { id } });
+    withPaidCalendarAccess(() => {
+      router.push({ pathname: '/add-calendar-item', params: { id } });
+    });
+  };
+
+  const toggleTaskGuarded = (id: string) => {
+    withPaidCalendarAccess(() => {
+      void toggleTask(id);
+    });
   };
 
   const calendarTitle = calendar?.name
@@ -376,7 +390,7 @@ export default function CalendarScreen() {
             locale={locale}
             compact={compact}
             onOpenItem={openItem}
-            onToggleTask={toggleTask}
+            onToggleTask={toggleTaskGuarded}
             onCreateAtHour={(hour) => openCompose('event', hour)}
           />
         )}
@@ -433,7 +447,10 @@ export default function CalendarScreen() {
                   {item.location ? ` · ${item.location}` : ''}
                 </Text>
               </View>
-              <CompleteButton done={Boolean(item.completed)} onPress={() => toggleTask(item.id)} />
+              <CompleteButton
+                done={Boolean(item.completed)}
+                onPress={() => toggleTaskGuarded(item.id)}
+              />
             </ScalePressable>
           ))
         )}
@@ -462,6 +479,7 @@ export default function CalendarScreen() {
           accessibilityLabel={fabOpen ? 'Cerrar menú' : 'Agregar al calendario'}
           onPress={() => {
             void Haptics.selectionAsync();
+            if (!guardPaidCalendarAction('UPGRADE')) return;
             setFabOpen((open) => !open);
           }}
           style={[

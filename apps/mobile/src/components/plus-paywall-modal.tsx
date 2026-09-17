@@ -344,16 +344,12 @@ export function PlusPaywallModal() {
                 size={28}
               />
             </View>
-            {canDismiss ? (
-              <ScalePressable
-                accessibilityLabel={copy.common.close}
-                onPress={() => close()}
-                style={[styles.close, { backgroundColor: theme.surfaceSecondary }]}>
-                <AppIcon name="xmark" color={theme.muted} size={18} />
-              </ScalePressable>
-            ) : (
-              <View style={styles.close} />
-            )}
+            <ScalePressable
+              accessibilityLabel={copy.common.close}
+              onPress={() => close({ force: true })}
+              style={[styles.close, { backgroundColor: theme.surfaceSecondary }]}>
+              <AppIcon name="xmark" color={theme.muted} size={18} />
+            </ScalePressable>
           </View>
 
           <Text style={[styles.eyebrow, { color: theme.primary }]}>

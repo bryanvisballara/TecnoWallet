@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useActiveLedger } from '@/store/ledger';
 
 const contributions = [
@@ -148,7 +149,9 @@ export default function GoalDetailScreen() {
         );
       })}
 
-      <PrimaryButton icon="plus" onPress={() => router.push('/add-transaction')}>
+      <PrimaryButton
+        icon="plus"
+        onPress={() => withPaidLedgerAccess(() => router.push('/add-transaction'))}>
         Aportar a esta meta
       </PrimaryButton>
     </Screen>

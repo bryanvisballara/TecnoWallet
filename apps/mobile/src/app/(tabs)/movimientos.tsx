@@ -10,6 +10,7 @@ import { displayLedgerName, useAppCopy, type MovementFilterKey } from '@/i18n/ap
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { filterTransactionsByMonth, monthTotals } from '@/lib/dates';
 import { safeGoBack } from '@/lib/navigation';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
@@ -87,7 +88,7 @@ export default function TransactionsScreen() {
         <ScalePressable
           accessibilityRole="button"
           accessibilityLabel="Agregar movimiento"
-          onPress={() => router.push('/add-transaction')}
+          onPress={() => withPaidLedgerAccess(() => router.push('/add-transaction'))}
           style={[styles.fab, { backgroundColor: theme.primary, bottom: fabBottom }]}>
           <AppIcon name="plus" color="#FFFFFF" size={28} />
         </ScalePressable>
@@ -152,10 +153,12 @@ export default function TransactionsScreen() {
             key={item.id}
             haptic={false}
             onPress={() =>
-              router.push({
-                pathname: '/add-transaction',
-                params: { id: item.id },
-              })
+              withPaidLedgerAccess(() =>
+                router.push({
+                  pathname: '/add-transaction',
+                  params: { id: item.id },
+                }),
+              )
             }>
             <View style={[styles.row, index > 0 && { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
               <View style={[styles.rowIcon, { backgroundColor: item.amount > 0 ? theme.successSoft : theme.surfaceSecondary }]}>

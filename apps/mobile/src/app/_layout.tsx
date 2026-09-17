@@ -34,7 +34,7 @@ import {
   hasLocalGuestAccess,
   isOwnedResourceLocked,
 } from '@/lib/guest-access';
-import { canUseSharedBooksWithoutPaying, hasPaidPlan } from '@/services/plus-api';
+import { hasPaidPlan } from '@/services/plus-api';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -133,7 +133,7 @@ export default function RootLayout() {
     const guest =
       plusAccess === 'sponsored_collaborator' ||
       hasLocalGuestAccess() ||
-      canUseSharedBooksWithoutPaying(billing);
+      Boolean(billing?.hasSharedAccess);
     if (guest) {
       usePlusStore.getState().markSharedAccess();
       const { ledgers, activeLedgerId } = useLedgerStore.getState();

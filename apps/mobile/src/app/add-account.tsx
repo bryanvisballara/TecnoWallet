@@ -16,6 +16,7 @@ import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view'
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { isLiquidAccount, isWealthDebt } from '@/lib/accounts';
+import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 
 const liquidKinds = ['Cuenta corriente', 'Cuenta de ahorro', 'Efectivo'] as const;
@@ -67,6 +68,7 @@ function resolveKind(value: string | undefined, mode: FormMode): (typeof allKind
 }
 
 export default function AddAccountScreen() {
+  usePaidLedgerGuard();
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const { ledger, accounts } = useActiveLedger();

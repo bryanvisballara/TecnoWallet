@@ -8,6 +8,7 @@ import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, SectionTitl
 import { money } from '@/data/demo';
 import { isWealthAsset, isWealthDebt } from '@/lib/accounts';
 import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 
 export default function AccountDetailScreen() {
@@ -23,13 +24,15 @@ export default function AccountDetailScreen() {
   const masked = account.lastFour === '—' ? 'Sin número' : `•••• ${account.lastFour}`;
   const [deleting, setDeleting] = useState(false);
   const openEdit = () =>
-    router.push({
-      pathname: '/add-account',
-      params: {
-        id: account.id,
-        ...(isAsset ? { mode: 'asset' } : isDebt ? { mode: 'debt' } : {}),
-      },
-    });
+    withPaidLedgerAccess(() =>
+      router.push({
+        pathname: '/add-account',
+        params: {
+          id: account.id,
+          ...(isAsset ? { mode: 'asset' } : isDebt ? { mode: 'debt' } : {}),
+        },
+      }),
+    );
 
   const entityLabel = isDebt ? 'deuda' : isAsset ? 'activo' : 'cuenta';
   const fallback = isWealthItem ? '/(tabs)/salud-financiera' : '/(tabs)/mis-cuentas';
@@ -177,10 +180,12 @@ export default function AccountDetailScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Ver ${item.title}${envelopeLabel ? `, sobre ${envelopeLabel}` : ', sin sobre'}`}
                     onPress={() =>
-                      router.push({
-                        pathname: '/add-transaction',
-                        params: { id: item.id },
-                      })
+                      withPaidLedgerAccess(() =>
+                        router.push({
+                          pathname: '/add-transaction',
+                          params: { id: item.id },
+                        }),
+                      )
                     }
                     style={[
                       styles.transaction,
@@ -220,7 +225,9 @@ export default function AccountDetailScreen() {
           <PrimaryButton
             icon="plus"
             onPress={() =>
-              router.push({ pathname: '/add-transaction', params: { accountId: account.id } })
+              withPaidLedgerAccess(() =>
+                router.push({ pathname: '/add-transaction', params: { accountId: account.id } }),
+              )
             }>
             Registrar movimiento
           </PrimaryButton>

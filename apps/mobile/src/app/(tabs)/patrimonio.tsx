@@ -13,6 +13,7 @@ import {
   isWealthDebt,
   sumBalances,
 } from '@/lib/accounts';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 
 function SwipeAccountRow({
@@ -34,7 +35,9 @@ function SwipeAccountRow({
     router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } });
 
   const openEdit = () =>
-    router.push({ pathname: '/add-account', params: { id: account.id, mode: editMode } });
+    withPaidLedgerAccess(() =>
+      router.push({ pathname: '/add-account', params: { id: account.id, mode: editMode } }),
+    );
 
   const confirmDelete = () => {
     const label = mode === 'debt' ? 'deuda' : mode === 'asset' ? 'activo' : 'cuenta';

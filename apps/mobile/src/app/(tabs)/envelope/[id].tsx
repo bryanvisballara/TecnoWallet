@@ -10,6 +10,7 @@ import { filterTransactionsByMonth } from '@/lib/dates';
 import { needWantLabel } from '@/lib/need-want';
 import { useLanguageStore } from '@/store/language';
 import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { usePeriodStore } from '@/store/period';
 
@@ -49,7 +50,9 @@ export default function EnvelopeDetailScreen() {
   const isIncome = envelope.kind === 'income';
   const [deleting, setDeleting] = useState(false);
   const openEdit = () =>
-    router.push({ pathname: '/add-envelope', params: { id: envelope.id, kind: envelope.kind } });
+    withPaidLedgerAccess(() =>
+      router.push({ pathname: '/add-envelope', params: { id: envelope.id, kind: envelope.kind } }),
+    );
 
   const confirmDelete = () => {
     Alert.alert(
@@ -247,10 +250,12 @@ export default function EnvelopeDetailScreen() {
               accessibilityRole="button"
               accessibilityLabel={`Editar ${item.title}`}
               onPress={() =>
-                router.push({
-                  pathname: '/add-transaction',
-                  params: { id: item.id },
-                })
+                withPaidLedgerAccess(() =>
+                  router.push({
+                    pathname: '/add-transaction',
+                    params: { id: item.id },
+                  }),
+                )
               }
               style={[
                 styles.transaction,
@@ -297,13 +302,15 @@ export default function EnvelopeDetailScreen() {
       <PrimaryButton
         icon="plus"
         onPress={() =>
-          router.push({
-            pathname: '/add-transaction',
-            params: {
-              type: isIncome ? 'income' : 'expense',
-              envelopeId: envelope.id,
-            },
-          })
+          withPaidLedgerAccess(() =>
+            router.push({
+              pathname: '/add-transaction',
+              params: {
+                type: isIncome ? 'income' : 'expense',
+                envelopeId: envelope.id,
+              },
+            }),
+          )
         }>
         {isIncome ? 'Registrar ingreso' : isSavings ? 'Registrar aporte' : 'Registrar gasto'}
       </PrimaryButton>

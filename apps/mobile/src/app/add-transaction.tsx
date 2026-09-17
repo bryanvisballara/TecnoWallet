@@ -21,6 +21,7 @@ import { useAuthStore } from '@/store/auth';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger } from '@/store/ledger';
 import { usePeriodStore } from '@/store/period';
+import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 
 function defaultTransactionDateKey(
   isCurrentMonth: boolean,
@@ -47,6 +48,7 @@ function initialTransactionType(raw: string | string[] | undefined): 'expense' |
 }
 
 export default function AddTransactionScreen() {
+  usePaidLedgerGuard();
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const params = useLocalSearchParams<{

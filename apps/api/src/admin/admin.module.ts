@@ -18,6 +18,7 @@ import {
   WorkspaceSchema,
 } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
+import { CollaborationModule } from '../collaboration/collaboration.module';
 import {
   Subscription,
   SubscriptionSchema,
@@ -31,6 +32,7 @@ import { AdminService } from './admin.service';
   imports: [
     AuthModule,
     BillingModule,
+    CollaborationModule,
     MailModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },

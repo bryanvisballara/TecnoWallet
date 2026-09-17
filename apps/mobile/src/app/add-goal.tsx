@@ -23,6 +23,7 @@ import {
   useGoalsStore,
   type GoalPeriod,
 } from '@/store/goals';
+import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 
@@ -34,6 +35,7 @@ type FieldKey = 'title' | 'date' | 'amount';
 type FieldErrors = Partial<Record<FieldKey, boolean>>;
 
 export default function AddGoalScreen() {
+  usePaidLedgerGuard();
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);

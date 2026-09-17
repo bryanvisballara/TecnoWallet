@@ -15,6 +15,7 @@ import {
   sumBalances,
 } from '@/lib/accounts';
 import { buildRecurringCashflow, type RecurringLine } from '@/lib/recurring-cashflow';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useFinanceStore } from '@/store/finance';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
@@ -32,7 +33,9 @@ function AccountRow({ account }: { account: Account }) {
     router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } });
 
   const openEdit = () =>
-    router.push({ pathname: '/add-account', params: { id: account.id, mode } });
+    withPaidLedgerAccess(() =>
+      router.push({ pathname: '/add-account', params: { id: account.id, mode } }),
+    );
 
   const confirmDelete = () => {
     const label = isDebt ? 'deuda' : 'activo';
@@ -120,24 +123,26 @@ function RecurringGroup({
   const amountColor = tone === 'income' ? theme.success : theme.danger;
 
   const openEdit = (item: RecurringLine) => {
-    if (item.source === 'upcoming') {
-      Alert.alert(
-        'No editable',
-        'Este ítem viene de una factura programada. Agrégalo como recurrente para poder editarlo.',
-      );
-      return;
-    }
-    if (item.source === 'transaction') {
-      router.push({ pathname: '/add-transaction', params: { id: item.id } });
-      return;
-    }
-    router.push({
-      pathname: '/add-planning-item',
-      params: {
-        id: item.id,
-        cashflow: item.bucket === 'income' ? 'income' : 'expense',
-        bucket: item.bucket,
-      },
+    withPaidLedgerAccess(() => {
+      if (item.source === 'upcoming') {
+        Alert.alert(
+          'No editable',
+          'Este ítem viene de una factura programada. Agrégalo como recurrente para poder editarlo.',
+        );
+        return;
+      }
+      if (item.source === 'transaction') {
+        router.push({ pathname: '/add-transaction', params: { id: item.id } });
+        return;
+      }
+      router.push({
+        pathname: '/add-planning-item',
+        params: {
+          id: item.id,
+          cashflow: item.bucket === 'income' ? 'income' : 'expense',
+          bucket: item.bucket,
+        },
+      });
     });
   };
 
@@ -276,9 +281,11 @@ export default function SaludFinancieraScreen() {
   );
 
   const openPlanningAdd = (cashflow: 'income' | 'expense', bucket?: string) => {
-    router.push({
-      pathname: '/add-planning-item',
-      params: bucket ? { cashflow, bucket } : { cashflow },
+    withPaidLedgerAccess(() => {
+      router.push({
+        pathname: '/add-planning-item',
+        params: bucket ? { cashflow, bucket } : { cashflow },
+      });
     });
   };
   const expenseLines = useMemo(
@@ -351,7 +358,11 @@ export default function SaludFinancieraScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Agregar activo"
-          onPress={() => router.push({ pathname: '/add-account', params: { mode: 'asset' } })}
+          onPress={() =>
+            withPaidLedgerAccess(() =>
+              router.push({ pathname: '/add-account', params: { mode: 'asset' } }),
+            )
+          }
           style={[styles.addBtn, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
           <AppIcon name="plus" color={theme.primary} size={16} />
         </Pressable>
@@ -371,7 +382,11 @@ export default function SaludFinancieraScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Agregar deuda"
-          onPress={() => router.push({ pathname: '/add-account', params: { mode: 'debt' } })}
+          onPress={() =>
+            withPaidLedgerAccess(() =>
+              router.push({ pathname: '/add-account', params: { mode: 'debt' } }),
+            )
+          }
           style={[styles.addBtn, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
           <AppIcon name="plus" color={theme.primary} size={16} />
         </Pressable>

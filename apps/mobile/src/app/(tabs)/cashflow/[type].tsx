@@ -10,6 +10,7 @@ import { openCashflowDetalle } from '@/lib/cashflow-filter';
 import { filterTransactionsByMonth } from '@/lib/dates';
 import { needWantLabel, parseNeedWant } from '@/lib/need-want';
 import { safeGoBack } from '@/lib/navigation';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
@@ -130,10 +131,12 @@ export default function CashflowDetailScreen() {
       <PrimaryButton
         icon="plus"
         onPress={() =>
-          router.push({
-            pathname: '/add-transaction',
-            params: { type: isIncome ? 'income' : 'expense' },
-          })
+          withPaidLedgerAccess(() =>
+            router.push({
+              pathname: '/add-transaction',
+              params: { type: isIncome ? 'income' : 'expense' },
+            }),
+          )
         }>
         {meta.add}
       </PrimaryButton>

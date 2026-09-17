@@ -843,6 +843,35 @@ export class CollaborationService {
     }
   }
 
+  async clearCollaborationIdentityForEmail(email: string, userId?: string) {
+    const emailNorm = email.trim().toLowerCase();
+    if (!emailNorm) return;
+    const userOid =
+      userId && Types.ObjectId.isValid(userId)
+        ? new Types.ObjectId(userId)
+        : null;
+    const now = new Date();
+
+    await this.invites.updateMany(
+      { email: emailNorm, status: 'pending' },
+      { $set: { status: 'revoked', expiresAt: now } },
+    );
+
+    const seatIdentity: Array<Record<string, unknown>> = [{ email: emailNorm }];
+    if (userOid) seatIdentity.push({ collaboratorUserId: userOid });
+    await this.seats.updateMany(
+      { status: { $in: ['pending', 'active'] }, $or: seatIdentity },
+      { $set: { status: 'revoked' } },
+    );
+
+    if (userOid) {
+      await this.accessRequests.updateMany(
+        { requesterUserId: userOid, status: 'pending' },
+        { $set: { status: 'cancelled' } },
+      );
+    }
+  }
+
   async guestAccessFor(userId: string, email?: string) {
     const emailNorm = email?.trim().toLowerCase();
     const userOid = Types.ObjectId.isValid(userId)

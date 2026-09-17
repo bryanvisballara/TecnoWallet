@@ -7,6 +7,7 @@ import { AppIcon, Card, ScalePressable, Screen, uiStyles, useAppTheme } from '@/
 import { money, type Account } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
 import { isLiquidAccount, sumBalances } from '@/lib/accounts';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePreferencesStore } from '@/store/preferences';
@@ -105,7 +106,11 @@ export default function MisCuentasScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Agregar cuenta"
-          onPress={() => router.push({ pathname: '/add-account', params: { mode: 'liquid' } })}
+          onPress={() =>
+            withPaidLedgerAccess(() =>
+              router.push({ pathname: '/add-account', params: { mode: 'liquid' } }),
+            )
+          }
           style={[styles.addBtn, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
           <AppIcon name="plus" color={theme.primary} size={16} />
         </Pressable>

@@ -25,6 +25,7 @@ import { buildNotificationFeed, unreadCount, useNotificationsStore } from '@/sto
 import { usePeriodStore } from '@/store/period';
 import { usePreferencesStore } from '@/store/preferences';
 import { isSelfOwner } from '@/lib/collaboration-roles';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { hasPaidPlan, usePlusStore } from '@/store/plus';
 
 const movementFilterKeys: MovementFilterKey[] = ['all', 'expenses', 'income', 'recurring'];
@@ -351,10 +352,12 @@ export default function DashboardScreen() {
               key={item.id}
               haptic={false}
               onPress={() =>
-                router.push({
-                  pathname: '/add-transaction',
-                  params: { id: item.id },
-                })
+                withPaidLedgerAccess(() =>
+                  router.push({
+                    pathname: '/add-transaction',
+                    params: { id: item.id },
+                  }),
+                )
               }
               style={[
                 styles.transaction,

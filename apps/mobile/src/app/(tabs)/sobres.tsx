@@ -11,6 +11,7 @@ import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { usePeriodStore } from '@/store/period';
+import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 
 export default function EnvelopesScreen() {
   const copy = useAppCopy();
@@ -129,7 +130,11 @@ function EnvelopeSection({
               accessibilityLabel={
                 mode === 'income' ? 'Agregar sobre de ingresos' : 'Agregar sobre de gastos'
               }
-              onPress={() => router.push({ pathname: '/add-envelope', params: { kind: mode } })}
+              onPress={() =>
+                withPaidLedgerAccess(() =>
+                  router.push({ pathname: '/add-envelope', params: { kind: mode } }),
+                )
+              }
               style={[styles.addBtn, { backgroundColor: theme.primarySoft, borderColor: theme.border }]}>
               <AppIcon name="plus" color={theme.primary} size={16} />
             </Pressable>

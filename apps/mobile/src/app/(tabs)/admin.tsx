@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -407,46 +408,62 @@ export default function AdminPortalScreen() {
   );
 
   const deleteUser = useCallback(
-    async (user: AdminUserRow) => {
+    (user: AdminUserRow) => {
       if (user.platformRole === 'admin') {
         Alert.alert('No permitido', 'No se puede borrar una cuenta admin.');
         return;
       }
-      Alert.alert(
-        'Borrar usuario',
-        `¿Eliminar la cuenta de ${user.name} (${user.email})? Se revocará el acceso y se borrarán sus libros.`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Borrar',
-            style: 'destructive',
-            onPress: () => {
-              void (async () => {
-                setBusyId(`delete-${user.id}`);
-                try {
-                  await deleteAdminUser(user.id);
-                  if (selectedUserId === user.id) {
-                    setSelectedUserId(null);
-                    setUserDetail(null);
-                  }
-                  Alert.alert('Listo', 'Usuario eliminado.');
-                  await Promise.all([
-                    loadUsers(userQuery, planFilter, usersPage),
-                    loadStats(),
-                  ]);
-                } catch (cause) {
-                  Alert.alert(
-                    'No se borró',
-                    cause instanceof Error ? cause.message : 'Inténtalo de nuevo.',
-                  );
-                } finally {
-                  setBusyId(null);
-                }
-              })();
-            },
-          },
-        ],
-      );
+
+      const runDelete = async () => {
+        setBusyId(`delete-${user.id}`);
+        try {
+          await deleteAdminUser(user.id);
+          if (selectedUserId === user.id) {
+            setSelectedUserId(null);
+            setUserDetail(null);
+          }
+          if (Platform.OS === 'web') {
+            globalThis.alert('Usuario eliminado.');
+          } else {
+            Alert.alert('Listo', 'Usuario eliminado.');
+          }
+          await Promise.all([
+            loadUsers(userQuery, planFilter, usersPage),
+            loadStats(),
+          ]);
+        } catch (cause) {
+          const message =
+            cause instanceof Error ? cause.message : 'Inténtalo de nuevo.';
+          if (Platform.OS === 'web') {
+            globalThis.alert(`No se borró: ${message}`);
+          } else {
+            Alert.alert('No se borró', message);
+          }
+        } finally {
+          setBusyId(null);
+        }
+      };
+
+      const message = `¿Eliminar la cuenta de ${user.name} (${user.email})? Se revocará el acceso y se borrarán sus libros.`;
+      if (Platform.OS === 'web') {
+        if (
+          globalThis.confirm(
+            `${message}\n\nEsta acción no se puede deshacer.`,
+          )
+        ) {
+          void runDelete();
+        }
+        return;
+      }
+
+      Alert.alert('Borrar usuario', message, [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Borrar',
+          style: 'destructive',
+          onPress: () => void runDelete(),
+        },
+      ]);
     },
     [loadStats, loadUsers, planFilter, selectedUserId, userQuery, usersPage],
   );

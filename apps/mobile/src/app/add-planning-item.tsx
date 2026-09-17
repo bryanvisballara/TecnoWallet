@@ -16,6 +16,7 @@ import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view'
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import type { PlanningBucket } from '@/data/ledgers';
+import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 
 const expenseBuckets: Array<{ id: Exclude<PlanningBucket, 'income'>; label: string }> = [
@@ -38,6 +39,7 @@ function resolveBucket(
 }
 
 export default function AddPlanningItemScreen() {
+  usePaidLedgerGuard();
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const { ledger, planning } = useActiveLedger();

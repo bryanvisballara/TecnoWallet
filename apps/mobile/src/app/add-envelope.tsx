@@ -15,7 +15,9 @@ import {
 import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view';
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
+import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 import { shouldEnforceFreeEnvelopeLimit } from '@/lib/collaboration-roles';
+import { guardPaidLedgerAction } from '@/lib/require-paid-access';
 import { categoryIcons } from '@/lib/category-icons';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 import {
@@ -55,6 +57,7 @@ const expenseColors = [
 ];
 
 export default function AddEnvelopeScreen() {
+  usePaidLedgerGuard();
   const theme = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const { ledger, envelopes } = useActiveLedger();
@@ -123,6 +126,7 @@ export default function AddEnvelopeScreen() {
   }, [isEditing, kind]);
 
   const save = async () => {
+    if (!guardPaidLedgerAction('ENVELOPE_LIMIT')) return;
     if (!isEditing && kind === 'savings') {
       Alert.alert(
         'Solo desde Metas/Ahorros',
