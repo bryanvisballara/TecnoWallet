@@ -147,6 +147,8 @@ async function persistAuthSession(
   await claimPendingCollaborationInvite().catch(() => undefined);
   await claimPendingShareCode().catch(() => undefined);
   await usePlusStore.getState().hydrate();
+  const { useAppTutorialStore } = await import('@/store/app-tutorial');
+  await useAppTutorialStore.getState().hydrate();
   // Product data lives in Mongo. Reload books (and dependents) after auth.
   if (options?.freshAccount) {
     await useLedgerStore.getState().resetToDefaultHogar();

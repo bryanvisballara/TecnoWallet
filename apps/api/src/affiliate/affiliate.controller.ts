@@ -10,6 +10,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { countryFromRequest } from '../billing/billing-market.util';
 import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Public, type AuthPrincipal } from '../auth/auth.module';
@@ -32,9 +33,13 @@ export class AffiliateController {
   @Post('click')
   recordClick(
     @Body() body: RecordAffiliateClickDto,
+    @Headers() headers: Record<string, string | string[] | undefined>,
     @Headers('user-agent') userAgent: string | undefined,
     @Ip() ip: string | undefined,
   ) {
+    this.affiliate.assertAffiliateAvailable(
+      countryFromRequest({ headers, ip }),
+    );
     return this.affiliate.recordClick(body.code, {
       branchClickId: body.branchClickId,
       campaign: body.campaign,
@@ -45,13 +50,28 @@ export class AffiliateController {
 
   @ApiBearerAuth()
   @Post('claim')
-  claim(@Body() body: ClaimAffiliateDto, @CurrentUser() user: AuthPrincipal) {
+  claim(
+    @Body() body: ClaimAffiliateDto,
+    @CurrentUser() user: AuthPrincipal,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Ip() ip: string | undefined,
+  ) {
+    this.affiliate.assertAffiliateAvailable(
+      countryFromRequest({ headers, ip }),
+    );
     return this.affiliate.claim(user.userId, body);
   }
 
   @Public()
   @Get('code/:code')
-  getByCode(@Param() params: AffiliateCodeDto) {
+  getByCode(
+    @Param() params: AffiliateCodeDto,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Ip() ip: string | undefined,
+  ) {
+    this.affiliate.assertAffiliateAvailable(
+      countryFromRequest({ headers, ip }),
+    );
     return this.affiliate.getByCode(params.code);
   }
 
@@ -66,13 +86,25 @@ export class AffiliateController {
   enrollPartner(
     @Body() body: EnrollAffiliateDto,
     @CurrentUser() user: AuthPrincipal,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Ip() ip: string | undefined,
   ) {
+    this.affiliate.assertAffiliateAvailable(
+      countryFromRequest({ headers, ip }),
+    );
     return this.affiliate.enrollPartner(user.userId, body.code);
   }
 
   @ApiBearerAuth()
   @Get('partner/dashboard')
-  partnerDashboard(@CurrentUser() user: AuthPrincipal) {
+  partnerDashboard(
+    @CurrentUser() user: AuthPrincipal,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Ip() ip: string | undefined,
+  ) {
+    this.affiliate.assertAffiliateAvailable(
+      countryFromRequest({ headers, ip }),
+    );
     return this.affiliate.getPartnerDashboard(user.userId);
   }
 

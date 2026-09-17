@@ -1,18 +1,22 @@
+import { billingMarketSnapshot } from '@tecnowallet/config';
+
 /**
  * Display fallbacks / reference prices.
  * Apple actually charges whatever is configured in App Store Connect
  * (shown via RevenueCat `product.priceString` when offerings load).
  *
- * List products: $12.99 Plus / $17.99 Business (Standard SKUs only).
- * Discount coupon products: $9.99 Plus / $14.99 Business.
- *
- * Never put the coupon SKUs in the list arrays — Apple would charge
- * the discounted price before the user applies a code.
+ * Regional defaults live in `packages/config/src/billing-regions.ts`.
+ * Never put coupon SKUs in list arrays — Apple would charge the discounted
+ * price before the user applies a code.
  */
-export const FALLBACK_PLUS_PRICE_LABEL = 'US$12.99';
-export const FALLBACK_BUSINESS_PRICE_LABEL = 'US$17.99';
-export const FALLBACK_PLUS_COUPON_PRICE_LABEL = 'US$9.99';
-export const FALLBACK_BUSINESS_COUPON_PRICE_LABEL = 'US$14.99';
+const defaultMarket = billingMarketSnapshot(null);
+
+export const FALLBACK_PLUS_PRICE_LABEL = defaultMarket.plusListLabel;
+export const FALLBACK_BUSINESS_PRICE_LABEL = defaultMarket.businessListLabel;
+export const FALLBACK_PLUS_COUPON_PRICE_LABEL =
+  defaultMarket.plusCouponLabel ?? defaultMarket.plusListLabel;
+export const FALLBACK_BUSINESS_COUPON_PRICE_LABEL =
+  defaultMarket.businessCouponLabel ?? defaultMarket.businessListLabel;
 
 export const PLUS_PRODUCT_ID = 'TecnoWalletPlus';
 export const BUSINESS_PRODUCT_ID = 'TecnoWalletBusiness';

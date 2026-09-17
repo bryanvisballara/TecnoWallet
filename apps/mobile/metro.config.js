@@ -1,5 +1,6 @@
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
+const { createDevApiProxy } = require('./dev-api-proxy');
 
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
@@ -42,6 +43,15 @@ config.watcher = {
   healthCheck: {
     ...(config.watcher?.healthCheck ?? {}),
     enabled: true,
+  },
+};
+
+const devApiProxy = createDevApiProxy();
+config.server = {
+  ...(config.server ?? {}),
+  enhanceMiddleware: (middleware) => (req, res, next) => {
+    if (devApiProxy(req, res)) return;
+    return middleware(req, res, next);
   },
 };
 

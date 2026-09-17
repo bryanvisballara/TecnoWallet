@@ -15,12 +15,14 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 
+import { MasTabTutorialPulse } from '@/components/app-tutorial-coach';
 import { AppIcon } from '@/components/ui';
 import { Colors, Radius } from '@/constants/theme';
 import { useAppCopy } from '@/i18n/app-copy';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useSafeLayout } from '@/hooks/use-safe-layout';
 import { FEATURE_RECAUDOS_ENABLED } from '@/lib/feature-flags';
+import { useAppTutorialStore } from '@/store/app-tutorial';
 import { tabBarCollapseProgress } from '@/store/tab-bar-progress';
 import { useTabBarStore } from '@/store/tab-bar';
 
@@ -70,6 +72,7 @@ const MAS_SCREENS = new Set([
   'ledgers',
   'export',
   'afiliados',
+  'video-tutorial',
   'admin',
 ]);
 const INICIO_SCREENS = new Set(['inicio', 'notifications', 'cashflow/[type]', 'movimientos', 'profile']);
@@ -103,6 +106,9 @@ export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBa
   const { tabBarPadding } = useSafeLayout();
   const collapsed = useTabBarStore((s) => s.collapsed);
   const expand = useTabBarStore((s) => s.expand);
+  const tutorialStep = useAppTutorialStore((s) => s.step);
+  const tutorialVisible = useAppTutorialStore((s) => s.visible);
+  const showMasTutorialPulse = tutorialVisible && tutorialStep === 'mas';
   const activeIndex = useSharedValue(0);
   const indicatorX = useSharedValue(0);
   const indicatorW = useSharedValue(40);
@@ -134,6 +140,8 @@ export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBa
     visibleRoutes.findIndex((route) => route.name === highlightedName),
   );
   const financeVisibleIndex = visibleRoutes.findIndex((route) => route.name === FINANCE_ROUTE);
+  const masVisibleIndex = visibleRoutes.findIndex((route) => route.name === 'mas');
+  const masFrame = tabFrames[masVisibleIndex];
   const financeFrame = tabFrames[financeVisibleIndex];
   const menuLeft = financeFrame
     ? Math.max(0, financeFrame.x + financeFrame.width / 2 - MENU_WIDTH / 2)
@@ -286,6 +294,18 @@ export function FloatingTabBar({ state, descriptors, navigation }: FloatingTabBa
                 pointerEvents="none"
                 style={[styles.indicator, indicatorStyle, { backgroundColor: theme.primarySoft }]}
               />
+              {showMasTutorialPulse && masFrame ? (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.masTutorialPulse,
+                    {
+                      left: masFrame.x + masFrame.width / 2 - 27,
+                    },
+                  ]}>
+                  <MasTabTutorialPulse visible />
+                </View>
+              ) : null}
               {visibleRoutes.map((route, index) => {
                 const isFinance = route.name === FINANCE_ROUTE;
                 const isCurrent =
@@ -499,6 +519,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     position: 'relative',
+  },
+  masTutorialPulse: {
+    position: 'absolute',
+    top: 2,
+    width: 54,
+    zIndex: 2,
   },
   indicator: {
     position: 'absolute',

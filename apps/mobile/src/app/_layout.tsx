@@ -97,6 +97,8 @@ export default function RootLayout() {
 
         // Billing first so a Free guest is routed to a shared book, not locked Hogar.
         await hydratePlus();
+        const { useAppTutorialStore } = await import('@/store/app-tutorial');
+        await useAppTutorialStore.getState().hydrate();
         await hydrateLedger();
         void hydrateCalendar();
         void hydrateGoals();
@@ -170,6 +172,11 @@ export default function RootLayout() {
   }, [appReady]);
 
   useEffect(() => {
+    if (!appReady) return;
+    void usePlusStore.getState().refreshBillingMarket().catch(() => undefined);
+  }, [appReady]);
+
+  useEffect(() => {
     let cleanup: (() => void) | undefined;
     void import('@/services/branch')
       .then(({ initBranchAttribution }) => {
@@ -218,17 +225,8 @@ export default function RootLayout() {
 
     const pollAccessRequests = () => {
       if (!authenticated) return;
-      void import('@/store/access-requests').then(({ useAccessRequestsStore }) =>
-        useAccessRequestsStore
-          .getState()
-          .refresh()
-          .then(() =>
-            import('@/services/collaboration-api').then(
-              ({ notifyNewAccessRequests }) =>
-                notifyNewAccessRequests(useAccessRequestsStore.getState().requests),
-            ),
-          )
-          .catch(() => undefined),
+      void import('@/lib/poll-access-requests').then(({ pollAccessRequestsInbox }) =>
+        pollAccessRequestsInbox().catch(() => undefined),
       );
     };
 
@@ -265,6 +263,12 @@ export default function RootLayout() {
       pollAccessRequests();
     }, 2500);
 
+    const accessPollInterval = authenticated
+      ? setInterval(() => {
+          if (AppState.currentState === 'active') pollAccessRequests();
+        }, 10_000)
+      : null;
+
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void ensureAuthSession().then(() =>
@@ -293,6 +297,7 @@ export default function RootLayout() {
     });
     return () => {
       clearTimeout(bootPoll);
+      if (accessPollInterval) clearInterval(accessPollInterval);
       subscription.remove();
     };
   }, [hydrated, authenticated, refreshRecaudos, hydrateCalendar]);

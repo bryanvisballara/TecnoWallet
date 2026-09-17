@@ -8,6 +8,9 @@
       ],
       "@/assets/*": [
         "./assets/*"
+      ],
+      "@tecnowallet/config": [
+        "../../packages/config/src/index.ts"
       ]
     }
   },

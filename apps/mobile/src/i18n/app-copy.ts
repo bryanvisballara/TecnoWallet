@@ -325,6 +325,20 @@ export type AppCopy = {
     terms: string;
     privacy: string;
   };
+  tutorial: {
+    masTabHint: string;
+    masTitle: string;
+    masBody: string;
+    masAction: string;
+    videoCoachTitle: string;
+    videoCoachBody: string;
+    videoCoachAction: string;
+    videoTitle: string;
+    videoSubtitle: string;
+    videoBody: string;
+    videoOpen: string;
+    videoDone: string;
+  };
   accounts: {
     title: string;
     liquidityMonth: (month: string) => string;
@@ -872,6 +886,23 @@ const es: AppCopy = {
     terms: 'Términos',
     privacy: 'Privacidad',
   },
+  tutorial: {
+    masTabHint: 'Más',
+    masTitle: 'Empieza con el tutorial',
+    masBody:
+      'Toca la pestaña Más (⋯) abajo a la derecha. Ahí encontrarás el video para entender TecnoWallet.',
+    masAction: 'Ir a Más',
+    videoCoachTitle: 'Mira el video tutorial',
+    videoCoachBody:
+      'En Datos y utilidades, abre Video tutorial para ver cómo usar libros, sobres y movimientos.',
+    videoCoachAction: 'Abrir video tutorial',
+    videoTitle: 'Video tutorial',
+    videoSubtitle: 'Aprende TecnoWallet en pocos minutos',
+    videoBody:
+      'Te mostramos cómo organizar tu dinero con libros, sobres, cuentas y calendario compartido.',
+    videoOpen: 'Reproducir video',
+    videoDone: 'Listo, entendí',
+  },
   accounts: {
     title: 'Cuentas',
     liquidityMonth: (month) => `Liquidez · ${month}`,
@@ -1043,6 +1074,10 @@ const es: AppCopy = {
         title: 'Cuentas bancarias',
         subtitle: 'Próximamente',
         badge: 'Pronto',
+      },
+      'video-tutorial': {
+        title: 'Video tutorial',
+        subtitle: 'Aprende a usar TecnoWallet',
       },
       datos: {
         title: 'Exportar',
@@ -1480,6 +1515,23 @@ const en: AppCopy = {
     terms: 'Terms',
     privacy: 'Privacy',
   },
+  tutorial: {
+    masTabHint: 'More',
+    masTitle: 'Start with the tutorial',
+    masBody:
+      'Tap the More tab (⋯) at the bottom right. There you’ll find the video to learn TecnoWallet.',
+    masAction: 'Go to More',
+    videoCoachTitle: 'Watch the tutorial video',
+    videoCoachBody:
+      'Under Data & utilities, open Video tutorial to learn books, envelopes, and transactions.',
+    videoCoachAction: 'Open video tutorial',
+    videoTitle: 'Video tutorial',
+    videoSubtitle: 'Learn TecnoWallet in a few minutes',
+    videoBody:
+      'We show you how to organize money with books, envelopes, accounts, and shared calendars.',
+    videoOpen: 'Play video',
+    videoDone: 'Done, got it',
+  },
   accounts: {
     title: 'Accounts',
     liquidityMonth: (month) => `Liquidity · ${month}`,
@@ -1643,6 +1695,10 @@ const en: AppCopy = {
       support: 'Support',
     },
     items: {
+      'video-tutorial': {
+        title: 'Video tutorial',
+        subtitle: 'Learn how to use TecnoWallet',
+      },
       divisa: { title: 'Currency', subtitle: 'Active book currency' },
       idioma: { title: 'Language', subtitle: 'English' },
       bancos: {
@@ -1763,7 +1819,10 @@ export function useAppCopy() {
 }
 
 const groupOrder = [
-  { key: 'data' as const, slugs: ['divisa', 'idioma', 'bancos', 'datos', 'sonido', 'apariencia'] },
+  {
+    key: 'data' as const,
+    slugs: ['video-tutorial', 'divisa', 'idioma', 'bancos', 'datos', 'sonido', 'apariencia'],
+  },
   {
     key: 'plus' as const,
     slugs: ['upgrade-plus', 'upgrade-business', 'afiliados', 'asistente'],
@@ -1776,6 +1835,7 @@ const itemMeta: Record<
   string,
   Pick<FeatureItem, 'icon' | 'color' | 'badgeTone'>
 > = {
+  'video-tutorial': { icon: 'video.fill', color: '#0878F9' },
   divisa: { icon: 'banknote.fill', color: '#12B76A' },
   idioma: { icon: 'globe', color: '#F79009' },
   bancos: { icon: 'building.columns.fill', color: '#0878F9', badgeTone: 'neutral' },
@@ -1798,10 +1858,16 @@ const itemMeta: Record<
   },
 };
 
-export function localizedFeatureGroups(copy: AppCopy) {
+export function localizedFeatureGroups(
+  copy: AppCopy,
+  options?: { affiliateEnabled?: boolean },
+) {
+  const affiliateEnabled = options?.affiliateEnabled !== false;
   return groupOrder.map((group) => ({
     title: copy.more.groups[group.key],
-    items: group.slugs.map((slug) => {
+    items: group.slugs
+      .filter((slug) => affiliateEnabled || slug !== 'afiliados')
+      .map((slug) => {
       const text = copy.more.items[slug];
       const meta = itemMeta[slug] ?? { icon: 'gearshape.fill' };
       return {

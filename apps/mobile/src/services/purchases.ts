@@ -1,3 +1,4 @@
+import { billingMarketSnapshot } from '@tecnowallet/config';
 import Purchases, {
   LOG_LEVEL,
   PURCHASES_ERROR_CODE,
@@ -12,23 +13,26 @@ import {
   type BillingStatus,
 } from './plus-api';
 import {
+  guessDeviceCountryCode,
+  mergeBillingMarketWithStoreCurrency,
+  priceLabelsForMarket,
+  storefrontPriceLabel,
+} from './billing-market';
+import {
   AFFILIATE_OFFERING_ID,
   BUSINESS_COUPON_PRODUCT_IDS,
   BUSINESS_LIST_PRODUCT_IDS,
-  FALLBACK_BUSINESS_COUPON_PRICE_LABEL,
   FALLBACK_BUSINESS_PRICE_LABEL,
-  FALLBACK_PLUS_COUPON_PRICE_LABEL,
   FALLBACK_PLUS_PRICE_LABEL,
   PLUS_COUPON_PRODUCT_IDS,
   PLUS_LIST_PRODUCT_IDS,
 } from './billing-prices';
 import { usePlusStore } from '@/store/plus';
 
+export { BUSINESS_PRODUCT_ID, PLUS_PRODUCT_ID } from './billing-prices';
 export {
-  BUSINESS_PRODUCT_ID,
   FALLBACK_BUSINESS_PRICE_LABEL,
   FALLBACK_PLUS_PRICE_LABEL,
-  PLUS_PRODUCT_ID,
 } from './billing-prices';
 
 function packageByProductIds(
@@ -66,18 +70,22 @@ function assertNativeIos() {
   }
 }
 
-function applyFallbackPrices(coupon: boolean) {
+function applyRegionalPrices(coupon: boolean) {
   const store = usePlusStore.getState();
-  store.setListPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
-  store.setListBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
-  store.setPriceLabel(
-    coupon ? FALLBACK_PLUS_COUPON_PRICE_LABEL : FALLBACK_PLUS_PRICE_LABEL,
-  );
-  store.setBusinessPriceLabel(
-    coupon
-      ? FALLBACK_BUSINESS_COUPON_PRICE_LABEL
-      : FALLBACK_BUSINESS_PRICE_LABEL,
-  );
+  const market = store.billingMarket;
+  if (!market) {
+    store.setListPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
+    store.setListBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
+    store.setPriceLabel(FALLBACK_PLUS_PRICE_LABEL);
+    store.setBusinessPriceLabel(FALLBACK_BUSINESS_PRICE_LABEL);
+    return;
+  }
+  const effectiveCoupon = coupon && market.couponsEnabled;
+  const labels = priceLabelsForMarket(market, effectiveCoupon);
+  store.setListPriceLabel(labels.plusList);
+  store.setListBusinessPriceLabel(labels.businessList);
+  store.setPriceLabel(labels.plusActive);
+  store.setBusinessPriceLabel(labels.businessActive);
 }
 
 export async function configurePurchases(appUserId: string) {
@@ -101,7 +109,7 @@ export async function resetPurchases() {
     configuredUserId = null;
     plusPackage = null;
     businessPackage = null;
-    applyFallbackPrices(false);
+    applyRegionalPrices(false);
   }
 }
 
@@ -125,9 +133,11 @@ async function loadOfferingsNow(): Promise<{
   plus: PurchasesPackage | null;
   business: PurchasesPackage | null;
 }> {
-  const coupon = Boolean(usePlusStore.getState().couponCode);
+  const storeState = usePlusStore.getState();
+  const coupon =
+    Boolean(storeState.couponCode) && storeState.billingMarket?.couponsEnabled !== false;
   if (Platform.OS !== 'ios' || !IOS_API_KEY || !configuredUserId) {
-    applyFallbackPrices(coupon);
+    applyRegionalPrices(coupon);
     return { plus: null, business: null };
   }
   const offerings = await Purchases.getOfferings();
@@ -156,21 +166,48 @@ async function loadOfferingsNow(): Promise<{
     ? (couponBusiness ?? listBusiness)
     : listBusiness;
   const store = usePlusStore.getState();
+  const storeCurrency =
+    listPlus?.product.currencyCode ??
+    plusPackage?.product.currencyCode ??
+    businessPackage?.product.currencyCode;
+  const baseMarket =
+    store.billingMarket ??
+    billingMarketSnapshot(guessDeviceCountryCode()) ??
+    (await store.refreshBillingMarket());
+  const market = mergeBillingMarketWithStoreCurrency(baseMarket, storeCurrency);
+  store.applyBillingMarket(market);
+  const labels = priceLabelsForMarket(market, coupon);
   store.setListPriceLabel(
-    listPlus?.product.priceString ?? FALLBACK_PLUS_PRICE_LABEL,
+    storefrontPriceLabel(
+      listPlus?.product.priceString,
+      listPlus?.product.currencyCode,
+      market,
+      labels.plusList,
+    ),
   );
   store.setListBusinessPriceLabel(
-    listBusiness?.product.priceString ?? FALLBACK_BUSINESS_PRICE_LABEL,
+    storefrontPriceLabel(
+      listBusiness?.product.priceString,
+      listBusiness?.product.currencyCode,
+      market,
+      labels.businessList,
+    ),
   );
   store.setPriceLabel(
-    plusPackage?.product.priceString ??
-      (coupon ? FALLBACK_PLUS_COUPON_PRICE_LABEL : FALLBACK_PLUS_PRICE_LABEL),
+    storefrontPriceLabel(
+      plusPackage?.product.priceString,
+      plusPackage?.product.currencyCode,
+      market,
+      labels.plusActive,
+    ),
   );
   store.setBusinessPriceLabel(
-    businessPackage?.product.priceString ??
-      (coupon
-        ? FALLBACK_BUSINESS_COUPON_PRICE_LABEL
-        : FALLBACK_BUSINESS_PRICE_LABEL),
+    storefrontPriceLabel(
+      businessPackage?.product.priceString,
+      businessPackage?.product.currencyCode,
+      market,
+      labels.businessActive,
+    ),
   );
   return { plus: plusPackage, business: businessPackage };
 }

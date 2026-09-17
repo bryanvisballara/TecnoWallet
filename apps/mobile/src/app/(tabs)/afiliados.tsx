@@ -27,7 +27,7 @@ import {
 } from '@/services/affiliate-api';
 import { isBusinessPlan } from '@/services/plus-api';
 import { useLanguageStore } from '@/store/language';
-import { usePlusStore } from '@/store/plus';
+import { affiliateProgramEnabled, usePlusStore } from '@/store/plus';
 import { ApiError } from '@/services/api';
 
 const USDT_NETWORKS: { id: AffiliateUsdtNetwork; label: string; hint: string }[] = [
@@ -78,6 +78,8 @@ export default function AffiliatesScreen() {
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
   const plusAccess = usePlusStore((state) => state.access);
+  const billingMarket = usePlusStore((state) => state.billingMarket);
+  const refreshBillingMarket = usePlusStore((state) => state.refreshBillingMarket);
   const openPaywall = usePlusStore((state) => state.openPaywall);
   const isBusiness = isBusinessPlan(plusAccess);
   const [loading, setLoading] = useState(true);
@@ -91,7 +93,21 @@ export default function AffiliatesScreen() {
   const [payoutSaved, setPayoutSaved] = useState(false);
   const [requestBusy, setRequestBusy] = useState(false);
 
+  useEffect(() => {
+    void refreshBillingMarket().catch(() => undefined);
+  }, [refreshBillingMarket]);
+
+  useEffect(() => {
+    if (billingMarket && !affiliateProgramEnabled(billingMarket)) {
+      safeGoBack('/(tabs)/mas');
+    }
+  }, [billingMarket]);
+
   const load = useCallback(async () => {
+    if (billingMarket && !affiliateProgramEnabled(billingMarket)) {
+      setLoading(false);
+      return;
+    }
     if (!isBusiness) {
       setDashboard(null);
       setError(null);

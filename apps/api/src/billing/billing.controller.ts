@@ -4,6 +4,7 @@ import {
   Get,
   Headers,
   Inject,
+  Ip,
   Post,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -16,6 +17,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { CurrentUser, Public, type AuthPrincipal } from '../auth/auth.module';
 import { CollaborationService } from '../collaboration/collaboration.service';
 import { BillingService } from './billing.service';
+import { marketForRequest } from './billing-market.util';
 import { EntitlementService } from './entitlement.service';
 
 class SyncBillingDto {
@@ -35,6 +37,15 @@ export class BillingController {
     @Inject(forwardRef(() => CollaborationService))
     private readonly collaboration: CollaborationService,
   ) {}
+
+  @Public()
+  @Get('market')
+  market(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Ip() ip: string | undefined,
+  ) {
+    return marketForRequest({ headers, ip });
+  }
 
   @Get('status')
   status(@CurrentUser() user: AuthPrincipal) {

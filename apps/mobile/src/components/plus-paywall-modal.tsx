@@ -43,10 +43,13 @@ import {
   canUseSharedBooksWithoutPaying,
 } from '@/services/plus-api';
 import { useAffiliateStore } from '@/store/affiliate';
+import { useAppTutorialStore } from '@/store/app-tutorial';
 import { useAuthStore } from '@/store/auth';
 import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
 import {
+  affiliateProgramEnabled,
+  couponsEnabledForMarket,
   type PaywallPlan,
   usePlusStore,
 } from '@/store/plus';
@@ -86,6 +89,7 @@ export function PlusPaywallModal() {
     (state) => state.listBusinessPriceLabel,
   );
   const couponCode = usePlusStore((state) => state.couponCode);
+  const billingMarket = usePlusStore((state) => state.billingMarket);
   const close = usePlusStore((state) => state.closePaywall);
   const access = usePlusStore((state) => state.access);
   const billing = usePlusStore((state) => state.billing);
@@ -103,11 +107,20 @@ export function PlusPaywallModal() {
   const [inviteDraft, setInviteDraft] = useState('');
   const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
-  const benefitLabels = isBusiness ? copy.paywall.businessBenefits : copy.paywall.plusBenefits;
-  const benefitIcons = isBusiness ? businessBenefitIcons : plusBenefitIcons;
+  const showCoupons = couponsEnabledForMarket(billingMarket);
+  const showAffiliateBenefit = affiliateProgramEnabled(billingMarket);
+  const rawBenefits = isBusiness ? copy.paywall.businessBenefits : copy.paywall.plusBenefits;
+  const rawIcons = isBusiness ? businessBenefitIcons : plusBenefitIcons;
+  const benefitLabels = rawBenefits.filter(
+    (_, index) => showAffiliateBenefit || rawIcons[index] !== 'gift.fill',
+  );
+  const benefitIcons = rawIcons.filter(
+    (_, index) => showAffiliateBenefit || rawIcons[index] !== 'gift.fill',
+  );
   const activePrice = isBusiness ? businessPriceLabel : priceLabel;
   const listPrice = isBusiness ? listBusinessPriceLabel : listPriceLabel;
   const showStrike =
+    showCoupons &&
     Boolean(couponCode) &&
     Boolean(listPrice) &&
     Boolean(activePrice) &&
@@ -134,6 +147,7 @@ export function PlusPaywallModal() {
   }, [visible]);
 
   const applyCoupon = async (raw: string, options?: { silent?: boolean }) => {
+    if (!showCoupons) return;
     const code = raw.trim().toUpperCase();
     if (!code) return;
     if (!options?.silent) {
@@ -238,6 +252,9 @@ export function PlusPaywallModal() {
           ? await purchaseBusiness()
           : await purchasePlus();
       setBilling(billing);
+      if (canUnlockApp(billing)) {
+        setTimeout(() => void useAppTutorialStore.getState().startAfterTrial(), 700);
+      }
       if (appliedCode) {
         void claimPendingAffiliate({ allowManual: true }).catch(() =>
           storeManualAffiliateCode(appliedCode),
@@ -272,6 +289,9 @@ export function PlusPaywallModal() {
     try {
       const billing = await restorePlusPurchases();
       setBilling(billing);
+      if (canUnlockApp(billing)) {
+        setTimeout(() => void useAppTutorialStore.getState().startAfterTrial(), 700);
+      }
       if (billing.isPlus) close();
       else setError(copy.paywall.restoreEmpty);
     } catch (restoreError) {
@@ -442,62 +462,64 @@ export function PlusPaywallModal() {
             ) : null}
           </View>
 
-          {couponCode ? (
-            <View
-              style={[
-                styles.couponApplied,
-                { backgroundColor: theme.successSoft },
-              ]}>
-              <AppIcon name="checkmark.circle.fill" color={theme.success} size={18} />
-              <Text style={[styles.couponAppliedText, { color: theme.success }]}>
-                {copy.paywall.couponApplied(couponCode)}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.couponBlock}>
-              <Text style={[styles.couponLabel, { color: theme.text }]}>
-                {copy.paywall.couponLabel}
-              </Text>
-              <View style={styles.couponRow}>
-                <TextInput
-                  value={couponDraft}
-                  onChangeText={(value) => setCouponDraft(value.toUpperCase())}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  editable={!working}
-                  placeholder={copy.paywall.couponPlaceholder}
-                  placeholderTextColor={theme.muted}
-                  style={[
-                    styles.couponInput,
-                    {
-                      color: theme.text,
-                      backgroundColor: theme.surfaceSecondary,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                />
-                <ScalePressable
-                  accessibilityRole="button"
-                  disabled={Boolean(working) || !couponDraft.trim()}
-                  onPress={() => void applyCoupon(couponDraft)}
-                  style={[
-                    styles.couponButton,
-                    {
-                      backgroundColor: theme.primary,
-                      opacity: working || !couponDraft.trim() ? 0.6 : 1,
-                    },
-                  ]}>
-                  {working === 'coupon' ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.couponButtonText}>
-                      {copy.paywall.couponApply}
-                    </Text>
-                  )}
-                </ScalePressable>
+          {showCoupons ? (
+            couponCode ? (
+              <View
+                style={[
+                  styles.couponApplied,
+                  { backgroundColor: theme.successSoft },
+                ]}>
+                <AppIcon name="checkmark.circle.fill" color={theme.success} size={18} />
+                <Text style={[styles.couponAppliedText, { color: theme.success }]}>
+                  {copy.paywall.couponApplied(couponCode)}
+                </Text>
               </View>
-            </View>
-          )}
+            ) : (
+              <View style={styles.couponBlock}>
+                <Text style={[styles.couponLabel, { color: theme.text }]}>
+                  {copy.paywall.couponLabel}
+                </Text>
+                <View style={styles.couponRow}>
+                  <TextInput
+                    value={couponDraft}
+                    onChangeText={(value) => setCouponDraft(value.toUpperCase())}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    editable={!working}
+                    placeholder={copy.paywall.couponPlaceholder}
+                    placeholderTextColor={theme.muted}
+                    style={[
+                      styles.couponInput,
+                      {
+                        color: theme.text,
+                        backgroundColor: theme.surfaceSecondary,
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  />
+                  <ScalePressable
+                    accessibilityRole="button"
+                    disabled={Boolean(working) || !couponDraft.trim()}
+                    onPress={() => void applyCoupon(couponDraft)}
+                    style={[
+                      styles.couponButton,
+                      {
+                        backgroundColor: theme.primary,
+                        opacity: working || !couponDraft.trim() ? 0.6 : 1,
+                      },
+                    ]}>
+                    {working === 'coupon' ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.couponButtonText}>
+                        {copy.paywall.couponApply}
+                      </Text>
+                    )}
+                  </ScalePressable>
+                </View>
+              </View>
+            )
+          ) : null}
 
           <ScalePressable
             accessibilityRole="button"

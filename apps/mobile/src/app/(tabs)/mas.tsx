@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ import {
   type ImageStyle,
 } from 'react-native';
 
+import { AppTutorialVideoLayer } from '@/components/app-tutorial-coach';
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { localizedFeatureGroups, useAppCopy } from '@/i18n/app-copy';
 import { languages } from '@/i18n/languages';
@@ -26,7 +27,13 @@ import { currencies, currencyLabel } from '@/lib/currencies';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
-import { usePlusStore, hasPaidPlan, planDisplayLabel, planDisplaySubtitle } from '@/store/plus';
+import {
+  affiliateProgramEnabled,
+  usePlusStore,
+  hasPaidPlan,
+  planDisplayLabel,
+  planDisplaySubtitle,
+} from '@/store/plus';
 import { isBusinessPlan } from '@/services/plus-api';
 import {
   appearanceLabel,
@@ -34,11 +41,30 @@ import {
   weekStartsOnLabel,
   type AppearanceMode,
 } from '@/store/preferences';
+import { useAppTutorialStore } from '@/store/app-tutorial';
 
 export default function MoreScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
-  const featureGroups = useMemo(() => localizedFeatureGroups(copy), [copy]);
+  const billingMarket = usePlusStore((state) => state.billingMarket);
+  const tutorialStep = useAppTutorialStore((state) => state.step);
+  const tutorialVisible = useAppTutorialStore((state) => state.visible);
+  const highlightVideoTutorial = tutorialVisible && tutorialStep === 'video';
+
+  useFocusEffect(
+    useCallback(() => {
+      if (useAppTutorialStore.getState().step === 'mas') {
+        useAppTutorialStore.getState().openVideoStep();
+      }
+    }, []),
+  );
+  const featureGroups = useMemo(
+    () =>
+      localizedFeatureGroups(copy, {
+        affiliateEnabled: affiliateProgramEnabled(billingMarket),
+      }),
+    [copy, billingMarket],
+  );
   const demo = useAuthStore((state) => state.demo);
   const profile = useAuthStore((state) => state.profile);
   const signOut = useAuthStore((state) => state.signOut);
@@ -126,6 +152,10 @@ export default function MoreScreen() {
       return;
     }
     if (slug === 'bancos') {
+      return;
+    }
+    if (slug === 'video-tutorial') {
+      router.push('/(tabs)/video-tutorial');
       return;
     }
     if (slug === 'datos') {
@@ -468,6 +498,13 @@ export default function MoreScreen() {
                           borderTopWidth: StyleSheet.hairlineWidth,
                           borderTopColor: theme.border,
                         },
+                        item.slug === 'video-tutorial' &&
+                          highlightVideoTutorial && {
+                            backgroundColor: theme.primarySoft,
+                            borderRadius: 14,
+                            marginHorizontal: 4,
+                            marginVertical: 2,
+                          },
                       ]}>
                       <View style={[styles.menuIcon, { backgroundColor: `${iconColor}1A` }]}>
                         <AppIcon name={item.icon} color={iconColor} />
@@ -809,6 +846,7 @@ export default function MoreScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      <AppTutorialVideoLayer />
     </Screen>
   );
 }

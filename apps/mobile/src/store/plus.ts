@@ -11,6 +11,11 @@ import {
   type PlusAccess,
 } from '@/services/plus-api';
 import {
+  loadBillingMarket,
+  priceLabelsForMarket,
+  type BillingMarketSnapshot,
+} from '@/services/billing-market';
+import {
   FALLBACK_BUSINESS_PRICE_LABEL,
   FALLBACK_PLUS_PRICE_LABEL,
 } from '@/services/billing-prices';
@@ -39,8 +44,11 @@ type PlusState = {
   listBusinessPriceLabel: string | null;
   couponCode: string | null;
   couponName: string | null;
+  billingMarket: BillingMarketSnapshot | null;
   trialPaywallPrompted: boolean;
   hydrate: () => Promise<void>;
+  refreshBillingMarket: () => Promise<BillingMarketSnapshot>;
+  applyBillingMarket: (market: BillingMarketSnapshot) => void;
   reset: () => void;
   openPaywall: (
     reason?: PlusReason,
@@ -72,15 +80,39 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   listBusinessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
   couponCode: null,
   couponName: null,
+  billingMarket: null,
   trialPaywallPrompted: false,
+  applyBillingMarket: (market) => {
+    const coupon = Boolean(get().couponCode) && market.couponsEnabled;
+    const labels = priceLabelsForMarket(market, coupon);
+    set({
+      billingMarket: market,
+      listPriceLabel: labels.plusList,
+      listBusinessPriceLabel: labels.businessList,
+      priceLabel: labels.plusActive,
+      businessPriceLabel: labels.businessActive,
+      ...(market.couponsEnabled
+        ? {}
+        : { couponCode: null, couponName: null }),
+    });
+  },
+  refreshBillingMarket: async () => {
+    const market = await loadBillingMarket();
+    get().applyBillingMarket(market);
+    return market;
+  },
   hydrate: async () => {
     set({ loading: true });
     try {
-      const billing = await getBillingStatus();
+      const [billing, market] = await Promise.all([
+        getBillingStatus(),
+        loadBillingMarket(),
+      ]);
       const unlocked = canUnlockApp(billing);
       set({
         billing,
         access: billing.access,
+        billingMarket: market,
         hydrated: true,
         loading: false,
         paywallOpen: unlocked ? false : true,
@@ -88,6 +120,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
           ? {}
           : { paywallReason: 'UPGRADE' as const, paywallPlan: 'plus' as const }),
       });
+      get().applyBillingMarket(market);
     } catch {
       set({
         hydrated: true,
@@ -115,6 +148,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
       listBusinessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
       couponCode: null,
       couponName: null,
+      billingMarket: null,
       trialPaywallPrompted: false,
     }),
   openPaywall: (paywallReason = 'UPGRADE', options) => {
@@ -178,6 +212,18 @@ export const usePlusStore = create<PlusState>((set, get) => ({
 }));
 
 export { hasPaidPlan, planDisplayLabel, planDisplaySubtitle };
+
+export function affiliateProgramEnabled(
+  market: BillingMarketSnapshot | null | undefined,
+) {
+  return market?.affiliateEnabled !== false;
+}
+
+export function couponsEnabledForMarket(
+  market: BillingMarketSnapshot | null | undefined,
+) {
+  return market?.couponsEnabled !== false;
+}
 
 export function isPlusRequiredError(error: unknown): error is {
   code?: string;

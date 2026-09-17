@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 import {
   offlineQueue,
   refreshTokenStorage,
@@ -5,7 +7,27 @@ import {
   type OfflineMutation,
 } from './persistence';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
+/** Remote API on Metro web dev goes through same-origin /api/v1 proxy (metro.config.js). */
+function getApiBaseUrl(): string | undefined {
+  const configured = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
+  if (!configured) return undefined;
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return configured;
+
+  const { hostname, port } = window.location;
+  const localDev =
+    (hostname === 'localhost' || hostname === '127.0.0.1') &&
+    (port === '8081' || port === '19006' || port === '');
+  if (!localDev || !/^https?:\/\//i.test(configured)) return configured;
+
+  try {
+    const apiHost = new URL(configured).hostname;
+    if (apiHost === hostname) return configured;
+  } catch {
+    return configured;
+  }
+
+  return '/api/v1';
+}
 
 export class ApiError extends Error {
   constructor(
@@ -86,14 +108,15 @@ async function errorFromResponse(response: Response) {
 }
 
 async function refreshAccessToken() {
-  if (!API_URL) return false;
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) return false;
   if (refreshInFlight) return refreshInFlight;
   const epochAtStart = authEpoch;
   refreshInFlight = (async () => {
     const refreshToken = await refreshTokenStorage.get();
     if (!refreshToken) return false;
     try {
-      const response = await fetch(`${API_URL}/auth/refresh`, {
+      const response = await fetch(`${apiBase}/auth/refresh`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -138,6 +161,7 @@ export async function ensureAuthSession() {
 const FETCH_TIMEOUT_MS = 20_000;
 
 async function performRequest(path: string, init: RequestInit) {
+  const apiBase = getApiBaseUrl();
   const token = await tokenStorage.get();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -146,7 +170,7 @@ async function performRequest(path: string, init: RequestInit) {
     else init.signal.addEventListener('abort', () => controller.abort(), { once: true });
   }
   try {
-    return await fetch(`${API_URL}${path}`, {
+    return await fetch(`${apiBase}${path}`, {
       ...init,
       signal: controller.signal,
       headers: {
@@ -160,6 +184,12 @@ async function performRequest(path: string, init: RequestInit) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new ApiError('La conexión tardó demasiado. Inténtalo de nuevo.', 408);
     }
+    if (error instanceof TypeError && /fetch/i.test(error.message)) {
+      throw new ApiError(
+        'No pudimos conectar con el servidor. Revisa tu internet e inténtalo de nuevo.',
+        0,
+      );
+    }
     throw error;
   } finally {
     clearTimeout(timer);
@@ -170,7 +200,7 @@ export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  if (!API_URL)
+  if (!getApiBaseUrl())
     throw new ApiError('API no configurada; usando datos de demostración.', 503);
 
   const epochAtStart = authEpoch;

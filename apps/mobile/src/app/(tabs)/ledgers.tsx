@@ -165,8 +165,9 @@ export default function LedgersScreen() {
   }, []);
 
   const loadAccessRequests = useCallback(async () => {
-    await refreshInbox();
-  }, [refreshInbox]);
+    const { pollAccessRequestsInbox } = await import('@/lib/poll-access-requests');
+    await pollAccessRequestsInbox();
+  }, []);
 
   useEffect(() => {
     if (!selected) return;
@@ -194,7 +195,10 @@ export default function LedgersScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadAccessRequests();
-    }, [loadAccessRequests]),
+      const intervalMs = shareMode ? 4_000 : 12_000;
+      const timer = setInterval(() => void loadAccessRequests(), intervalMs);
+      return () => clearInterval(timer);
+    }, [loadAccessRequests, shareMode]),
   );
 
   useEffect(() => {

@@ -3,6 +3,7 @@
   "main": "index.js",
   "version": "1.0.0",
   "dependencies": {
+    "@tecnowallet/config": "0.1.0",
     "@config-plugins/react-native-branch": "^13.0.1",
     "@expo/ui": "~57.0.9",
     "@expo/vector-icons": "^15.0.3",

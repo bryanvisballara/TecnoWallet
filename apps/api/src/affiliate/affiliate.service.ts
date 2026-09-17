@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -8,6 +9,7 @@ import {
   OnModuleInit,
   forwardRef,
 } from '@nestjs/common';
+import { resolveBillingMarket } from '@tecnowallet/config';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash, randomUUID } from 'node:crypto';
@@ -92,6 +94,14 @@ export class AffiliateService implements OnModuleInit {
       await this.retireLegacyPercentageCommissions();
     } catch (error) {
       this.logger.error('Could not retire legacy percentage commissions', error);
+    }
+  }
+
+  assertAffiliateAvailable(countryCode?: string | null) {
+    if (!resolveBillingMarket(countryCode).affiliateEnabled) {
+      throw new ForbiddenException(
+        'The affiliate program is not available in your region',
+      );
     }
   }
 

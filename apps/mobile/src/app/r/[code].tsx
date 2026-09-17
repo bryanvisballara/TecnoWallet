@@ -7,6 +7,7 @@ import { AppIcon, PrimaryButton, Screen, useAppTheme } from '@/components/ui';
 import { authHref } from '@/lib/auth-entry';
 import { recordAffiliateClick } from '@/services/affiliate-api';
 import { storeWebAffiliateReferral } from '@/services/branch';
+import { affiliateProgramEnabled, usePlusStore } from '@/store/plus';
 
 const APP_STORE_URL =
   process.env.EXPO_PUBLIC_APP_STORE_URL ||
@@ -19,6 +20,10 @@ export default function AffiliateReferralRoute() {
 
   const continueReferral = async () => {
     if (!code) return;
+    if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) {
+      setError('El programa de recomendaciones no está disponible en tu región.');
+      return;
+    }
     setError('');
     try {
       const affiliate = await recordAffiliateClick({
@@ -45,7 +50,13 @@ export default function AffiliateReferralRoute() {
   };
 
   useEffect(() => {
-    void continueReferral();
+    void usePlusStore
+      .getState()
+      .refreshBillingMarket()
+      .catch(() => undefined)
+      .finally(() => {
+        void continueReferral();
+      });
   }, [code]);
 
   return (

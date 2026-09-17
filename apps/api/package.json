@@ -21,6 +21,7 @@
     "bootstrap:admin": "node ./scripts/bootstrap-admin.cjs"
   },
   "dependencies": {
+    "@tecnowallet/config": "0.1.0",
     "@fastify/helmet": "^13.0.1",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^10.1.3",

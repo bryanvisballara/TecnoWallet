@@ -1,6 +1,7 @@
 import { Redirect, Tabs } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { AppTutorialMasLayer } from '@/components/app-tutorial-coach';
 import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { VoiceExpenseFab } from '@/components/voice-expense-fab';
 import { AppIcon, useAppTheme } from '@/components/ui';
@@ -43,6 +44,7 @@ const hiddenTabs = [
   ...(FEATURE_RECAUDOS_ENABLED ? [] : (['recaudos'] as const)),
   'recaudo/[id]',
   'afiliados',
+  'video-tutorial',
   'admin',
 ] as const;
 
@@ -104,6 +106,7 @@ export default function TabsLayout() {
           <Tabs.Screen key={name} name={name} options={{ href: null }} />
         ))}
       </Tabs>
+      <AppTutorialMasLayer />
       <VoiceExpenseFab />
     </View>
   );

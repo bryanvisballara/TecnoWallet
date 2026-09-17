@@ -147,8 +147,9 @@ export default function CalendarsScreen() {
   }, []);
 
   const loadAccessRequests = useCallback(async () => {
-    await refreshInbox();
-  }, [refreshInbox]);
+    const { pollAccessRequestsInbox } = await import('@/lib/poll-access-requests');
+    await pollAccessRequestsInbox();
+  }, []);
 
   useEffect(() => {
     if (selected) setName(selected.name);
@@ -168,7 +169,11 @@ export default function CalendarsScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadAccessRequests();
-    }, [loadAccessRequests]),
+      const shareMode = params.tab === 'share';
+      const intervalMs = shareMode ? 4_000 : 12_000;
+      const timer = setInterval(() => void loadAccessRequests(), intervalMs);
+      return () => clearInterval(timer);
+    }, [loadAccessRequests, params.tab]),
   );
 
   useEffect(() => {

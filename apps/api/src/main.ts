@@ -14,6 +14,31 @@ import {
   googleOauthStartHtml,
 } from './auth/oauth-pages';
 
+const LOCAL_DEV_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+
+function corsOrigins(config: ConfigService) {
+  const configured = config
+    .get<string>('CORS_ORIGINS', '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return (
+    origin: string | undefined,
+    callback: (err: Error | null, allow: boolean) => void,
+  ) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (configured.includes(origin) || LOCAL_DEV_ORIGIN.test(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  };
+}
+
 export async function bootstrap(): Promise<void> {
   const adapter = new FastifyAdapter({
     logger: {
@@ -64,11 +89,7 @@ export async function bootstrap(): Promise<void> {
     }),
   );
   app.enableCors({
-    origin: config
-      .get<string>('CORS_ORIGINS', '')
-      .split(',')
-      .map((origin) => origin.trim())
-      .filter(Boolean),
+    origin: corsOrigins(config),
     credentials: true,
     // Fastify CORS defaults to GET,HEAD,POST only — browsers then block PATCH/DELETE.
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],

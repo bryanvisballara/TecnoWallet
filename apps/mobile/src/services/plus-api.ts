@@ -1,4 +1,8 @@
+import type { BillingMarketSnapshot } from '@tecnowallet/config';
+
 import { apiRequest } from './api';
+
+export type { BillingMarketSnapshot };
 
 export type PlusAccess = 'free' | 'plus' | 'business' | 'sponsored_collaborator';
 
@@ -98,6 +102,10 @@ export function planDisplaySubtitle(
         ? '3 días de prueba, luego se cobra'
         : '3-day trial, then billed';
   }
+}
+
+export async function getBillingMarket() {
+  return apiRequest<BillingMarketSnapshot>('/billing/market');
 }
 
 export async function getBillingStatus() {
