@@ -1,4 +1,4 @@
-import { apiRequest } from './api';
+import { ApiError, apiRequest } from './api';
 
 export type AdminUserStats = {
   total: number;
@@ -196,7 +196,27 @@ export type AdminUsersPage = {
   hasNextPage: boolean;
 };
 
-export function searchAdminUsers(
+function paginateUsersLocally(
+  users: AdminUserRow[],
+  page: number,
+  limit: number,
+): AdminUsersPage {
+  const pageSize = Math.min(Math.max(limit, 1), 20);
+  const total = users.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const start = (safePage - 1) * pageSize;
+  return {
+    users: users.slice(start, start + pageSize),
+    total,
+    page: safePage,
+    pageSize,
+    totalPages,
+    hasNextPage: safePage < totalPages,
+  };
+}
+
+export async function searchAdminUsers(
   q?: string,
   plan?: 'all' | AdminPlan,
   page = 1,
@@ -207,7 +227,23 @@ export function searchAdminUsers(
   if (plan && plan !== 'all') query.set('plan', plan);
   query.set('page', String(Math.max(1, page)));
   query.set('limit', String(Math.min(Math.max(limit, 1), 20)));
-  return apiRequest<AdminUsersPage>(`/admin/users?${query.toString()}`);
+  try {
+    return await apiRequest<AdminUsersPage>(`/admin/users?${query.toString()}`);
+  } catch (error) {
+    const legacyQuery = new URLSearchParams(query);
+    legacyQuery.delete('page');
+    legacyQuery.delete('limit');
+    const suffix = legacyQuery.toString() ? `?${legacyQuery.toString()}` : '';
+    const isLegacyPaginationRejection =
+      error instanceof ApiError &&
+      error.status === 400 &&
+      /page should not exist|limit should not exist/i.test(error.message);
+    if (!isLegacyPaginationRejection) throw error;
+    const legacy = await apiRequest<{ users: AdminUserRow[] }>(
+      `/admin/users${suffix}`,
+    );
+    return paginateUsersLocally(legacy.users ?? [], page, limit);
+  }
 }
 
 export function deleteAdminUser(userId: string) {
