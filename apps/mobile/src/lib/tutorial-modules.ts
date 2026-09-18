@@ -1,7 +1,19 @@
 export type TutorialLocale = 'es' | 'en';
 
-/** Seven Cloudinary videos; several modules can point to the same clip. */
-export type TutorialVideoKey = 'v1' | 'v2' | 'v3' | 'v4' | 'v5' | 'v6' | 'v7';
+/** Twelve Cloudinary clips — one per tutorial module. */
+export type TutorialVideoKey =
+  | 'v1'
+  | 'v2'
+  | 'v3'
+  | 'v4'
+  | 'v5'
+  | 'v6'
+  | 'v7'
+  | 'v8'
+  | 'v9'
+  | 'v10'
+  | 'v11'
+  | 'v12';
 
 export type TutorialModule = {
   id: string;
@@ -44,7 +56,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'income-envelopes',
-    videoKey: 'v4',
+    videoKey: 'v5',
     title: {
       es: 'creando sobres de ingresos',
       en: 'Creating income envelopes',
@@ -52,7 +64,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'bank-accounts',
-    videoKey: 'v5',
+    videoKey: 'v6',
     title: {
       es: 'Creando cuentas de banco',
       en: 'Creating bank accounts',
@@ -60,7 +72,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'financial-health',
-    videoKey: 'v6',
+    videoKey: 'v7',
     title: {
       es: 'Control de nuestra salud financiera',
       en: 'Managing your financial health',
@@ -68,7 +80,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'monthly-projection',
-    videoKey: 'v6',
+    videoKey: 'v8',
     title: {
       es: 'Proyeccion mensual',
       en: 'Monthly projection',
@@ -76,7 +88,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'goals-savings',
-    videoKey: 'v6',
+    videoKey: 'v9',
     title: {
       es: 'Metas y ahorros',
       en: 'Goals and savings',
@@ -84,7 +96,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'invites',
-    videoKey: 'v7',
+    videoKey: 'v10',
     title: {
       es: 'Invitar a personas y aceptar invitaciones',
       en: 'Inviting people and accepting invitations',
@@ -92,7 +104,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'add-transactions',
-    videoKey: 'v7',
+    videoKey: 'v11',
     title: {
       es: 'Maneras de agregar ingresos y gastos',
       en: 'Ways to add income and expenses',
@@ -100,7 +112,7 @@ export const TUTORIAL_MODULES: readonly TutorialModule[] = [
   },
   {
     id: 'calendar',
-    videoKey: 'v7',
+    videoKey: 'v12',
     title: {
       es: 'Calendario',
       en: 'Calendar',
