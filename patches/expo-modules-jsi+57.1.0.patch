@@ -20,6 +20,29 @@ index 6115e87..957527c 100644
  
    RuntimeScheduler(const RuntimeScheduler &) = delete;
  
+diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptActor.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptActor.swift
+index bedb057..26a17aa 100644
+--- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptActor.swift
++++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptActor.swift
+@@ -17,6 +17,18 @@ public actor JavaScriptActor: GlobalActor {
+     return executor.asUnownedSerialExecutor()
+   }
+ 
++  /// ABI for prebuilt ExpoModulesCore 57.0.x, which binds this exact `rethrows` symbol.
++  /// Do not mark `@_alwaysEmitIntoClient` — Core looks it up in the framework at launch.
++  public static func assumeIsolated<T: ~Copyable>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
++    typealias YesActor = @JavaScriptActor () throws -> T
++    typealias NoActor = () throws -> T
++    checkIsolated()
++    return try withoutActuallyEscaping(operation) { (_ fn: @escaping YesActor) throws -> T in
++      let rawFn = unsafeBitCast(fn, to: NoActor.self)
++      return try rawFn()
++    }
++  }
++
+   /// An equivalent of `MainActor.assumeIsolated`, but for the `JavaScriptActor`. Assumes that the currently executing
+   /// synchronous function is actually executing on the JavaScript thread and invokes an isolated version of the operation,
+   /// allowing synchronous access to JavaScript runtime state without hopping through asynchronous boundaries.
 diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 index 3d796ee..e49075f 100644
 --- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
