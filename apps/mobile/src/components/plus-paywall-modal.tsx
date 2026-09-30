@@ -41,6 +41,7 @@ import {
   rememberInviteInput,
 } from '@/services/collaboration-api';
 import { hasLocalGuestAccess } from '@/lib/guest-access';
+import { shouldSuppressPaywallForReferralFlow } from '@/lib/referral-auth';
 import { localStorage } from '@/services/persistence';
 import {
   canUnlockApp,
@@ -84,8 +85,21 @@ export function PlusPaywallModal() {
   const theme = useAppTheme();
   const copy = getAppCopy(localeFromDevice());
   const authenticated = useAuthStore((state) => state.authenticated);
-  const visible =
-    usePlusStore((state) => state.paywallOpen) && authenticated;
+  const paywallOpen = usePlusStore((state) => state.paywallOpen);
+  const [referralFlowActive, setReferralFlowActive] = useState(false);
+
+  useEffect(() => {
+    if (!authenticated || Platform.OS !== 'web') {
+      setReferralFlowActive(false);
+      return;
+    }
+    void shouldSuppressPaywallForReferralFlow().then((suppress) => {
+      setReferralFlowActive(suppress);
+      if (suppress) usePlusStore.getState().closePaywall({ force: true });
+    });
+  }, [authenticated, paywallOpen]);
+
+  const visible = paywallOpen && authenticated && !referralFlowActive;
   const reason = usePlusStore((state) => state.paywallReason);
   const plan = usePlusStore((state) => state.paywallPlan);
   const billingMarket = usePlusStore((state) => state.billingMarket);

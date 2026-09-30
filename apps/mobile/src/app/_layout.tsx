@@ -3,7 +3,7 @@ import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState, type ComponentType } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -34,6 +34,7 @@ import {
   hasLocalGuestAccess,
   isOwnedResourceLocked,
 } from '@/lib/guest-access';
+import { shouldSuppressPaywallForReferralFlow } from '@/lib/referral-auth';
 import { hasPaidPlan } from '@/services/plus-api';
 
 void SplashScreen.preventAutoHideAsync();
@@ -150,30 +151,36 @@ export default function RootLayout() {
   useEffect(() => {
     if (!authenticated || !plusHydrated) return;
     if (hasPaidPlan(plusAccess)) return;
-    const billing = usePlusStore.getState().billing;
-    const guest =
-      plusAccess === 'sponsored_collaborator' ||
-      hasLocalGuestAccess() ||
-      Boolean(billing?.hasSharedAccess);
-    if (guest) {
-      usePlusStore.getState().markSharedAccess();
-      const { ledgers, activeLedgerId } = useLedgerStore.getState();
-      const active = ledgers.find((item) => item.id === activeLedgerId);
-      if (isOwnedResourceLocked(active, plusAccess)) {
-        const unlockedId = firstUnlockedLedgerId(ledgers, plusAccess);
-        if (unlockedId) void useLedgerStore.getState().setActiveLedger(unlockedId);
+    void (async () => {
+      if (Platform.OS === 'web' && (await shouldSuppressPaywallForReferralFlow())) {
+        usePlusStore.getState().closePaywall({ force: true });
+        return;
       }
-      const { calendars, activeCalendarId } = useCalendarStore.getState();
-      const activeCalendar = calendars.find((item) => item.id === activeCalendarId);
-      if (isOwnedResourceLocked(activeCalendar, plusAccess)) {
-        const unlockedCalendarId = firstUnlockedCalendarId(calendars, plusAccess);
-        if (unlockedCalendarId) {
-          void useCalendarStore.getState().setActiveCalendar(unlockedCalendarId);
+      const billing = usePlusStore.getState().billing;
+      const guest =
+        plusAccess === 'sponsored_collaborator' ||
+        hasLocalGuestAccess() ||
+        Boolean(billing?.hasSharedAccess);
+      if (guest) {
+        usePlusStore.getState().markSharedAccess();
+        const { ledgers, activeLedgerId } = useLedgerStore.getState();
+        const active = ledgers.find((item) => item.id === activeLedgerId);
+        if (isOwnedResourceLocked(active, plusAccess)) {
+          const unlockedId = firstUnlockedLedgerId(ledgers, plusAccess);
+          if (unlockedId) void useLedgerStore.getState().setActiveLedger(unlockedId);
         }
+        const { calendars, activeCalendarId } = useCalendarStore.getState();
+        const activeCalendar = calendars.find((item) => item.id === activeCalendarId);
+        if (isOwnedResourceLocked(activeCalendar, plusAccess)) {
+          const unlockedCalendarId = firstUnlockedCalendarId(calendars, plusAccess);
+          if (unlockedCalendarId) {
+            void useCalendarStore.getState().setActiveCalendar(unlockedCalendarId);
+          }
+        }
+        return;
       }
-      return;
-    }
-    usePlusStore.getState().maybePromptTrialPaywall();
+      usePlusStore.getState().maybePromptTrialPaywall();
+    })();
   }, [authenticated, plusHydrated, plusAccess, ledgerHydrated, calendarHydrated]);
 
   useEffect(() => {

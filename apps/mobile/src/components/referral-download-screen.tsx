@@ -1,10 +1,14 @@
 import * as Linking from 'expo-linking';
-import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, PrimaryButton, Screen, useAppTheme } from '@/components/ui';
-import { clearReferralAffiliateCode, REFERRAL_APP_STORE_URL } from '@/lib/referral-auth';
+import {
+  markReferralAwaitingAppDownload,
+  REFERRAL_APP_STORE_URL,
+} from '@/lib/referral-auth';
 import { useLanguageStore } from '@/store/language';
+import { usePlusStore } from '@/store/plus';
 
 const copy = {
   es: {
@@ -12,14 +16,12 @@ const copy = {
     title: '¡Cuenta lista!',
     body: 'Tu recomendación quedó registrada. Descarga TecnoWallet en tu iPhone e inicia sesión con el mismo correo.',
     download: 'Descargar en App Store',
-    web: 'Continuar en la web',
   },
   en: {
     subtitle: 'Referral',
     title: 'Account ready!',
     body: 'Your referral is saved. Download TecnoWallet on your iPhone and sign in with the same email.',
     download: 'Download on the App Store',
-    web: 'Continue on the web',
   },
 } as const;
 
@@ -28,14 +30,13 @@ export function ReferralDownloadScreen({ referrerLabel }: { referrerLabel?: stri
   const locale = useLanguageStore((state) => state.locale);
   const text = locale === 'es' ? copy.es : copy.en;
 
+  useEffect(() => {
+    void markReferralAwaitingAppDownload();
+    usePlusStore.getState().closePaywall({ force: true });
+  }, []);
+
   const openStore = () => {
     void Linking.openURL(REFERRAL_APP_STORE_URL);
-  };
-
-  const continueWeb = () => {
-    void clearReferralAffiliateCode().finally(() => {
-      router.replace('/(tabs)/inicio');
-    });
   };
 
   return (
@@ -52,9 +53,6 @@ export function ReferralDownloadScreen({ referrerLabel }: { referrerLabel?: stri
         ) : null}
         <Text style={[styles.body, { color: theme.muted }]}>{text.body}</Text>
         <PrimaryButton onPress={openStore}>{text.download}</PrimaryButton>
-        <Pressable accessibilityRole="button" onPress={continueWeb} style={styles.webLink}>
-          <Text style={{ color: theme.primary, fontWeight: '800', fontSize: 15 }}>{text.web}</Text>
-        </Pressable>
       </View>
     </Screen>
   );
@@ -88,8 +86,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center',
-  },
-  webLink: {
-    paddingVertical: 10,
   },
 });

@@ -39,9 +39,11 @@ import { useLanguageStore } from '@/store/language';
 import type { AuthEntryMode } from '@/lib/auth-entry';
 import {
   getReferralAffiliateCode,
+  markReferralAwaitingAppDownload,
   normalizeAffiliateCode,
   persistReferralAffiliateCode,
 } from '@/lib/referral-auth';
+import { usePlusStore } from '@/store/plus';
 import { getAffiliateCode, recordAffiliateClick } from '@/services/affiliate-api';
 import { storeWebAffiliateReferral } from '@/services/branch';
 
@@ -185,6 +187,8 @@ export default function AuthScreen() {
     const referralCode =
       affiliateParam ?? (await getReferralAffiliateCode());
     if (Platform.OS === 'web' && referralCode) {
+      usePlusStore.getState().closePaywall({ force: true });
+      await markReferralAwaitingAppDownload();
       router.replace({
         pathname: '/r/[code]',
         params: { code: referralCode, step: 'download' },
