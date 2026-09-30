@@ -472,6 +472,7 @@ export type AppCopy = {
     billedPerMonth: (price: string) => string;
     trialSubordinate: string;
     subscribeContinue: string;
+    checkoutBodyApple: string;
     priceMonthly: string;
     viewPrices: string;
     hidePrices: string;
@@ -1243,6 +1244,8 @@ const es: AppCopy = {
     trialSubordinate:
       'Prueba gratis de 3 días. Después se renueva al precio indicado arriba.',
     subscribeContinue: 'Continuar con suscripción',
+    checkoutBodyApple:
+      'Elige Plus o Business. Apple muestra el precio en la moneda de tu cuenta de App Store al confirmar.',
     priceMonthly: 'Precio mensual',
     viewPrices: 'Ver precios',
     hidePrices: 'Ocultar precios',
@@ -2087,6 +2090,8 @@ const en: AppCopy = {
     trialSubordinate:
       '3-day free trial. Then auto-renews at the price above.',
     subscribeContinue: 'Continue with subscription',
+    checkoutBodyApple:
+      'Choose Plus or Business. Apple shows the price in your App Store account currency when you confirm.',
     priceMonthly: 'Monthly price',
     viewPrices: 'View prices',
     hidePrices: 'Hide prices',

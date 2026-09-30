@@ -17,6 +17,7 @@ import {
   guessDeviceCountryCode,
   mergeBillingMarketWithStoreCurrency,
   priceLabelsForMarket,
+  storefrontPriceLabel,
 } from './billing-market';
 import {
   AFFILIATE_OFFERING_ID,
@@ -191,16 +192,22 @@ async function loadOfferingsNow(): Promise<{
   const market = mergeBillingMarketWithStoreCurrency(baseMarket, storeCurrency);
   store.applyBillingMarket(market);
   const labels = priceLabelsForMarket(market, true);
-  const shown = (fromStore: string | undefined, fallback: string) =>
-    fromStore?.trim() || fallback;
-  store.setListPriceLabel(shown(plusProduct?.priceString, labels.plusActive));
-  store.setListBusinessPriceLabel(
-    shown(businessProduct?.priceString, labels.businessActive),
+  const plusShown = storefrontPriceLabel(
+    plusProduct?.priceString,
+    plusProduct?.currencyCode,
+    market,
+    labels.plusActive,
   );
-  store.setPriceLabel(shown(plusProduct?.priceString, labels.plusActive));
-  store.setBusinessPriceLabel(
-    shown(businessProduct?.priceString, labels.businessActive),
+  const businessShown = storefrontPriceLabel(
+    businessProduct?.priceString,
+    businessProduct?.currencyCode,
+    market,
+    labels.businessActive,
   );
+  store.setListPriceLabel(plusShown);
+  store.setListBusinessPriceLabel(businessShown);
+  store.setPriceLabel(plusShown);
+  store.setBusinessPriceLabel(businessShown);
   return { plus: plusPackage, business: businessPackage };
 }
 

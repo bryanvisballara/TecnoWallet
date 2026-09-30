@@ -19,12 +19,14 @@ import {
   useAppTheme,
 } from '@/components/ui';
 import { getAppCopy } from '@/i18n/app-copy';
+import { ApiError } from '@/services/api';
 import {
   claimPendingAffiliate,
   peekPendingAffiliateCode,
   storeManualAffiliateCode,
 } from '@/services/branch';
 import {
+  configurePurchases,
   loadOfferings,
   purchaseBusiness,
   purchasePlus,
@@ -37,6 +39,7 @@ import {
   rememberInviteInput,
 } from '@/services/collaboration-api';
 import { hasLocalGuestAccess } from '@/lib/guest-access';
+import { localStorage } from '@/services/persistence';
 import {
   canUnlockApp,
   canUseSharedBooksWithoutPaying,
@@ -83,11 +86,8 @@ export function PlusPaywallModal() {
   const plan = usePlusStore((state) => state.paywallPlan);
   const priceLabel = usePlusStore((state) => state.priceLabel);
   const businessPriceLabel = usePlusStore((state) => state.businessPriceLabel);
-  const listPriceLabel = usePlusStore((state) => state.listPriceLabel);
-  const listBusinessPriceLabel = usePlusStore(
-    (state) => state.listBusinessPriceLabel,
-  );
   const billingMarket = usePlusStore((state) => state.billingMarket);
+  const refreshBillingMarket = usePlusStore((state) => state.refreshBillingMarket);
   const close = usePlusStore((state) => state.closePaywall);
   const access = usePlusStore((state) => state.access);
   const billing = usePlusStore((state) => state.billing);
@@ -101,6 +101,7 @@ export function PlusPaywallModal() {
   const [error, setError] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [inviteDraft, setInviteDraft] = useState('');
+  const [storePricesLoading, setStorePricesLoading] = useState(false);
   const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
   const showAffiliateBenefit = affiliateProgramEnabled(billingMarket);
@@ -128,17 +129,38 @@ export function PlusPaywallModal() {
         : reason === 'UPGRADE'
           ? copy.paywall.unlockPlus
           : reasonCopy.title;
-  const billedAmountLabel = isBusiness
-    ? businessPriceLabel ?? listBusinessPriceLabel
-    : priceLabel ?? listPriceLabel;
+  const rawStorePrice = isBusiness ? businessPriceLabel : priceLabel;
+  const billedAmountLabel =
+    billingMarket?.marketId === 'CO' &&
+    rawStorePrice &&
+    /US\$|\bUSD\b/i.test(rawStorePrice)
+      ? null
+      : rawStorePrice;
+  const paywallBody =
+    Platform.OS === 'ios' ? copy.paywall.checkoutBodyApple : reasonCopy.body;
 
   useEffect(() => {
     if (!visible) return;
     setError(null);
     setInviteNotice(null);
     useAffiliateStore.getState().dismissWelcome();
-    void loadOfferings().catch(() => undefined);
-  }, [visible]);
+    setStorePricesLoading(true);
+    void (async () => {
+      try {
+        await refreshBillingMarket().catch(() => undefined);
+        const userId = await localStorage.get('auth-user-id', '');
+        if (Platform.OS === 'ios' && userId) {
+          await configurePurchases(userId);
+        } else {
+          await loadOfferings();
+        }
+      } catch {
+        await loadOfferings().catch(() => undefined);
+      } finally {
+        setStorePricesLoading(false);
+      }
+    })();
+  }, [visible, refreshBillingMarket]);
 
   const unlockIfAlreadyGuest = async () => {
     await Promise.all([
@@ -327,7 +349,7 @@ export function PlusPaywallModal() {
             {brandLabel}
           </Text>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
-          <Text style={[styles.body, { color: theme.muted }]}>{reasonCopy.body}</Text>
+          <Text style={[styles.body, { color: theme.muted }]}>{paywallBody}</Text>
 
           {reason === 'SEAT_LIMIT' ? null : (
             <View style={[styles.planSwitch, { backgroundColor: theme.surfaceSecondary }]}>
@@ -444,16 +466,17 @@ export function PlusPaywallModal() {
               <ActivityIndicator color="#FFFFFF" />
             ) : Platform.OS === 'ios' ? (
               <>
-                <Text style={styles.billedAmount}>
-                  {billedAmountLabel
-                    ? copy.paywall.billedPerMonth(billedAmountLabel)
-                    : copy.paywall.priceBeforeConfirm}
-                </Text>
+                {storePricesLoading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.billedAmount}>
+                    {billedAmountLabel
+                      ? copy.paywall.billedPerMonth(billedAmountLabel)
+                      : copy.paywall.priceBeforeConfirm}
+                  </Text>
+                )}
                 <Text style={styles.trialSubordinate}>
                   {copy.paywall.trialSubordinate}
-                </Text>
-                <Text style={styles.primaryText}>
-                  {copy.paywall.subscribeContinue}
                 </Text>
               </>
             ) : (
@@ -468,18 +491,20 @@ export function PlusPaywallModal() {
             )}
           </ScalePressable>
 
-          <ScalePressable
-            disabled={Boolean(working)}
-            onPress={() => void leave()}
-            style={styles.restore}>
-            {working === 'signout' ? (
-              <ActivityIndicator color={theme.muted} />
-            ) : (
-              <Text style={[styles.restoreText, { color: theme.muted }]}>
-                {copy.paywall.signOut}
-              </Text>
-            )}
-          </ScalePressable>
+          {canDismiss ? (
+            <ScalePressable
+              disabled={Boolean(working)}
+              onPress={() => void leave()}
+              style={styles.restore}>
+              {working === 'signout' ? (
+                <ActivityIndicator color={theme.muted} />
+              ) : (
+                <Text style={[styles.restoreText, { color: theme.muted }]}>
+                  {copy.paywall.signOut}
+                </Text>
+              )}
+            </ScalePressable>
+          ) : null}
 
           <ScalePressable
             disabled={Boolean(working)}
