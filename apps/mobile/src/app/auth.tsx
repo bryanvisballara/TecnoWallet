@@ -37,6 +37,13 @@ import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
 import { useLanguageStore } from '@/store/language';
 import type { AuthEntryMode } from '@/lib/auth-entry';
+import {
+  getReferralAffiliateCode,
+  normalizeAffiliateCode,
+  persistReferralAffiliateCode,
+} from '@/lib/referral-auth';
+import { getAffiliateCode, recordAffiliateClick } from '@/services/affiliate-api';
+import { storeWebAffiliateReferral } from '@/services/branch';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -64,8 +71,11 @@ export default function AuthScreen() {
   const signInWithGoogle = useAuthStore((state) => state.signInWithGoogle);
   const signInWithApple = useAuthStore((state) => state.signInWithApple);
   const requestPasswordReset = useAuthStore((state) => state.requestPasswordReset);
-  const params = useLocalSearchParams<{ mode?: string | string[] }>();
+  const params = useLocalSearchParams<{ mode?: string | string[]; affiliate?: string | string[] }>();
   const requestedMode = (Array.isArray(params.mode) ? params.mode[0] : params.mode)?.trim();
+  const affiliateParam = normalizeAffiliateCode(
+    Array.isArray(params.affiliate) ? params.affiliate[0] : params.affiliate,
+  );
   const initialMode: AuthEntryMode = requestedMode === 'login' ? 'login' : 'register';
   const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot'>(initialMode);
   const [name, setName] = useState('');
@@ -76,6 +86,7 @@ export default function AuthScreen() {
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  const [referrerLabel, setReferrerLabel] = useState<string | null>(null);
   const enterFrom = useRef<'up' | 'left' | 'right'>('up');
 
   const goMode = (next: 'login' | 'register' | 'verify' | 'forgot') => {
@@ -115,6 +126,42 @@ export default function AuthScreen() {
       .catch(() => setAppleAvailable(false));
   }, []);
 
+  useEffect(() => {
+    if (!affiliateParam) return;
+    void persistReferralAffiliateCode(affiliateParam);
+    void (async () => {
+      try {
+        const affiliate = await recordAffiliateClick({
+          code: affiliateParam,
+          campaign: `web_register_${affiliateParam.toLowerCase()}`,
+        });
+        await storeWebAffiliateReferral(affiliate.code, affiliate.clickId);
+        setReferrerLabel(affiliate.name?.trim() || affiliate.code);
+      } catch {
+        try {
+          const affiliate = await getAffiliateCode(affiliateParam);
+          setReferrerLabel(affiliate.name?.trim() || affiliate.code);
+        } catch {
+          setReferrerLabel(affiliateParam);
+        }
+        await storeWebAffiliateReferral(affiliateParam);
+      }
+    })();
+  }, [affiliateParam]);
+
+  useEffect(() => {
+    if (affiliateParam || referrerLabel) return;
+    void getReferralAffiliateCode().then(async (stored) => {
+      if (!stored) return;
+      try {
+        const affiliate = await getAffiliateCode(stored);
+        setReferrerLabel(affiliate.name?.trim() || affiliate.code);
+      } catch {
+        setReferrerLabel(stored);
+      }
+    });
+  }, [affiliateParam, referrerLabel]);
+
   const goHome = async () => {
     const collaborationToken = await localStorage.get<string | null>(
       PENDING_COLLABORATION_INVITE_KEY,
@@ -133,6 +180,15 @@ export default function AuthScreen() {
     );
     if (inviteToken) {
       router.replace({ pathname: '/invite/[token]', params: { token: inviteToken } });
+      return;
+    }
+    const referralCode =
+      affiliateParam ?? (await getReferralAffiliateCode());
+    if (Platform.OS === 'web' && referralCode) {
+      router.replace({
+        pathname: '/r/[code]',
+        params: { code: referralCode, step: 'download' },
+      });
       return;
     }
     router.replace('/(tabs)/inicio');
@@ -381,6 +437,13 @@ export default function AuthScreen() {
                     ? copy.forgotTitle
                     : copy.welcomeTitle}
             </Text>
+            {referrerLabel && (mode === 'register' || mode === 'verify') ? (
+              <Text style={[styles.referralBanner, { color: theme.primary }]}>
+                {locale === 'es'
+                  ? `Te recomienda: ${referrerLabel}`
+                  : `Recommended by: ${referrerLabel}`}
+              </Text>
+            ) : null}
           </View>
 
           <Card style={styles.form}>
@@ -583,6 +646,7 @@ const styles = StyleSheet.create({
   pane: { gap: 16 },
   heading: { alignItems: 'center', gap: 6 },
   title: { fontSize: 28, fontWeight: '700', letterSpacing: -0.8, textAlign: 'center' },
+  referralBanner: { fontSize: 14, fontWeight: '800', textAlign: 'center', marginTop: 4 },
   form: { gap: 10 },
   label: { fontSize: 13, fontWeight: '600', marginTop: 3 },
   input: {

@@ -66,8 +66,8 @@ function AffiliateRewardGuide() {
       </Text>
       <Text style={[styles.body, { color: theme.muted, marginTop: 4 }]}>
         {locale === 'es'
-          ? 'Cuando alguien abre tu enlace de referido y se suscribe a TecnoWallet+ o Business en dólares o euros, ganas US$ 5. Si paga en otra moneda (por ejemplo pesos colombianos), el referido se registra pero no hay bono.'
-          : 'When someone opens your referral link and subscribes to TecnoWallet+ or Business in US dollars or euros, you earn US$ 5. Other currencies (e.g. Colombian pesos) still register the referral but do not pay a bounty.'}
+          ? 'Registrarse con tu enlace solo cuenta como referido (Registros). El bono de US$ 5 se paga una sola vez por cada referido, la primera vez que paga TecnoWallet+ o Business en dólares o euros. Renovaciones o meses extra no generan otro bono. Si paga en otra moneda (por ejemplo pesos colombianos), el referido cuenta pero no hay bono.'
+          : 'Signing up with your link only counts as a referral (Sign-ups). The US$ 5 bounty is paid once per referred user, the first time they pay for TecnoWallet+ or Business in US dollars or euros. Renewals or extra months do not create another bounty. Other currencies (e.g. Colombian pesos) still count as referrals but do not pay a bounty.'}
       </Text>
     </Card>
   );

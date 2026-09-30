@@ -212,6 +212,7 @@ export class AffiliateService implements OnModuleInit {
     }
   }
 
+  /** Links user ↔ affiliate only. Bounty is created in recordCommissionFromRevenueEvent. */
   async claim(
     userId: string,
     input: { code: string; clickId?: string; branchClickId?: string },
@@ -659,7 +660,7 @@ export class AffiliateService implements OnModuleInit {
     // That purchase does not pay the affiliate.
     if (!commissionCurrency) return null;
 
-    // Conversion counts even during the 3-day trial: the referred user chose Plus/Business.
+    // One flat bounty per referred user (renewals / later charges do not pay again).
     const alreadyPaidOut = await this.commissions.findOne({
       userId: input.userId,
       affiliateId: affiliate.affiliateId,
