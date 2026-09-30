@@ -5,7 +5,8 @@ services:
     plan: starter
     # Install + compile API only (skip postinstall double-build). Monorepo install
     # is heavy (~1GB); keep commands explicit so dashboard matches this file.
-    buildCommand: YARN_PRODUCTION=false yarn install --frozen-lockfile --ignore-scripts && node ./node_modules/patch-package/index.js && yarn workspace @tecnowallet/config build && yarn workspace api build
+    # Keep in sync with Render dashboard (avoid bare `yarn`, which runs root postinstall twice).
+    buildCommand: YARN_PRODUCTION=false yarn install --frozen-lockfile --ignore-scripts --silent && node ./node_modules/patch-package/index.js && yarn workspace @tecnowallet/config build && yarn workspace api build
     startCommand: yarn start
     healthCheckPath: /api/v1/health
     autoDeploy: true

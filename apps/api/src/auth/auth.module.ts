@@ -8,9 +8,7 @@ import {
   Delete,
   ExecutionContext,
   ForbiddenException,
-  forwardRef,
   Get,
-  Inject,
   Injectable,
   Module,
   NotFoundException,
@@ -21,7 +19,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { APP_GUARD, Reflector } from '@nestjs/core';
+import { APP_GUARD, ModuleRef, Reflector } from '@nestjs/core';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import {
   InjectModel,
@@ -45,8 +43,6 @@ import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
-import { AffiliateModule } from '../affiliate/affiliate.module';
-import { AffiliateService } from '../affiliate/affiliate.service';
 import { verifyAppleIdentityToken } from './apple-identity';
 import { otpEmailHtml, otpEmailSubject } from './otp-email';
 import {
@@ -466,8 +462,7 @@ export class AuthService {
     private readonly memberships: Model<Membership>,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
-    @Inject(forwardRef(() => AffiliateService))
-    private readonly affiliate: AffiliateService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -563,9 +558,19 @@ export class AuthService {
 
   private async attachAffiliateFromLeadEmail(user: User) {
     if (!user.email?.trim()) return;
-    await this.affiliate
-      .tryClaimFromCouponLeadEmail(user._id.toString(), user.email)
-      .catch(() => undefined);
+    try {
+      const { AffiliateService } = await import(
+        '../affiliate/affiliate.service.js'
+      );
+      const affiliate = this.moduleRef.get(AffiliateService, { strict: false });
+      if (!affiliate) return;
+      await affiliate.tryClaimFromCouponLeadEmail(
+        user._id.toString(),
+        user.email,
+      );
+    } catch {
+      // Affiliate module not ready or claim not applicable.
+    }
   }
 
   async resendVerification(dto: ResendVerificationDto) {
@@ -1383,7 +1388,6 @@ export class AuthController {
 
 @Module({
   imports: [
-    forwardRef(() => AffiliateModule),
     JwtModule.register({}),
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
