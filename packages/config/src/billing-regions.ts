@@ -30,7 +30,7 @@ export const BILLING_MARKETS: readonly BillingMarket[] = [
     id: 'CO',
     countries: ['CO'],
     currency: 'COP',
-    plus: { listLabel: 'COP $14.900', couponLabel: 'COP $9.900' },
+    plus: { listLabel: 'COP $29.900', couponLabel: 'COP $9.900' },
     business: { listLabel: 'COP $59.900', couponLabel: 'COP $49.900' },
     couponsEnabled: true,
     affiliateEnabled: true,

@@ -120,10 +120,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
         billingMarket: market,
         hydrated: true,
         loading: false,
-        paywallOpen: unlocked ? false : true,
-        ...(unlocked
-          ? {}
-          : { paywallReason: 'UPGRADE' as const, paywallPlan: 'plus' as const }),
+        paywallOpen: false,
       });
       get().applyBillingMarket(market);
     } catch {
@@ -132,7 +129,7 @@ export const usePlusStore = create<PlusState>((set, get) => ({
         loading: false,
         access: 'free',
         billing: null,
-        paywallOpen: true,
+        paywallOpen: false,
         paywallReason: 'UPGRADE',
         paywallPlan: 'plus',
       });

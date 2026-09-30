@@ -8,7 +8,9 @@ import {
   Delete,
   ExecutionContext,
   ForbiddenException,
+  forwardRef,
   Get,
+  Inject,
   Injectable,
   Module,
   NotFoundException,
@@ -43,6 +45,8 @@ import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { Model, Schema as MongooseSchema, Types } from 'mongoose';
 
+import { AffiliateModule } from '../affiliate/affiliate.module';
+import { AffiliateService } from '../affiliate/affiliate.service';
 import { verifyAppleIdentityToken } from './apple-identity';
 import { otpEmailHtml, otpEmailSubject } from './otp-email';
 import {
@@ -462,6 +466,8 @@ export class AuthService {
     private readonly memberships: Model<Membership>,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => AffiliateService))
+    private readonly affiliate: AffiliateService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -551,7 +557,15 @@ export class AuthService {
       },
     );
     user.emailVerified = true;
+    await this.attachAffiliateFromLeadEmail(user);
     return this.issueTokens(user, { replaceSession: true });
+  }
+
+  private async attachAffiliateFromLeadEmail(user: User) {
+    if (!user.email?.trim()) return;
+    await this.affiliate
+      .tryClaimFromCouponLeadEmail(user._id.toString(), user.email)
+      .catch(() => undefined);
   }
 
   async resendVerification(dto: ResendVerificationDto) {
@@ -655,6 +669,7 @@ export class AuthService {
       await user.save();
     }
 
+    await this.attachAffiliateFromLeadEmail(user);
     return this.issueTokens(user, { replaceSession: true });
   }
 
@@ -760,6 +775,7 @@ export class AuthService {
       await user.save();
     }
 
+    await this.attachAffiliateFromLeadEmail(user);
     return this.issueTokens(user, { replaceSession: true });
   }
 
@@ -1367,6 +1383,7 @@ export class AuthController {
 
 @Module({
   imports: [
+    forwardRef(() => AffiliateModule),
     JwtModule.register({}),
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },

@@ -1,0 +1,5 @@
+RewriteEngine On
+RewriteBase /r/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^[A-Za-z0-9_-]+/?$ /index.html [L,QSA]

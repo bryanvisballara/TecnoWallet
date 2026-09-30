@@ -30,7 +30,7 @@ import {
 
 @Module({
   imports: [
-    AuthModule,
+    forwardRef(() => AuthModule),
     MailModule,
     PushModule,
     forwardRef(() => BillingModule),

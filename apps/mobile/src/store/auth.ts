@@ -146,6 +146,8 @@ async function persistAuthSession(
   await configurePurchases(String(auth.user.id)).catch(() => undefined);
   await claimPendingCollaborationInvite().catch(() => undefined);
   await claimPendingShareCode().catch(() => undefined);
+  const { claimPendingAffiliate } = await import('@/services/branch');
+  await claimPendingAffiliate().catch(() => undefined);
   await usePlusStore.getState().hydrate();
   const { useAppTutorialStore } = await import('@/store/app-tutorial');
   await useAppTutorialStore.getState().hydrate();

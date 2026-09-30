@@ -26,6 +26,11 @@ import {
   FALLBACK_PLUS_PRICE_LABEL,
   PLUS_PURCHASE_PRODUCT_IDS,
 } from './billing-prices';
+import {
+  formatAppleStoreProductPrice,
+  pickStoreProductForStorefront,
+  resolveApplePaywallPriceLabel,
+} from './apple-store-price';
 import { usePlusStore } from '@/store/plus';
 
 export { BUSINESS_PRODUCT_ID, PLUS_PRODUCT_ID } from './billing-prices';
@@ -71,6 +76,96 @@ let plusPackage: PurchasesPackage | null = null;
 let businessPackage: PurchasesPackage | null = null;
 let plusProduct: PurchasesStoreProduct | null = null;
 let businessProduct: PurchasesStoreProduct | null = null;
+
+export type ApplePaywallPrices = {
+  storefrontCountry: string | null;
+  plusPrice: string | null;
+  businessPrice: string | null;
+  plusCurrency: string | null;
+  businessCurrency: string | null;
+};
+
+/** StoreKit-only prices for the paywall (no regional USD/COP guess labels). */
+export async function fetchApplePaywallPrices(): Promise<ApplePaywallPrices | null> {
+  if (Platform.OS !== 'ios' || !IOS_API_KEY || !configuredUserId) {
+    return null;
+  }
+  await loadOfferingsNow().catch(() => undefined);
+  const storefrontCountry = await Purchases.getStorefront()
+    .then((storefront) => normalizeCountryCode(storefront?.countryCode))
+    .catch(() => null);
+  const productIds = [
+    ...PLUS_PURCHASE_PRODUCT_IDS,
+    ...BUSINESS_PURCHASE_PRODUCT_IDS,
+  ];
+  let storeProducts = await Purchases.getProducts(
+    productIds,
+    Purchases.PRODUCT_CATEGORY.SUBSCRIPTION,
+  ).catch(() => [] as PurchasesStoreProduct[]);
+  const firstPlus = storeProductByIds(storeProducts, PLUS_PURCHASE_PRODUCT_IDS);
+  if (
+    storefrontCountry === 'CO' &&
+    firstPlus?.currencyCode?.trim().toUpperCase() === 'USD'
+  ) {
+    await Purchases.syncPurchases().catch(() => undefined);
+    storeProducts = await Purchases.getProducts(
+      productIds,
+      Purchases.PRODUCT_CATEGORY.SUBSCRIPTION,
+    ).catch(() => storeProducts);
+  }
+  const plusRaw = storeProductByIds(storeProducts, PLUS_PURCHASE_PRODUCT_IDS);
+  const businessRaw = storeProductByIds(
+    storeProducts,
+    BUSINESS_PURCHASE_PRODUCT_IDS,
+  );
+  const plus = pickStoreProductForStorefront(
+    plusRaw,
+    plusPackage?.product,
+    storefrontCountry,
+  );
+  const business = pickStoreProductForStorefront(
+    businessRaw,
+    businessPackage?.product,
+    storefrontCountry,
+  );
+  const deviceCountry = guessDeviceCountryCode();
+  const billingMarket = usePlusStore.getState().billingMarket;
+  const priceContext = {
+    storefrontCountry,
+    deviceCountry,
+    billingMarket,
+  };
+  const plusPrice = resolveApplePaywallPriceLabel(plus, 'plus', priceContext);
+  const businessPrice = resolveApplePaywallPriceLabel(
+    business,
+    'business',
+    priceContext,
+  );
+  if (__DEV__) {
+    console.warn('[TWPaywall] StoreKit snapshot', {
+      storefrontCountry,
+      deviceCountry,
+      billingMarketId: billingMarket?.marketId ?? null,
+      plus: plus
+        ? {
+            id: plus.identifier,
+            price: plus.price,
+            currencyCode: plus.currencyCode,
+            priceString: plus.priceString,
+          }
+        : null,
+      plusPrice,
+      businessPrice,
+    });
+  }
+  return {
+    storefrontCountry,
+    plusPrice,
+    businessPrice,
+    plusCurrency: plus?.currencyCode ?? null,
+    businessCurrency: business?.currencyCode ?? null,
+  };
+}
 
 function assertNativeIos() {
   if (Platform.OS !== 'ios') {
@@ -150,7 +245,6 @@ async function loadOfferingsNow(): Promise<{
   business: PurchasesPackage | null;
 }> {
   if (Platform.OS !== 'ios' || !IOS_API_KEY || !configuredUserId) {
-    applyRegionalPrices();
     return { plus: null, business: null };
   }
   const offerings = await Purchases.getOfferings();
@@ -170,20 +264,36 @@ async function loadOfferingsNow(): Promise<{
     [...PLUS_PURCHASE_PRODUCT_IDS, ...BUSINESS_PURCHASE_PRODUCT_IDS],
     Purchases.PRODUCT_CATEGORY.SUBSCRIPTION,
   ).catch(() => [] as PurchasesStoreProduct[]);
+  const storefrontCountry = await Purchases.getStorefront()
+    .then((storefront) => normalizeCountryCode(storefront?.countryCode))
+    .catch(() => null);
+  const plusFromStoreKit = storeProductByIds(
+    storeProducts,
+    PLUS_PURCHASE_PRODUCT_IDS,
+  );
+  const businessFromStoreKit = storeProductByIds(
+    storeProducts,
+    BUSINESS_PURCHASE_PRODUCT_IDS,
+  );
   plusProduct =
-    storeProductByIds(storeProducts, PLUS_PURCHASE_PRODUCT_IDS) ??
+    pickStoreProductForStorefront(
+      plusFromStoreKit,
+      plusPackage?.product,
+      storefrontCountry,
+    ) ??
     plusPackage?.product ??
     null;
   businessProduct =
-    storeProductByIds(storeProducts, BUSINESS_PURCHASE_PRODUCT_IDS) ??
+    pickStoreProductForStorefront(
+      businessFromStoreKit,
+      businessPackage?.product,
+      storefrontCountry,
+    ) ??
     businessPackage?.product ??
     null;
   const store = usePlusStore.getState();
   const storeCurrency =
     plusProduct?.currencyCode ?? businessProduct?.currencyCode;
-  const storefrontCountry = await Purchases.getStorefront()
-    .then((storefront) => normalizeCountryCode(storefront?.countryCode))
-    .catch(() => null);
   const baseMarket = storefrontCountry
     ? billingMarketSnapshot(storefrontCountry)
     : (store.billingMarket ??
@@ -192,22 +302,31 @@ async function loadOfferingsNow(): Promise<{
   const market = mergeBillingMarketWithStoreCurrency(baseMarket, storeCurrency);
   store.applyBillingMarket(market);
   const labels = priceLabelsForMarket(market, true);
-  const plusShown = storefrontPriceLabel(
-    plusProduct?.priceString,
-    plusProduct?.currencyCode,
-    market,
-    labels.plusActive,
-  );
-  const businessShown = storefrontPriceLabel(
-    businessProduct?.priceString,
-    businessProduct?.currencyCode,
-    market,
-    labels.businessActive,
-  );
+  const priceContext = {
+    storefrontCountry,
+    deviceCountry: guessDeviceCountryCode(),
+    billingMarket: store.billingMarket,
+  };
+  const plusShown =
+    resolveApplePaywallPriceLabel(plusProduct, 'plus', priceContext) ??
+    storefrontPriceLabel(
+      plusProduct?.priceString,
+      plusProduct?.currencyCode,
+      market,
+      labels.plusActive,
+    );
+  const businessShown =
+    resolveApplePaywallPriceLabel(businessProduct, 'business', priceContext) ??
+    storefrontPriceLabel(
+      businessProduct?.priceString,
+      businessProduct?.currencyCode,
+      market,
+      labels.businessActive,
+    );
   store.setListPriceLabel(plusShown);
   store.setListBusinessPriceLabel(businessShown);
-  store.setPriceLabel(plusShown);
-  store.setBusinessPriceLabel(businessShown);
+  if (plusShown) store.setPriceLabel(plusShown);
+  if (businessShown) store.setBusinessPriceLabel(businessShown);
   return { plus: plusPackage, business: businessPackage };
 }
 

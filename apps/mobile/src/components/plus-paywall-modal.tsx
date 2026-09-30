@@ -27,10 +27,12 @@ import {
 } from '@/services/branch';
 import {
   configurePurchases,
+  fetchApplePaywallPrices,
   loadOfferings,
   purchaseBusiness,
   purchasePlus,
   restorePlusPurchases,
+  type ApplePaywallPrices,
 } from '@/services/purchases';
 import {
   acceptCollaborationInvite,
@@ -81,11 +83,11 @@ const businessBenefitIcons = [
 export function PlusPaywallModal() {
   const theme = useAppTheme();
   const copy = getAppCopy(localeFromDevice());
-  const visible = usePlusStore((state) => state.paywallOpen);
+  const authenticated = useAuthStore((state) => state.authenticated);
+  const visible =
+    usePlusStore((state) => state.paywallOpen) && authenticated;
   const reason = usePlusStore((state) => state.paywallReason);
   const plan = usePlusStore((state) => state.paywallPlan);
-  const priceLabel = usePlusStore((state) => state.priceLabel);
-  const businessPriceLabel = usePlusStore((state) => state.businessPriceLabel);
   const billingMarket = usePlusStore((state) => state.billingMarket);
   const refreshBillingMarket = usePlusStore((state) => state.refreshBillingMarket);
   const close = usePlusStore((state) => state.closePaywall);
@@ -102,6 +104,9 @@ export function PlusPaywallModal() {
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [inviteDraft, setInviteDraft] = useState('');
   const [storePricesLoading, setStorePricesLoading] = useState(false);
+  const [applePrices, setApplePrices] = useState<ApplePaywallPrices | null>(
+    null,
+  );
   const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
   const showAffiliateBenefit = affiliateProgramEnabled(billingMarket);
@@ -129,13 +134,10 @@ export function PlusPaywallModal() {
         : reason === 'UPGRADE'
           ? copy.paywall.unlockPlus
           : reasonCopy.title;
-  const rawStorePrice = isBusiness ? businessPriceLabel : priceLabel;
-  const billedAmountLabel =
-    billingMarket?.marketId === 'CO' &&
-    rawStorePrice &&
-    /US\$|\bUSD\b/i.test(rawStorePrice)
-      ? null
-      : rawStorePrice;
+  const appleMonthlyPriceRaw = isBusiness
+    ? applePrices?.businessPrice
+    : applePrices?.plusPrice;
+  const appleMonthlyPrice = appleMonthlyPriceRaw;
   const paywallBody =
     Platform.OS === 'ios' ? copy.paywall.checkoutBodyApple : reasonCopy.body;
 
@@ -143,6 +145,7 @@ export function PlusPaywallModal() {
     if (!visible) return;
     setError(null);
     setInviteNotice(null);
+    setApplePrices(null);
     useAffiliateStore.getState().dismissWelcome();
     setStorePricesLoading(true);
     void (async () => {
@@ -151,6 +154,8 @@ export function PlusPaywallModal() {
         const userId = await localStorage.get('auth-user-id', '');
         if (Platform.OS === 'ios' && userId) {
           await configurePurchases(userId);
+          const prices = await fetchApplePaywallPrices();
+          setApplePrices(prices);
         } else {
           await loadOfferings();
         }
@@ -350,7 +355,6 @@ export function PlusPaywallModal() {
           </Text>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.body, { color: theme.muted }]}>{paywallBody}</Text>
-
           {reason === 'SEAT_LIMIT' ? null : (
             <View style={[styles.planSwitch, { backgroundColor: theme.surfaceSecondary }]}>
               {(['plus', 'business'] as const).map((value) => {
@@ -453,6 +457,11 @@ export function PlusPaywallModal() {
 
           <ScalePressable
             accessibilityRole="button"
+            accessibilityLabel={
+              appleMonthlyPrice
+                ? `${copy.paywall.startFreeTrial}. ${copy.paywall.billedPerMonth(appleMonthlyPrice)}`
+                : copy.paywall.startFreeTrial
+            }
             disabled={Boolean(working)}
             onPress={() => void runPurchase(isBusiness ? 'business' : 'plus')}
             style={[
@@ -462,22 +471,25 @@ export function PlusPaywallModal() {
                 opacity: working ? 0.7 : 1,
               },
             ]}>
-            {working === 'buy' ? (
+            {working === 'buy' || storePricesLoading ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : Platform.OS === 'ios' ? (
               <>
-                {storePricesLoading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.billedAmount}>
-                    {billedAmountLabel
-                      ? copy.paywall.billedPerMonth(billedAmountLabel)
-                      : copy.paywall.priceBeforeConfirm}
-                  </Text>
-                )}
-                <Text style={styles.trialSubordinate}>
-                  {copy.paywall.trialSubordinate}
+                <Text style={styles.billedAmount}>
+                  {appleMonthlyPrice
+                    ? copy.paywall.billedPerMonth(appleMonthlyPrice)
+                    : copy.paywall.priceBeforeConfirm}
                 </Text>
+                <Text style={styles.primaryCta}>{copy.paywall.startFreeTrial}</Text>
+                {appleMonthlyPrice ? (
+                  <Text
+                    style={styles.trialFootnote}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}>
+                    {copy.paywall.trialButtonFootnote(appleMonthlyPrice)}
+                  </Text>
+                ) : null}
               </>
             ) : (
               <>
@@ -511,9 +523,9 @@ export function PlusPaywallModal() {
             onPress={() => void runRestore()}
             style={styles.restore}>
             {working === 'restore' ? (
-              <ActivityIndicator color={theme.primary} />
+              <ActivityIndicator color={theme.muted} />
             ) : (
-              <Text style={[styles.restoreText, { color: theme.primary }]}>
+              <Text style={[styles.restoreText, { color: theme.muted }]}>
                 {copy.paywall.restore}
               </Text>
             )}
@@ -641,20 +653,39 @@ const styles = StyleSheet.create({
   couponButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   primary: {
     marginTop: 8,
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    alignSelf: 'center',
+    width: '76%',
+    maxWidth: 300,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     alignItems: 'center',
-    gap: 2,
+    justifyContent: 'center',
+    gap: 0,
   },
   primaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  billedAmount: { color: '#FFFFFF', fontSize: 24, fontWeight: '900' },
-  trialSubordinate: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 16,
+  billedAmount: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    lineHeight: 20,
+  },
+  primaryCta: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 18,
+    marginTop: 1,
+  },
+  trialFootnote: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 9,
+    fontWeight: '500',
+    lineHeight: 11,
     textAlign: 'center',
+    marginTop: 1,
+    maxWidth: '100%',
   },
   strike: {
     color: '#FFFFFF99',
@@ -663,8 +694,8 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   price: { color: '#FFFFFFCC', fontSize: 13, fontWeight: '600' },
-  restore: { alignItems: 'center', paddingVertical: 8 },
-  restoreText: { fontSize: 14, fontWeight: '700' },
+  restore: { alignItems: 'center', paddingVertical: 6 },
+  restoreText: { fontSize: 13, fontWeight: '600' },
   error: { fontSize: 13, textAlign: 'center' },
   legal: { fontSize: 11, lineHeight: 16, textAlign: 'center' },
   legalLinks: {

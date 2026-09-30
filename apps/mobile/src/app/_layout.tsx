@@ -327,6 +327,9 @@ export default function RootLayout() {
     let lastVoiceUrlAt = 0;
     const handleUrl = (url: string | null) => {
       if (!url) return;
+      void import('@/lib/capture-referral-from-url').then(({ captureReferralFromUrl }) =>
+        captureReferralFromUrl(url),
+      );
       if (isGoogleReturnUrl(url)) {
         const token = parseIdTokenFromUrl(url);
         if (token) deliverGoogleIdToken(token);

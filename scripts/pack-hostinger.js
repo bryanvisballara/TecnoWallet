@@ -18,6 +18,7 @@ fs.mkdirSync(staging, { recursive: true });
 fs.cpSync(dist, staging, { recursive: true });
 
 const htaccess = `DirectoryIndex index.html
+ErrorDocument 404 /index.html
 RewriteEngine On
 RewriteBase /
 RewriteRule ^index\\.html$ - [L]
@@ -233,6 +234,28 @@ ensureDirIndex('auth');
 ensureDirIndex('recaudos');
 ensureSpaRoute('cupon');
 writeMercadoPagoReturnPage();
+
+/** /r/CODE affiliate links — Hostinger often 404s before root rewrite runs. */
+function ensureReferralRoutes() {
+  const indexHtml = path.join(staging, 'index.html');
+  if (!fs.existsSync(indexHtml)) return;
+
+  const rDir = path.join(staging, 'r');
+  fs.mkdirSync(rDir, { recursive: true });
+
+  const rHtaccess = `RewriteEngine On
+RewriteBase /r/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^[A-Za-z0-9_-]+/?$ /index.html [L,QSA]
+`;
+  fs.writeFileSync(path.join(rDir, '.htaccess'), rHtaccess);
+
+  // Direct visit to /r/ (no code) still boots the app.
+  fs.copyFileSync(indexHtml, path.join(rDir, 'index.html'));
+}
+
+ensureReferralRoutes();
 
 // Backward-compat stubs for emails already sent with invite.html?token=…
 const redirectStub = `<!DOCTYPE html>

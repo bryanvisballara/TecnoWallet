@@ -470,9 +470,13 @@ export type AppCopy = {
     pricePerMonth: (price: string) => string;
     priceBeforeConfirm: string;
     billedPerMonth: (price: string) => string;
+    startFreeTrial: string;
+    trialButtonFootnote: (price: string) => string;
     trialSubordinate: string;
     subscribeContinue: string;
     checkoutBodyApple: string;
+    appleStorefrontUsHint: string;
+    applePaywallUsdGlitchHint: string;
     priceMonthly: string;
     viewPrices: string;
     hidePrices: string;
@@ -1241,11 +1245,17 @@ const es: AppCopy = {
     pricePerMonth: (price) => `Luego ${price} al mes`,
     priceBeforeConfirm: 'Precio mostrado antes de confirmar',
     billedPerMonth: (price) => `${price} / mes`,
+    startFreeTrial: 'Comenzar prueba gratis',
+    trialButtonFootnote: (price) => `3 días gratis, luego ${price} al mes`,
     trialSubordinate:
-      'Prueba gratis de 3 días. Después se renueva al precio indicado arriba.',
+      'Disfruta 3 días gratis. Después se renueva al precio del botón hasta que canceles.',
     subscribeContinue: 'Continuar con suscripción',
     checkoutBodyApple:
       'Elige Plus o Business. Apple muestra el precio en la moneda de tu cuenta de App Store al confirmar.',
+    appleStorefrontUsHint:
+      'Tu cuenta de App Store está en Estados Unidos (US$). Para pagar en pesos colombianos, usa una Apple ID con país/región Colombia.',
+    applePaywallUsdGlitchHint:
+      'Tu App Store es Colombia: el cargo es en pesos (COP). Toca Continuar y usa el monto que muestra Apple — a veces el SDK devuelve US$9,99 aquí por error.',
     priceMonthly: 'Precio mensual',
     viewPrices: 'Ver precios',
     hidePrices: 'Ocultar precios',
@@ -1275,7 +1285,7 @@ const es: AppCopy = {
     restoreEmpty: 'No encontramos una suscripción activa para restaurar.',
     restoreFailed: 'No pudimos restaurar tus compras.',
     legal:
-      '3 días de prueba gratis. Después se cobra automáticamente Plus o Business, según lo que elijas, con tu cuenta de Apple. La suscripción se renueva cada mes hasta que la canceles en Ajustes de Apple.',
+      'Disfruta 3 días gratis. Después, se renovará automáticamente al precio mensual indicado arriba (Plus o Business, según elijas), con cargo a tu cuenta de Apple, hasta que canceles en Ajustes → Apple ID → Suscripciones.',
     terms: 'Términos',
     privacy: 'Privacidad',
   },
@@ -2087,11 +2097,17 @@ const en: AppCopy = {
     pricePerMonth: (price) => `Then ${price} / month`,
     priceBeforeConfirm: 'Price shown before you confirm',
     billedPerMonth: (price) => `${price} / month`,
+    startFreeTrial: 'Start free trial',
+    trialButtonFootnote: (price) => `3 days free, then ${price}/month`,
     trialSubordinate:
-      '3-day free trial. Then auto-renews at the price above.',
+      'Enjoy 3 free days. Then renews at the button price until you cancel.',
     subscribeContinue: 'Continue with subscription',
     checkoutBodyApple:
       'Choose Plus or Business. Apple shows the price in your App Store account currency when you confirm.',
+    appleStorefrontUsHint:
+      'Your App Store account is set to the United States (USD). To pay in Colombian pesos, use an Apple ID with country/region Colombia.',
+    applePaywallUsdGlitchHint:
+      'Your App Store region is Colombia, so you are charged in COP. Tap Continue and use Apple’s amount — the SDK sometimes shows US$9.99 here by mistake.',
     priceMonthly: 'Monthly price',
     viewPrices: 'View prices',
     hidePrices: 'Hide prices',
@@ -2119,7 +2135,7 @@ const en: AppCopy = {
     restoreEmpty: 'We couldn’t find an active subscription to restore.',
     restoreFailed: 'We couldn’t restore your purchases.',
     legal:
-      '3-day free trial. After that, Plus or Business is charged automatically based on what you chose, through your Apple account. The subscription renews every month until you cancel in Apple Settings.',
+      'Enjoy 3 free days. After that, your plan (Plus or Business) renews automatically each month at the price shown above, billed to your Apple account, until you cancel in Settings → Apple ID → Subscriptions.',
     terms: 'Terms',
     privacy: 'Privacy',
   },

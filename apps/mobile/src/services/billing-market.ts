@@ -38,6 +38,8 @@ function guessCountryFromTimezone(): string | null {
 
 /** Device region beats API IP geolocation (Colombian users often resolve as US on Render). */
 export function guessDeviceCountryCode(): string | null {
+  const fromTimezone = guessCountryFromTimezone();
+
   if (Platform.OS === 'ios') {
     const settings = NativeModules.SettingsManager?.settings as
       | { AppleLocale?: string; AppleLanguages?: string[] }
@@ -45,19 +47,26 @@ export function guessDeviceCountryCode(): string | null {
     const fromApple =
       countryFromLocaleTag(settings?.AppleLocale) ??
       countryFromLocaleTag(settings?.AppleLanguages?.[0]);
-    if (fromApple) return fromApple;
+    if (fromApple) {
+      if (fromTimezone === 'CO' && fromApple === 'US') return 'CO';
+      return fromApple;
+    }
   }
 
   try {
     const fromIntl = countryFromLocaleTag(
       Intl.DateTimeFormat().resolvedOptions().locale,
     );
-    if (fromIntl) return fromIntl;
+    if (fromIntl) {
+      // English UI in Colombia often resolves as en-US; timezone is more reliable.
+      if (fromTimezone === 'CO' && fromIntl === 'US') return 'CO';
+      return fromIntl;
+    }
   } catch {
     // ignore
   }
 
-  return guessCountryFromTimezone();
+  return fromTimezone;
 }
 
 function resolveBillingMarketSnapshot(countryCode?: string | null) {
@@ -87,8 +96,8 @@ export async function loadBillingMarket() {
   try {
     const remote = await fetchBillingMarket();
     const country =
-      storefrontCountry ??
       deviceCountry ??
+      storefrontCountry ??
       remote.countryCode ??
       guessCountryFromTimezone();
     const resolved = billingMarketSnapshot(country);

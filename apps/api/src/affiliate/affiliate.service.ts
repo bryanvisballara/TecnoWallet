@@ -189,6 +189,29 @@ export class AffiliateService implements OnModuleInit {
     }
   }
 
+  /** Fallback when the user registered in the native app after a web lead (email match). */
+  async tryClaimFromCouponLeadEmail(userId: string, email: string) {
+    this.assertUserId(userId);
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return { claimed: false as const };
+
+    const existing = await this.attributions.findOne({ userId }).lean();
+    if (existing) return { claimed: false as const };
+
+    const lead = await this.couponLeads
+      .findOne({ email: normalizedEmail })
+      .sort({ createdAt: -1 })
+      .lean();
+    if (!lead?.code?.trim()) return { claimed: false as const };
+
+    try {
+      await this.claim(userId, { code: lead.code.trim().toUpperCase() });
+      return { claimed: true as const };
+    } catch {
+      return { claimed: false as const };
+    }
+  }
+
   async claim(
     userId: string,
     input: { code: string; clickId?: string; branchClickId?: string },
