@@ -3,7 +3,6 @@ import branch, { type BranchParams } from 'react-native-branch';
 import { claimAffiliate } from './affiliate-api';
 import { localStorage, tokenStorage } from './persistence';
 import { useAffiliateStore } from '@/store/affiliate';
-import { affiliateProgramEnabled, usePlusStore } from '@/store/plus';
 
 type PendingReferral = {
   code: string;
@@ -21,7 +20,6 @@ function textParam(params: BranchParams, key: string) {
 }
 
 async function handleParams(params: BranchParams) {
-  if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) return;
   if (!params['+clicked_branch_link']) return;
   const code =
     textParam(params, 'affiliate_code') ??
@@ -57,7 +55,6 @@ export async function clearBranchIdentity() {
 }
 
 export async function storeManualAffiliateCode(code: string) {
-  if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) return;
   const pending: PendingReferral = {
     code: code.trim().toUpperCase(),
     source: 'manual',
@@ -66,7 +63,6 @@ export async function storeManualAffiliateCode(code: string) {
 }
 
 export async function storeWebAffiliateReferral(code: string, clickId?: string) {
-  if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) return null;
   const pending: PendingReferral = {
     code: code.trim().toUpperCase(),
     clickId,
@@ -86,7 +82,6 @@ export async function peekPendingAffiliateCode() {
 }
 
 export async function claimPendingAffiliate(options?: { allowManual?: boolean }) {
-  if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) return null;
   if (!(await tokenStorage.get())) return null;
   const pending = await localStorage.get<PendingReferral | null>(
     PENDING_KEY,

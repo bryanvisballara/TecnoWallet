@@ -75,8 +75,15 @@ export const currencies: CurrencyOption[] = [
 
 const byCode = new Map(currencies.map((item) => [item.code, item]));
 
-export function currencyLabel(code: string) {
+export function currencyLabel(code: string, locale = 'es') {
   if (code.toUpperCase() === 'USDC') return 'USD Coin';
+  try {
+    const intlLocale = locale === 'es' ? 'es' : 'en';
+    const name = new Intl.DisplayNames([intlLocale], { type: 'currency' }).of(code.toUpperCase());
+    if (name) return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch {
+    /* ignore missing ICU data */
+  }
   return byCode.get(code)?.name ?? code;
 }
 

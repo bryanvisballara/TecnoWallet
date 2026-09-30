@@ -113,12 +113,15 @@ export default function MoreScreen() {
   const filteredCurrencies = useMemo(() => {
     const query = currencyQuery.trim().toLowerCase();
     if (!query) return currencies;
-    return currencies.filter(
-      (item) =>
+    return currencies.filter((item) => {
+      const localized = currencyLabel(item.code, locale).toLowerCase();
+      return (
         item.code.toLowerCase().includes(query) ||
-        item.name.toLowerCase().includes(query),
-    );
-  }, [currencyQuery]);
+        item.name.toLowerCase().includes(query) ||
+        localized.includes(query)
+      );
+    });
+  }, [currencyQuery, locale]);
 
   const openItem = (slug: string) => {
     if (slug === 'admin') {
@@ -222,8 +225,8 @@ export default function MoreScreen() {
       return {
         subtitle:
           locale === 'es'
-            ? `${currencyLabel(activeCurrency)} · libro ${ledger?.name ?? 'activo'}`
-            : `${currencyLabel(activeCurrency)} · book ${ledger?.name ?? 'active'}`,
+            ? `${currencyLabel(activeCurrency, locale)} · libro ${ledger?.name ?? 'activo'}`
+            : `${currencyLabel(activeCurrency, locale)} · book ${ledger?.name ?? 'active'}`,
         badge: activeCurrency,
       };
     }
@@ -743,7 +746,9 @@ export default function MoreScreen() {
                       {item.code}
                     </Text>
                     <View style={styles.copy}>
-                      <Text style={[styles.menuTitle, { color: theme.text }]}>{item.name}</Text>
+                      <Text style={[styles.menuTitle, { color: theme.text }]}>
+                        {currencyLabel(item.code, locale)}
+                      </Text>
                     </View>
                     {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
                   </ScalePressable>

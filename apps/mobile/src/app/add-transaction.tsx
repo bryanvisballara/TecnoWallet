@@ -11,6 +11,7 @@ import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, PrimaryButton, ScalePressable, useAppTheme } from '@/components/ui';
 import { getActiveMoneyCurrency, money } from '@/data/demo';
 import { toDateKey } from '@/data/calendar';
+import { displayLedgerName, displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import { isLiquidAccount } from '@/lib/accounts';
 import {
   defaultNeedWant,
@@ -63,6 +64,7 @@ export default function AddTransactionScreen() {
   const editId = Array.isArray(params.id) ? params.id[0] : params.id;
   const isEditing = Boolean(editId?.trim());
   const locale = useLanguageStore((state) => state.locale);
+  const copy = useAppCopy();
   const profile = useAuthStore((state) => state.profile);
   const { accounts, envelopes, ledger } = useActiveLedger();
   const transactions = useFinanceStore((state) => state.transactions);
@@ -207,8 +209,8 @@ export default function AddTransactionScreen() {
     setEnvelopeId(envelopeOptions[0].id);
   }, [envelopeOptions, envelopeId, envelopeIdParam]);
 
-  const accountLabel =
-    type === 'income' ? '¿A qué cuenta ingresó?' : '¿De qué cuenta salió?';
+  const ledgerLabel = displayLedgerName(ledger?.name ?? copy.ledger.fallback, locale);
+  const accountLabel = type === 'income' ? copy.tx.accountIn : copy.tx.accountOut;
 
   const pickReceipt = async (camera = false) => {
     const result = camera
@@ -222,28 +224,28 @@ export default function AddTransactionScreen() {
     setFormError('');
     const parsed = Number(amount.replace(',', '.'));
     if (!title.trim() || !Number.isFinite(parsed) || parsed <= 0) {
-      notifyUser('Faltan datos', 'Agrega un concepto y un importe válido.');
+      notifyUser(copy.tx.missingDataTitle, copy.tx.missingDataBody);
       return;
     }
     if (!selectedEnvelope) {
       notifyUser(
-        'Falta un sobre',
-        `Crea un sobre de ${type === 'income' ? 'ingresos' : 'gastos'} en ${ledger?.name ?? 'este libro'} para clasificar este movimiento.`,
+        copy.tx.missingEnvelopeTitle,
+        copy.tx.missingEnvelopeBody(
+          type === 'income' ? copy.tx.kindIncome : copy.tx.kindExpense,
+          displayLedgerName(ledger?.name ?? copy.ledger.fallback, locale),
+        ),
       );
       return;
     }
     if (!selectedAccount) {
       notifyUser(
-        'Falta una cuenta',
-        `Crea una cuenta en el libro ${ledger?.name ?? ''} para registrar este movimiento.`,
+        copy.tx.missingAccountTitle,
+        copy.tx.missingAccountBody(displayLedgerName(ledger?.name ?? '', locale)),
       );
       return;
     }
     if (type === 'expense' && !needWant) {
-      notifyUser(
-        'Tipo de gasto',
-        'Elige si es necesidad, deseo o no aplica antes de guardar.',
-      );
+      notifyUser(copy.tx.needWantTitle, copy.tx.needWantBody);
       return;
     }
     setSaving(true);
@@ -286,8 +288,8 @@ export default function AddTransactionScreen() {
       const message =
         error instanceof Error && error.message.trim()
           ? error.message
-          : 'No se pudo guardar el movimiento. Inténtalo de nuevo.';
-      notifyUser('No se pudo guardar', message);
+          : copy.tx.saveFailedBody;
+      notifyUser(copy.tx.saveFailedTitle, message);
     } finally {
       setSaving(false);
     }
@@ -310,46 +312,46 @@ export default function AddTransactionScreen() {
         const message =
           error instanceof Error && error.message.trim()
             ? error.message
-            : 'No se pudo anular el movimiento.';
-        notifyUser('No se pudo anular', message);
+            : copy.tx.voidFailedBody;
+        notifyUser(copy.tx.voidFailedTitle, message);
       } finally {
         setSaving(false);
       }
     };
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      if (window.confirm('¿Anular este movimiento? Se quitará del libro.')) {
+      if (window.confirm(copy.tx.voidConfirmBody)) {
         void run();
       }
       return;
     }
-    Alert.alert('Anular movimiento', 'Se quitará del libro. ¿Continuar?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Anular', style: 'destructive', onPress: () => void run() },
+    Alert.alert(copy.tx.voidConfirmTitle, copy.tx.voidConfirmBody, [
+      { text: copy.common.cancel, style: 'cancel' },
+      { text: copy.tx.voidAction, style: 'destructive', onPress: () => void run() },
     ]);
   };
 
   return (
     <SheetScreen fallback="/(tabs)/movimientos">
       <View style={styles.flex}>
-        <View style={styles.header}><Pressable onPress={() => safeGoBack('/(tabs)/movimientos')}><Text style={[styles.cancel, { color: theme.primary }]}>Cancelar</Text></Pressable><Text style={[styles.headerTitle, { color: theme.text }]}>{isEditing ? 'Editar' : 'Nuevo'} · {ledger.name}</Text><View style={styles.headerSpacer} /></View>
+        <View style={styles.header}><Pressable onPress={() => safeGoBack('/(tabs)/movimientos')}><Text style={[styles.cancel, { color: theme.primary }]}>{copy.common.cancel}</Text></Pressable><Text style={[styles.headerTitle, { color: theme.text }]}>{isEditing ? copy.tx.editTitle(ledgerLabel) : copy.tx.newTitle(ledgerLabel)}</Text><View style={styles.headerSpacer} /></View>
         {isEditing && !existing && hydratedEdit ? (
           <View style={styles.content}>
             <Text style={[styles.formError, { color: theme.danger }]}>
-              Este movimiento ya no está disponible (puede haberse anulado).
+              {copy.tx.gone}
             </Text>
             <PrimaryButton onPress={() => safeGoBack('/(tabs)/movimientos')}>
-              Volver
+              {copy.common.back}
             </PrimaryButton>
           </View>
         ) : (
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           {isEditing ? (
             <Text style={[styles.hint, { color: theme.muted, marginBottom: -6 }]}>
-              Al guardar se corrige el movimiento original en el libro.
+              {copy.tx.editHint}
             </Text>
           ) : null}
           <View style={[styles.segmented, { backgroundColor: theme.surfaceSecondary }]}>
-            {([['expense', 'Gasto'], ['income', 'Ingreso']] as const).map(([value, label]) => (
+            {([['expense', copy.tx.expense], ['income', copy.tx.income]] as const).map(([value, label]) => (
               <Pressable
                 key={value}
                 onPress={() => {
@@ -363,13 +365,13 @@ export default function AddTransactionScreen() {
               </Pressable>
             ))}
           </View>
-          <View style={styles.amountBlock}><Text style={[styles.currency, { color: theme.muted }]}>{(ledger?.baseCurrency || getActiveMoneyCurrency() || 'USD').toUpperCase()}</Text><TextInput value={amount} onChangeText={(value) => { setAmount(value); if (formError) setFormError(''); }} onFocus={focusScrollToEnd(scrollRef, 120)} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.border} style={[styles.amountInput, { color: type === 'income' ? theme.success : theme.text }]} accessibilityLabel="Importe" /></View>
-          <Field label="Concepto"><TextInput value={title} onChangeText={(value) => { setTitle(value); if (formError) setFormError(''); }} onFocus={focusScrollToEnd(scrollRef)} placeholder="¿En qué fue?" placeholderTextColor={theme.muted} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field>
+          <View style={styles.amountBlock}><Text style={[styles.currency, { color: theme.muted }]}>{(ledger?.baseCurrency || getActiveMoneyCurrency() || 'USD').toUpperCase()}</Text><TextInput value={amount} onChangeText={(value) => { setAmount(value); if (formError) setFormError(''); }} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.border} style={[styles.amountInput, { color: type === 'income' ? theme.success : theme.text }]} accessibilityLabel={copy.tx.amountA11y} /></View>
+          <Field label={copy.tx.concept}><TextInput value={title} onChangeText={(value) => { setTitle(value); if (formError) setFormError(''); }} placeholder={copy.tx.conceptPlaceholder} placeholderTextColor={theme.muted} style={[styles.input, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]} /></Field>
           <Field
             label={
               type === 'income'
-                ? 'Sobre de ingresos'
-                : 'Sobre de gastos o ahorros'
+                ? copy.tx.envelopeIncome
+                : copy.tx.envelopeExpense
             }>
             {envelopeOptions.length ? (
               <View style={styles.chips}>
@@ -388,7 +390,9 @@ export default function AddTransactionScreen() {
                       ]}>
                       <AppIcon name={item.icon} color={selected ? '#FFFFFF' : item.color} size={20} />
                       <Text style={[styles.chipText, { color: selected ? '#FFFFFF' : theme.muted }]}>
-                        {item.kind === 'savings' ? `${item.name} · ahorro` : item.name}
+                        {item.kind === 'savings'
+                          ? `${displayStoredName(item.name, locale)} · ${copy.tx.savings}`
+                          : displayStoredName(item.name, locale)}
                       </Text>
                     </Pressable>
                   );
@@ -401,21 +405,23 @@ export default function AddTransactionScreen() {
                 }
                 style={[styles.emptyAccounts, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
                 <Text style={[styles.accountName, { color: theme.text }]}>
-                  No hay sobres de {type === 'income' ? 'ingresos' : 'gastos'}
+                  {copy.tx.noEnvelopes(
+                    type === 'income' ? copy.tx.kindIncome : copy.tx.kindExpense,
+                  )}
                 </Text>
                 <Text style={[styles.accountMeta, { color: theme.muted }]}>
-                  Toca para crear uno en {ledger.name}.
+                  {copy.tx.tapToCreateIn(ledgerLabel)}
                 </Text>
               </Pressable>
             )}
           </Field>
           {type === 'expense' ? (
-            <Field label="Tipo de gasto">
+            <Field label={copy.tx.expenseType}>
               <View style={styles.chips}>
                 {(
                   [
-                    { key: 'need' as const, label: 'Necesidad', icon: 'cart.fill' },
-                    { key: 'want' as const, label: 'Deseo', icon: 'heart.fill' },
+                    { key: 'need' as const, label: copy.tx.need, icon: 'cart.fill' },
+                    { key: 'want' as const, label: copy.tx.want, icon: 'heart.fill' },
                   ] as const
                 ).map((item) => {
                   const selected = needWant === item.key;
@@ -470,10 +476,10 @@ export default function AddTransactionScreen() {
                 />
                 <View style={styles.flex}>
                   <Text style={[styles.accountName, { color: theme.text }]}>
-                    No aplica
+                    {copy.tx.na}
                   </Text>
                   <Text style={[styles.accountMeta, { color: theme.muted }]}>
-                    Márcalo si es un gasto de negocio o no es deseo/necesidad
+                    {copy.tx.naHint}
                   </Text>
                 </View>
               </Pressable>
@@ -488,7 +494,9 @@ export default function AddTransactionScreen() {
                     <Pressable
                       key={item.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`Seleccionar cuenta ${item.name}`}
+                      accessibilityLabel={copy.tx.selectAccountA11y(
+                        displayStoredName(item.name, locale),
+                      )}
                       onPress={() => setAccountId(item.id)}
                       style={[
                         styles.accountOption,
@@ -501,9 +509,11 @@ export default function AddTransactionScreen() {
                         <AppIcon name={item.icon} color={item.color} size={18} />
                       </View>
                       <View style={styles.accountCopy}>
-                        <Text style={[styles.accountName, { color: theme.text }]}>{item.name}</Text>
+                        <Text style={[styles.accountName, { color: theme.text }]}>
+                          {displayStoredName(item.name, locale)}
+                        </Text>
                         <Text style={[styles.accountMeta, { color: theme.muted }]}>
-                          {item.kind} · {money(item.balance, true)}
+                          {displayStoredName(item.kind, locale)} · {money(item.balance, true)}
                         </Text>
                       </View>
                       {selected ? <AppIcon name="checkmark" color={theme.primary} size={18} /> : null}
@@ -516,28 +526,27 @@ export default function AddTransactionScreen() {
                 onPress={() => router.push('/(tabs)/mis-cuentas')}
                 style={[styles.emptyAccounts, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
                 <Text style={[styles.accountName, { color: theme.text }]}>
-                  Este libro aún no tiene cuentas líquidas
+                  {copy.tx.noLiquid}
                 </Text>
                 <Text style={[styles.accountMeta, { color: theme.muted }]}>
-                  Crea una cuenta (corriente, ahorro o efectivo) en {ledger.name}. Los bienes y
-                  deudas no sirven para movimientos.
+                  {copy.tx.noLiquidHint(ledgerLabel)}
                 </Text>
               </Pressable>
             )}
           </Field>
-          <Field label="Fecha">
+          <Field label={copy.tx.date}>
             <View style={styles.dateBlock}>
               <AppDateField
                 value={dateKey}
                 onChange={setDateKey}
-                placeholder={locale === 'es' ? 'Elegir fecha' : 'Pick a date'}
+                placeholder={copy.tx.pickDate}
               />
               <View style={styles.dateChips}>
                 {(
                   [
                     {
                       key: toDateKey(new Date()),
-                      label: locale === 'es' ? 'Hoy' : 'Today',
+                      label: copy.tx.today,
                     },
                     {
                       key: (() => {
@@ -545,7 +554,7 @@ export default function AddTransactionScreen() {
                         d.setDate(d.getDate() - 1);
                         return toDateKey(d);
                       })(),
-                      label: locale === 'es' ? 'Ayer' : 'Yesterday',
+                      label: copy.tx.yesterday,
                     },
                   ] as const
                 ).map((chip) => {
@@ -577,7 +586,7 @@ export default function AddTransactionScreen() {
               </View>
             </View>
           </Field>
-          <Field label="Nota">
+          <Field label={copy.tx.note}>
             <TextInput
               value={note}
               onChangeText={(value) => {
@@ -586,7 +595,7 @@ export default function AddTransactionScreen() {
               }}
               onFocus={focusScrollToEnd(scrollRef, 120)}
               multiline
-              placeholder="Opcional"
+              placeholder={copy.common.optional}
               placeholderTextColor={theme.muted}
               style={[
                 styles.input,
@@ -595,7 +604,7 @@ export default function AddTransactionScreen() {
               ]}
             />
           </Field>
-          <Field label="Etiquetas">
+          <Field label={copy.tx.tags}>
             <TextInput
               value={tags}
               onChangeText={(value) => {
@@ -603,7 +612,7 @@ export default function AddTransactionScreen() {
                 if (formError) setFormError('');
               }}
               onFocus={focusScrollToEnd(scrollRef, 120)}
-              placeholder="Opcional · hogar, compartido…"
+              placeholder={copy.tx.tagsPlaceholder}
               placeholderTextColor={theme.muted}
               style={[
                 styles.input,
@@ -611,8 +620,8 @@ export default function AddTransactionScreen() {
               ]}
             />
           </Field>
-          <View style={[styles.switchRow, { backgroundColor: theme.surface, borderColor: theme.border }]}><View style={styles.flex}><Text style={[styles.fieldLabel, { color: theme.text }]}>Movimiento recurrente</Text><Text style={[styles.hint, { color: theme.muted }]}>Repetir y recibir recordatorios</Text></View><Switch value={recurring} onValueChange={setRecurring} trackColor={{ true: theme.primary }} /></View>
-          <Field label="Recibo"><View style={styles.receiptRow}><ScalePressable style={[styles.receiptButton, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => void pickReceipt(true)}><AppIcon name="camera" color={theme.primary} /><Text style={[styles.receiptText, { color: theme.text }]}>Tomar foto</Text></ScalePressable><ScalePressable style={[styles.receiptButton, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => void pickReceipt()}><AppIcon name="photo.fill" color={theme.primary} /><Text style={[styles.receiptText, { color: theme.text }]}>{receipt ? 'Adjuntado ✓' : 'Elegir foto'}</Text></ScalePressable></View></Field>
+          <View style={[styles.switchRow, { backgroundColor: theme.surface, borderColor: theme.border }]}><View style={styles.flex}><Text style={[styles.fieldLabel, { color: theme.text }]}>{copy.tx.recurring}</Text><Text style={[styles.hint, { color: theme.muted }]}>{copy.tx.recurringHint}</Text></View><Switch value={recurring} onValueChange={setRecurring} trackColor={{ true: theme.primary }} /></View>
+          <Field label={copy.tx.receipt}><View style={styles.receiptRow}><ScalePressable style={[styles.receiptButton, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => void pickReceipt(true)}><AppIcon name="camera" color={theme.primary} /><Text style={[styles.receiptText, { color: theme.text }]}>{copy.tx.takePhoto}</Text></ScalePressable><ScalePressable style={[styles.receiptButton, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => void pickReceipt()}><AppIcon name="photo.fill" color={theme.primary} /><Text style={[styles.receiptText, { color: theme.text }]}>{receipt ? copy.tx.attached : copy.tx.pickPhoto}</Text></ScalePressable></View></Field>
           {formError ? (
             <Text style={[styles.formError, { color: theme.danger }]}>{formError}</Text>
           ) : null}
@@ -620,10 +629,10 @@ export default function AddTransactionScreen() {
             icon="checkmark"
             onPress={saving ? undefined : () => void submit()}>
             {saving
-              ? 'Guardando…'
+              ? copy.common.loading
               : isEditing
-                ? 'Guardar cambios'
-                : 'Guardar movimiento'}
+                ? copy.tx.saveChanges
+                : copy.tx.saveMovement}
           </PrimaryButton>
           {isEditing ? (
             <Pressable
@@ -631,11 +640,11 @@ export default function AddTransactionScreen() {
               onPress={confirmVoid}
               style={[styles.voidButton, { borderColor: theme.danger }]}>
               <Text style={[styles.voidText, { color: theme.danger }]}>
-                Anular movimiento
+                {copy.tx.voidMovement}
               </Text>
             </Pressable>
           ) : null}
-          <Text style={[styles.offline, { color: theme.muted }]}>Sin conexión se guardará y sincronizará después.</Text>
+          <Text style={[styles.offline, { color: theme.muted }]}>{copy.tx.offline}</Text>
         </FormScrollView>
         )}
       </View>

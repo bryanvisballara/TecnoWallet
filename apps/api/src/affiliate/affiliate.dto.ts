@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsEmail,
   IsEnum,
   IsOptional,
   IsString,
@@ -56,6 +57,40 @@ export class EnrollAffiliateDto {
   @Length(3, 24)
   @Matches(/^[A-Z0-9_-]+$/)
   code?: string;
+}
+
+export class CouponLeadDto {
+  @IsString()
+  @Length(2, 80)
+  name!: string;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsEmail()
+  @MaxLength(160)
+  email!: string;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsString()
+  @Length(2, 2)
+  @Matches(/^[A-Z]{2}$/)
+  country!: string;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsString()
+  @Length(2, 8)
+  locale!: string;
+
+  @Transform(normalizeCode)
+  @IsString()
+  @Length(2, 40)
+  @Matches(/^[A-Z0-9_-]+$/)
+  code!: string;
 }
 
 export class UpdateAffiliatePayoutDto {

@@ -23,6 +23,7 @@ export function AppTutorialCoach({
   anchor?: 'bottom' | 'top';
 }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
 
   if (!visible) return null;
 
@@ -31,7 +32,7 @@ export function AppTutorialCoach({
       <View style={styles.root}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Cerrar tutorial"
+          accessibilityLabel={copy.tutorial.skip}
           style={styles.backdrop}
           onPress={onDismiss}
         />
@@ -61,7 +62,7 @@ export function AppTutorialCoach({
             {onDismiss ? (
               <Pressable onPress={onDismiss} hitSlop={8} style={styles.skip}>
                 <Text style={[styles.skipText, { color: theme.muted }]}>
-                  Omitir
+                  {copy.tutorial.skip}
                 </Text>
               </Pressable>
             ) : null}

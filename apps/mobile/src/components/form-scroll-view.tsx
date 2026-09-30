@@ -32,7 +32,7 @@ export const FormScrollView = forwardRef<ScrollView, FormScrollViewProps>(
   },
 );
 
-/** Call from TextInput onFocus so amount fields scroll into view. */
+/** Call from TextInput onFocus only on fields near the bottom of a long form. */
 export function focusScrollToEnd(scrollRef: { current: ScrollView | null }, delayMs = 80) {
   return () => {
     setTimeout(() => {

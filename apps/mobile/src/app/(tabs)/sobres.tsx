@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, Pill, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Envelope } from '@/data/demo';
-import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
+import { displayLedgerName, displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import { filterTransactionsByMonth } from '@/lib/dates';
 import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
@@ -66,7 +66,7 @@ export default function EnvelopesScreen() {
 
       <EnvelopeSection
         title={copy.envelopes.incomeEnvelopes}
-        subtitle={`${incomeEnvelopes.length} activos`}
+        subtitle={copy.envelopes.activeCount(incomeEnvelopes.length)}
         badge={copy.envelopes.badgeIn}
         badgeTone="green"
         items={incomeEnvelopes}
@@ -75,7 +75,7 @@ export default function EnvelopesScreen() {
 
       <EnvelopeSection
         title={copy.envelopes.expenseEnvelopes}
-        subtitle={`${expenseEnvelopes.length} activos`}
+        subtitle={copy.envelopes.activeCount(expenseEnvelopes.length)}
         badge={copy.envelopes.badgeOut}
         badgeTone="orange"
         items={expenseEnvelopes}
@@ -86,7 +86,7 @@ export default function EnvelopesScreen() {
         title={copy.envelopes.savingsEnvelopes}
         subtitle={
           savingsEnvelopes.length
-            ? `${savingsEnvelopes.length} vinculados a metas`
+            ? copy.envelopes.linkedGoals(savingsEnvelopes.length)
             : copy.envelopes.createFromGoals
         }
         badge={copy.envelopes.badgeSave}
@@ -118,6 +118,7 @@ function EnvelopeSection({
 }) {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   return (
     <View style={styles.sectionBlock}>
       <View style={styles.sectionHeader}>
@@ -128,7 +129,7 @@ function EnvelopeSection({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
-                mode === 'income' ? 'Agregar sobre de ingresos' : 'Agregar sobre de gastos'
+                mode === 'income' ? copy.envelopes.addIncomeA11y : copy.envelopes.addExpenseA11y
               }
               onPress={() =>
                 withPaidLedgerAccess(() =>
@@ -168,18 +169,19 @@ function EnvelopeSection({
                   : copy.envelopes.spent;
           const amountValue =
             mode === 'income' || mode === 'savings' || !hasBudget ? envelope.spent : remaining;
+          const displayName = displayStoredName(envelope.name, locale);
           const progressLabel =
             mode === 'income'
-              ? `${envelope.name}: ${percent} por ciento recibido`
+              ? `${displayName}: ${percent} ${copy.envelopes.received}`
               : mode === 'savings'
-                ? `${envelope.name}: ${percent} por ciento ahorrado`
-                : `${envelope.name}: ${percent} por ciento usado`;
+                ? `${displayName}: ${percent} ${copy.envelopes.saved}`
+                : `${displayName}: ${percent} ${copy.envelopes.spent}`;
 
           return (
             <ScalePressable
               key={envelope.id}
               accessibilityRole="button"
-              accessibilityLabel={`${envelope.name}, ${money(amountValue)} ${amountLabel}`}
+              accessibilityLabel={`${displayName}, ${money(amountValue)} ${amountLabel}`}
               onPress={() => router.push({ pathname: '/(tabs)/envelope/[id]', params: { id: envelope.id } })}>
               <Card style={styles.envelopeCard} delay={index * 35}>
                 <View style={styles.envelopeTop}>
@@ -190,7 +192,7 @@ function EnvelopeSection({
                   <View style={styles.envelopeMeta}>
                     <View style={styles.nameRow}>
                       <Text numberOfLines={1} style={[styles.envelopeName, { color: theme.text }]}>
-                        {envelope.name}
+                        {displayName}
                       </Text>
                       {hasBudget && envelope.rollover ? (
                         <AppIcon name="repeat" color={theme.muted} size={14} />
@@ -199,11 +201,11 @@ function EnvelopeSection({
                     <Text style={[styles.small, { color: theme.muted }]}>
                       {hasBudget
                         ? mode === 'income'
-                          ? `${money(envelope.spent)} de ${money(envelope.budget)} esperados`
+                          ? copy.envelopes.ofExpected(money(envelope.spent), money(envelope.budget))
                           : mode === 'savings'
-                            ? `${money(envelope.spent)} de ${money(envelope.budget)} meta`
-                            : `${money(envelope.spent)} de ${money(envelope.budget)}`
-                        : `${money(envelope.spent)} registrados · Sin presupuesto`}
+                            ? copy.envelopes.ofGoal(money(envelope.spent), money(envelope.budget))
+                            : copy.envelopes.ofBudget(money(envelope.spent), money(envelope.budget))
+                        : copy.envelopes.recordedNoBudget(money(envelope.spent))}
                     </Text>
                   </View>
 
@@ -226,14 +228,14 @@ function EnvelopeSection({
                         ? `${percent}% ${copy.envelopes.received}`
                         : mode === 'savings'
                           ? `${percent}% ${copy.envelopes.saved}`
-                          : `${percent}% usado`
+                          : copy.envelopes.pctUsed(percent)
                       : copy.envelopes.noMonthlyLimit}
                   </Text>
                   {warning ? (
                     <Pill tone="orange">{copy.envelopes.almostEmpty}</Pill>
                   ) : (
                     <Text style={[styles.rule, { color: theme.muted }]} numberOfLines={1}>
-                      {envelope.rule}
+                      {displayStoredName(envelope.rule, locale)}
                     </Text>
                   )}
                 </View>

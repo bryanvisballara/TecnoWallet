@@ -4,6 +4,7 @@ import Svg, { Circle, G } from 'react-native-svg';
 
 import { money, type Transaction } from '@/data/demo';
 import { parseTransactionDate } from '@/lib/dates';
+import { displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import { useLanguageStore } from '@/store/language';
 import { AppIcon, Pill, useAppTheme } from './ui';
 
@@ -149,11 +150,7 @@ export function buildWeeklySpend(
   }));
 }
 
-const MODE_OPTIONS: Array<{ key: WeeklyMode; label: string }> = [
-  { key: 'expenses', label: 'Gastos' },
-  { key: 'income', label: 'Ingresos' },
-  { key: 'both', label: 'Ambos' },
-];
+const MODE_KEYS: WeeklyMode[] = ['expenses', 'income', 'both'];
 
 export function WeeklyBars({
   transactions = [],
@@ -164,6 +161,7 @@ export function WeeklyBars({
   mode: modeProp,
   onModeChange,
   hideModeRow = false,
+  currency,
 }: {
   transactions?: Transaction[];
   resetKey?: string;
@@ -173,9 +171,17 @@ export function WeeklyBars({
   mode?: WeeklyMode;
   onModeChange?: (value: WeeklyMode) => void;
   hideModeRow?: boolean;
+  currency?: string;
 }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
+  const formatMoney = (value: number, compact = false) => money(value, compact, currency);
+  const modeLabels: Record<WeeklyMode, string> = {
+    expenses: copy.home.expenses,
+    income: copy.home.income,
+    both: copy.home.both,
+  };
   const [modeState, setModeState] = useState<WeeklyMode>('expenses');
   const mode = modeProp ?? modeState;
   const setMode = (value: WeeklyMode) => {
@@ -199,9 +205,9 @@ export function WeeklyBars({
     [transactions, weekAnchor, locale],
   );
   const weekLabel = useMemo(() => {
-    if (weekOffset === 0) return locale === 'es' ? 'Esta semana' : 'This week';
-    if (weekOffset === -1) return locale === 'es' ? 'Semana pasada' : 'Last week';
-    if (weekOffset === 1) return locale === 'es' ? 'Próxima semana' : 'Next week';
+    if (weekOffset === 0) return copy.home.thisWeek;
+    if (weekOffset === -1) return copy.home.lastWeek;
+    if (weekOffset === 1) return copy.home.nextWeek;
     const start = startOfWeekMonday(weekAnchor);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
@@ -210,7 +216,7 @@ export function WeeklyBars({
       month: 'short',
     });
     return `${fmt.format(start)} – ${fmt.format(end)}`;
-  }, [weekOffset, weekAnchor, locale]);
+  }, [weekOffset, weekAnchor, locale, copy.home.thisWeek, copy.home.lastWeek, copy.home.nextWeek]);
   const todayKey = (dayMetaForLocale(locale).find((item) => item.jsDay === weekAnchor.getDay())
     ?.key ?? 'L') as DaySpend['key'];
   const [selectedKey, setSelectedKey] = useState<DaySpend['key']>(todayKey);
@@ -268,14 +274,14 @@ export function WeeklyBars({
     <View style={styles.chart}>
       {hideModeRow ? null : (
         <View style={styles.modeRow}>
-          {MODE_OPTIONS.map((item) => {
-            const active = mode === item.key;
+          {MODE_KEYS.map((key) => {
+            const active = mode === key;
             return (
               <Pressable
-                key={item.key}
+                key={key}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                onPress={() => setMode(item.key)}
+                onPress={() => setMode(key)}
                 style={[
                   styles.modeChip,
                   {
@@ -284,7 +290,7 @@ export function WeeklyBars({
                   },
                 ]}>
                 <Text style={[styles.modeChipText, { color: active ? '#FFFFFF' : theme.muted }]}>
-                  {item.label}
+                  {modeLabels[key]}
                 </Text>
               </Pressable>
             );
@@ -296,7 +302,7 @@ export function WeeklyBars({
         <View style={styles.weekNav}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={locale === 'es' ? 'Semana anterior' : 'Previous week'}
+            accessibilityLabel={copy.home.prevWeekA11y}
             onPress={() => setWeekOffset((value) => value - 1)}
             hitSlop={10}
             style={[styles.weekArrow, { backgroundColor: theme.surfaceSecondary }]}>
@@ -304,11 +310,11 @@ export function WeeklyBars({
           </Pressable>
           <View style={styles.weekNavCopy}>
             <Text style={[styles.summaryLabel, { color: theme.muted }]}>{weekLabel}</Text>
-            <Text style={[styles.summaryValue, { color: theme.text }]}>{money(headerAmount)}</Text>
+            <Text style={[styles.summaryValue, { color: theme.text }]}>{formatMoney(headerAmount)}</Text>
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={locale === 'es' ? 'Semana siguiente' : 'Next week'}
+            accessibilityLabel={copy.home.nextWeekA11y}
             disabled={weekOffset >= 0}
             onPress={() => setWeekOffset((value) => Math.min(0, value + 1))}
             hitSlop={10}
@@ -338,13 +344,13 @@ export function WeeklyBars({
           }>
           {mode === 'income'
             ? totals.income > 0
-              ? 'Ingresos'
-              : 'Sin ingresos'
+              ? copy.home.income
+              : copy.home.noIncomeShort
             : mode === 'expenses'
               ? totals.expenses > 0
-                ? 'Gastos'
-                : 'Sin gastos'
-              : 'Gastos e ingresos'}
+                ? copy.home.expenses
+                : copy.home.noExpensesShort
+              : copy.home.expensesAndIncome}
         </Pill>
       </View>
 
@@ -352,18 +358,18 @@ export function WeeklyBars({
         <View style={styles.legendRow}>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: theme.danger }]} />
-            <Text style={[styles.legendText, { color: theme.muted }]}>Gastos</Text>
+            <Text style={[styles.legendText, { color: theme.muted }]}>{copy.home.expenses}</Text>
           </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
-            <Text style={[styles.legendText, { color: theme.muted }]}>Ingresos</Text>
+            <Text style={[styles.legendText, { color: theme.muted }]}>{copy.home.income}</Text>
           </View>
         </View>
       ) : null}
 
       <View
         accessible
-        accessibilityLabel="Actividad de esta semana. Toca una barra para ver el detalle."
+        accessibilityLabel={copy.home.weekChartA11y}
         style={styles.barsRow}>
         {weekDays.map((day) => {
           const active = day.key === selectedKey;
@@ -377,7 +383,7 @@ export function WeeklyBars({
                 key={day.key}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={`${day.fullLabel}, gastos ${money(day.expenseTotal)}, ingresos ${money(day.income)}`}
+                accessibilityLabel={`${day.fullLabel}, ${copy.home.expenses} ${formatMoney(day.expenseTotal)}, ${copy.home.income} ${formatMoney(day.income)}`}
                 onPress={() => setSelectedKey(day.key)}
                 style={styles.barHit}>
                 <View style={styles.barTrack}>
@@ -419,7 +425,7 @@ export function WeeklyBars({
               key={day.key}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
-              accessibilityLabel={`${day.fullLabel}, ${money(amount)}`}
+              accessibilityLabel={`${day.fullLabel}, ${formatMoney(amount)}`}
               onPress={() => setSelectedKey(day.key)}
               style={styles.barHit}>
               <View style={styles.barTrack}>
@@ -449,13 +455,13 @@ export function WeeklyBars({
             <Text style={[styles.daySubtitle, { color: theme.muted }]}>
               {selectedItems.length === 0
                 ? mode === 'income'
-                  ? 'Sin ingresos este día'
+                  ? copy.home.noIncomeThisDay
                   : mode === 'expenses'
-                    ? 'Sin gastos este día'
-                    : 'Sin movimientos este día'
+                    ? copy.home.noExpensesThisDay
+                    : copy.home.noActivityThisDay
                 : mode === 'both'
-                  ? `${selectedItems.length} movimiento${selectedItems.length === 1 ? '' : 's'}`
-                  : `${selectedItems.length} ${mode === 'income' ? 'ingreso' : 'gasto'}${selectedItems.length === 1 ? '' : 's'} · ${money(selectedAmount)}`}
+                  ? copy.home.movementCount(selectedItems.length)
+                  : `${mode === 'income' ? copy.home.incomeCount(selectedItems.length) : copy.home.expenseCount(selectedItems.length)} · ${formatMoney(selectedAmount)}`}
             </Text>
           </View>
           <Text
@@ -475,17 +481,17 @@ export function WeeklyBars({
               },
             ]}>
             {mode === 'both' && selectedAmount > 0 ? '+' : ''}
-            {money(selectedAmount)}
+            {formatMoney(selectedAmount)}
           </Text>
         </View>
 
         {mode === 'both' && (selected.income > 0 || selected.expenseTotal > 0) ? (
           <View style={styles.bothSplit}>
             <Text style={[styles.splitText, { color: theme.success }]}>
-              +{money(selected.income, true)}
+              +{formatMoney(selected.income, true)}
             </Text>
             <Text style={[styles.splitText, { color: theme.danger }]}>
-              −{money(selected.expenseTotal, true)}
+              −{formatMoney(selected.expenseTotal, true)}
             </Text>
           </View>
         ) : null}
@@ -494,11 +500,11 @@ export function WeeklyBars({
           <Text style={[styles.emptyDay, { color: theme.muted }]}>
             {emptyWeek
               ? mode === 'income'
-                ? 'Este libro aún no tiene ingresos esta semana.'
+                ? copy.home.emptyWeekIncome
                 : mode === 'expenses'
-                  ? 'Este libro aún no tiene gastos esta semana.'
-                  : 'Este libro aún no tiene movimientos esta semana.'
-              : 'No hay movimientos en este día.'}
+                  ? copy.home.emptyWeekExpenses
+                  : copy.home.emptyWeekMovements
+              : copy.home.noActivityOnThisDay}
           </Text>
         ) : (
           selectedItems.map((item, index) => (
@@ -520,8 +526,12 @@ export function WeeklyBars({
                 />
               </View>
               <View style={styles.expenseCopy}>
-                <Text style={[styles.expenseTitle, { color: theme.text }]}>{item.title}</Text>
-                <Text style={[styles.expenseCategory, { color: theme.muted }]}>{item.category}</Text>
+                <Text style={[styles.expenseTitle, { color: theme.text }]}>
+                  {displayStoredName(item.title, locale)}
+                </Text>
+                <Text style={[styles.expenseCategory, { color: theme.muted }]}>
+                  {displayStoredName(item.category, locale)}
+                </Text>
               </View>
               <Text
                 style={[
@@ -529,7 +539,7 @@ export function WeeklyBars({
                   { color: item.amount >= 0 ? theme.success : theme.text },
                 ]}>
                 {item.amount > 0 ? '+' : ''}
-                {money(item.amount)}
+                {formatMoney(item.amount)}
               </Text>
             </View>
           ))

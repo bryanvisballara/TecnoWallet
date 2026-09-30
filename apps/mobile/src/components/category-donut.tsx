@@ -3,7 +3,9 @@ import Svg, { Circle, Path } from 'react-native-svg';
 
 import type { CategorySlice } from '@/lib/activity-breakdown';
 import { moneyAmount } from '@/data/demo';
+import { displayStoredName } from '@/i18n/app-copy';
 import { useAppTheme } from '@/components/ui';
+import { useLanguageStore } from '@/store/language';
 
 const CX = 84;
 const CY = 84;
@@ -44,6 +46,7 @@ export function CategoryDonut({
   sliceA11y?: (name: string) => string;
 }) {
   const theme = useAppTheme();
+  const locale = useLanguageStore((state) => state.locale);
   const size = 168;
   const radius = 62;
   const stroke = 22;
@@ -85,7 +88,8 @@ export function CategoryDonut({
               {arcs.map((slice, index) => {
                 if (slice.sweep <= 0) return null;
                 const sliceKey = `${slice.name}-${index}`;
-                const a11y = sliceA11y?.(slice.name) ?? slice.name;
+                const sliceLabel = displayStoredName(slice.name, locale);
+                const a11y = sliceA11y?.(sliceLabel) ?? sliceLabel;
                 if (slice.sweep >= 359.5) {
                   return (
                     <Circle
@@ -140,7 +144,7 @@ export function CategoryDonut({
                 <>
                   <View style={[styles.dot, { backgroundColor: slice.color }]} />
                   <Text numberOfLines={1} style={[styles.legendName, { color: theme.text }]}>
-                    {slice.name}
+                    {displayStoredName(slice.name, locale)}
                   </Text>
                   <Text style={[styles.legendPct, { color: theme.muted }]}>
                     {Math.round(slice.pct * 100)}%

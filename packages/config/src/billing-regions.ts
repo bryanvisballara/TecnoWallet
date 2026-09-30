@@ -32,8 +32,8 @@ export const BILLING_MARKETS: readonly BillingMarket[] = [
     currency: 'COP',
     plus: { listLabel: '$9.900' },
     business: { listLabel: '$14.900' },
-    couponsEnabled: false,
-    affiliateEnabled: false,
+    couponsEnabled: true,
+    affiliateEnabled: true,
     trialDays: 3,
   },
   {

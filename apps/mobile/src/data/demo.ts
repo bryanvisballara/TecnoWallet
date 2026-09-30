@@ -165,32 +165,11 @@ export const featureGroups: Array<{ title: string; items: FeatureItem[] }> = [
   },
 ];
 
-let activeMoneyCurrency = 'USD';
-
-/** Sync display currency with the active ledger (Más → Divisa). */
-export function setActiveMoneyCurrency(code: string) {
-  const next = code.trim().toUpperCase();
-  if (/^[A-Z]{3}$/.test(next)) activeMoneyCurrency = next;
-}
-
-export function getActiveMoneyCurrency() {
-  return activeMoneyCurrency;
-}
-
-export const money = (value: number, compact = false) =>
-  new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: activeMoneyCurrency,
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-    notation: compact ? 'compact' : 'standard',
-  }).format(value);
-
-/** Amount digits only (no currency code/symbol) — use with titles that show the currency. */
-export const moneyAmount = (value: number, compact = false) =>
-  new Intl.NumberFormat('es-ES', {
-    style: 'decimal',
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-    notation: compact ? 'compact' : 'standard',
-  }).format(value);
+export {
+  getActiveMoneyCurrency,
+  getActiveMoneyLocale,
+  money,
+  moneyAmount,
+  setActiveMoneyCurrency,
+  setActiveMoneyLocale,
+} from '@/lib/money-format';

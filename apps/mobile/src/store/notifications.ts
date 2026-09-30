@@ -65,25 +65,31 @@ function activityId() {
   return `act-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function whenLabel(iso: string) {
+export function formatNotificationWhen(iso: string, locale = 'es') {
+  const tag = locale === 'es' ? 'es' : 'en';
   const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return 'Ahora';
+  if (Number.isNaN(at.getTime())) return locale === 'es' ? 'Ahora' : 'Now';
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startThat = new Date(at.getFullYear(), at.getMonth(), at.getDate());
   const dayDiff = Math.round((startToday.getTime() - startThat.getTime()) / 86_400_000);
+  const time = at.toLocaleTimeString(tag, { hour: '2-digit', minute: '2-digit' });
   if (dayDiff === 0) {
-    return `Hoy · ${at.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
+    return `${locale === 'es' ? 'Hoy' : 'Today'} · ${time}`;
   }
   if (dayDiff === 1) {
-    return `Ayer · ${at.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}`;
+    return `${locale === 'es' ? 'Ayer' : 'Yesterday'} · ${time}`;
   }
-  return at.toLocaleString('es', {
+  return at.toLocaleString(tag, {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function whenLabel(iso: string) {
+  return formatNotificationWhen(iso, 'es');
 }
 
 function defaultTone(kind: NotificationKind): AppNotification['tone'] {

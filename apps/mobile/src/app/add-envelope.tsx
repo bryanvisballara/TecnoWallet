@@ -19,7 +19,10 @@ import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 import { shouldEnforceFreeEnvelopeLimit } from '@/lib/collaboration-roles';
 import { guardPaidLedgerAction } from '@/lib/require-paid-access';
 import { categoryIcons } from '@/lib/category-icons';
+import { displayLedgerName, displayStoredName } from '@/i18n/app-copy';
+import { useFormsCopy } from '@/i18n/forms-copy';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 import {
   isPlusRequiredError,
   plusReasonFromError,
@@ -59,6 +62,8 @@ const expenseColors = [
 export default function AddEnvelopeScreen() {
   usePaidLedgerGuard();
   const theme = useAppTheme();
+  const forms = useFormsCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const scrollRef = useRef<ScrollView>(null);
   const { ledger, envelopes } = useActiveLedger();
   const addEnvelope = useLedgerStore((state) => state.addEnvelope);
@@ -86,10 +91,10 @@ export default function AddEnvelopeScreen() {
   const [rule, setRule] = useState(
     editing?.rule ??
       (kind === 'income'
-        ? 'Ingreso variable'
+        ? forms.envelope.ruleVariable
         : kind === 'savings'
-          ? 'Sobre de ahorros · Meta'
-          : 'Según necesidad'),
+          ? forms.envelope.ruleSavings
+          : forms.envelope.ruleNeed),
   );
   const [saving, setSaving] = useState(false);
   const parsedBudget = budget.trim() ? Number(budget.replace(',', '.')) : 0;
@@ -98,9 +103,9 @@ export default function AddEnvelopeScreen() {
   useEffect(() => {
     if (!isEditing && kind === 'savings') {
       Alert.alert(
-        'Solo desde Metas/Ahorros',
-        'Los sobres de ahorros se crean al armar una meta en Finanzas → Metas/Ahorros.',
-        [{ text: 'Entendido', onPress: () => safeGoBack('/(tabs)/sobres') }],
+        forms.envelope.savingsOnlyTitle,
+        forms.envelope.savingsOnlyBody,
+        [{ text: forms.understood, onPress: () => safeGoBack('/(tabs)/sobres') }],
       );
     }
   }, [isEditing, kind]);
@@ -117,30 +122,30 @@ export default function AddEnvelopeScreen() {
 
   const title = useMemo(() => {
     if (kind === 'savings') {
-      return isEditing ? 'Editar sobre de ahorros' : 'Sobre de ahorros';
+      return isEditing ? forms.envelope.editSavings : forms.envelope.savingsTitle;
     }
     if (isEditing) {
-      return kind === 'income' ? 'Editar sobre de ingresos' : 'Editar sobre de gastos';
+      return kind === 'income' ? forms.envelope.editIncome : forms.envelope.editExpense;
     }
-    return kind === 'income' ? 'Nuevo sobre de ingresos' : 'Nuevo sobre de gastos';
-  }, [isEditing, kind]);
+    return kind === 'income' ? forms.envelope.newIncome : forms.envelope.newExpense;
+  }, [forms, isEditing, kind]);
 
   const save = async () => {
     if (!guardPaidLedgerAction('ENVELOPE_LIMIT')) return;
     if (!isEditing && kind === 'savings') {
       Alert.alert(
-        'Solo desde Metas/Ahorros',
-        'Los sobres de ahorros se crean al armar una meta.',
+        forms.envelope.savingsOnlyTitle,
+        forms.envelope.savingsOnlyShort,
       );
       return;
     }
     const parsed = budget.trim() ? Number(budget.replace(',', '.')) : 0;
     if (!name.trim()) {
-      Alert.alert('Falta el nombre', 'Escribe cómo se llamará el sobre.');
+      Alert.alert(forms.missingName, forms.envelope.nameRequired);
       return;
     }
     if (!Number.isFinite(parsed) || parsed < 0) {
-      Alert.alert('Monto inválido', 'Indica un presupuesto o meta válido.');
+      Alert.alert(forms.invalidAmount, forms.envelope.invalidBudget);
       return;
     }
     // Free 5-envelope limit: personal book owner only. Shared-team / collaborator
@@ -204,8 +209,8 @@ export default function AddEnvelopeScreen() {
         return;
       }
       Alert.alert(
-        isEditing ? 'No se pudo guardar' : 'No se pudo crear',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        isEditing ? forms.saveFailed : forms.createFailed,
+        error instanceof Error ? error.message : forms.tryAgain,
       );
     } finally {
       setSaving(false);
@@ -215,12 +220,12 @@ export default function AddEnvelopeScreen() {
   const confirmDelete = () => {
     if (!editing) return;
     Alert.alert(
-      'Eliminar sobre',
-      `¿Seguro que quieres eliminar "${editing.name}"? Esta acción no se puede deshacer.`,
+      forms.envelope.deleteEnvelope,
+      forms.envelope.deleteConfirm(editing.name),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: forms.cancel, style: 'cancel' },
         {
-          text: 'Eliminar',
+          text: forms.delete,
           style: 'destructive',
           onPress: () => void runDelete(),
         },
@@ -253,8 +258,8 @@ export default function AddEnvelopeScreen() {
         return;
       }
       Alert.alert(
-        'No se pudo eliminar',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        forms.deleteFailed,
+        error instanceof Error ? error.message : forms.tryAgain,
       );
     } finally {
       setSaving(false);
@@ -265,7 +270,7 @@ export default function AddEnvelopeScreen() {
     <SheetScreen fallback="/(tabs)/sobres">
       <View style={styles.flex}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/sobres')} style={styles.close}>
+          <Pressable accessibilityLabel={forms.close} onPress={() => safeGoBack('/(tabs)/sobres')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
@@ -273,27 +278,26 @@ export default function AddEnvelopeScreen() {
             disabled={saving}
             onPress={() => void save()}
             style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
-            <Text style={styles.saveText}>{isEditing ? 'Guardar' : 'Crear'}</Text>
+            <Text style={styles.saveText}>{isEditing ? forms.save : forms.create}</Text>
           </ScalePressable>
         </View>
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
-            Libro {ledger?.name ?? '—'}
+            {forms.book(displayLedgerName(ledger?.name ?? '—', locale))}
           </Text>
 
-          <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.name}</Text>
           <TextInput
             value={name}
             onChangeText={setName}
-            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={
               kind === 'income'
-                ? 'Ej. Freelance'
+                ? forms.envelope.namePhIncome
                 : kind === 'savings'
-                  ? 'Ej. Viaje, emergencia'
-                  : 'Ej. Alimentación'
+                  ? forms.envelope.namePhSavings
+                  : forms.envelope.namePhExpense
             }
             placeholderTextColor={theme.muted}
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
@@ -301,25 +305,25 @@ export default function AddEnvelopeScreen() {
 
           <Text style={[styles.label, { color: theme.muted }]}>
             {kind === 'income'
-              ? 'Meta esperada (opcional)'
+              ? forms.envelope.expectedOptional
               : kind === 'savings'
-                ? 'Monto objetivo (opcional)'
-                : 'Presupuesto (opcional)'}
+                ? forms.envelope.targetOptional
+                : forms.envelope.budgetOptional}
           </Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
-            Déjalo vacío si el monto depende de la actividad o no tiene un límite mensual.
+            {forms.envelope.budgetHint}
           </Text>
           <TextInput
             value={budget}
             onChangeText={setBudget}
             onFocus={focusScrollToEnd(scrollRef, 120)}
             keyboardType="decimal-pad"
-            placeholder="Sin presupuesto"
+            placeholder={forms.envelope.noBudget}
             placeholderTextColor={theme.muted}
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
           />
 
-          <Text style={[styles.label, { color: theme.muted }]}>Icono</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.icon}</Text>
           <View style={styles.icons}>
             {categoryIcons.map((item) => {
               const selected = icon === item.name;
@@ -327,7 +331,7 @@ export default function AddEnvelopeScreen() {
                 <Pressable
                   key={item.name}
                   accessibilityRole="button"
-                  accessibilityLabel={item.label}
+                  accessibilityLabel={displayStoredName(item.label, locale)}
                   onPress={() => setIcon(item.name)}
                   style={[
                     styles.iconOption,
@@ -342,7 +346,7 @@ export default function AddEnvelopeScreen() {
             })}
           </View>
 
-          <Text style={[styles.label, { color: theme.muted }]}>Color</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.color}</Text>
           <View style={styles.colors}>
             {palette.map((item) => (
               <Pressable
@@ -360,21 +364,21 @@ export default function AddEnvelopeScreen() {
           {hasBudget ? (
             <View style={[styles.switchRow, { borderColor: theme.border }]}>
               <View style={styles.copy}>
-                <Text style={[styles.switchTitle, { color: theme.text }]}>Rollover</Text>
+                <Text style={[styles.switchTitle, { color: theme.text }]}>{forms.envelope.rollover}</Text>
                 <Text style={[styles.hint, { color: theme.muted }]}>
-                  Acumula el sobrante al siguiente mes
+                  {forms.envelope.rolloverHint}
                 </Text>
               </View>
               <Switch value={rollover} onValueChange={setRollover} />
             </View>
           ) : null}
 
-          <Text style={[styles.label, { color: theme.muted }]}>Regla (opcional)</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.envelope.ruleOptional}</Text>
           <TextInput
             value={rule}
             onChangeText={setRule}
             onFocus={focusScrollToEnd(scrollRef, 120)}
-            placeholder="Cómo se usa este sobre"
+            placeholder={forms.envelope.rulePlaceholder}
             placeholderTextColor={theme.muted}
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
           />
@@ -382,17 +386,17 @@ export default function AddEnvelopeScreen() {
           <PrimaryButton onPress={() => void save()}>
             {saving
               ? isEditing
-                ? 'Guardando…'
-                : 'Creando…'
+                ? forms.envelope.saving
+                : forms.envelope.creating
               : isEditing
-                ? 'Guardar cambios'
-                : 'Crear sobre'}
+                ? forms.envelope.saveChanges
+                : forms.envelope.createEnvelope}
           </PrimaryButton>
 
           {isEditing ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Eliminar sobre"
+              accessibilityLabel={forms.envelope.deleteEnvelope}
               disabled={saving}
               onPress={confirmDelete}
               style={[
@@ -400,7 +404,7 @@ export default function AddEnvelopeScreen() {
                 { borderColor: theme.danger, opacity: saving ? 0.6 : 1 },
               ]}>
               <AppIcon name="trash" color={theme.danger} size={16} />
-              <Text style={[styles.deleteText, { color: theme.danger }]}>Eliminar sobre</Text>
+              <Text style={[styles.deleteText, { color: theme.danger }]}>{forms.envelope.deleteEnvelope}</Text>
             </Pressable>
           ) : null}
         </FormScrollView>

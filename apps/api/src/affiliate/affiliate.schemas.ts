@@ -300,3 +300,26 @@ export const CommissionEventSchema =
   SchemaFactory.createForClass(CommissionEvent);
 CommissionEventSchema.index({ affiliateId: 1, status: 1, occurredAt: -1 });
 CommissionEventSchema.index({ userId: 1, occurredAt: -1 });
+
+@Schema({ timestamps: true })
+export class CouponLead {
+  @Prop({ required: true, trim: true, maxlength: 80 })
+  name!: string;
+
+  @Prop({ required: true, lowercase: true, trim: true, maxlength: 160 })
+  email!: string;
+
+  @Prop({ required: true, uppercase: true, trim: true, maxlength: 2 })
+  country!: string;
+
+  @Prop({ required: true, lowercase: true, trim: true, maxlength: 8 })
+  locale!: string;
+
+  @Prop({ required: true, uppercase: true, trim: true, maxlength: 40 })
+  code!: string;
+
+  createdAt!: Date;
+  updatedAt!: Date;
+}
+export const CouponLeadSchema = SchemaFactory.createForClass(CouponLead);
+CouponLeadSchema.index({ email: 1, code: 1 }, { unique: true });

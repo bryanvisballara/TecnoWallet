@@ -18,6 +18,7 @@ import {
   AffiliateCodeDto,
   ClaimAffiliateDto,
   EnrollAffiliateDto,
+  CouponLeadDto,
   RecordAffiliateClickDto,
   UpdateAffiliatePayoutDto,
 } from './affiliate.dto';
@@ -30,16 +31,18 @@ export class AffiliateController {
   constructor(private readonly affiliate: AffiliateService) {}
 
   @Public()
+  @Post('coupon-lead')
+  saveCouponLead(@Body() body: CouponLeadDto) {
+    return this.affiliate.saveCouponLead(body);
+  }
+
+  @Public()
   @Post('click')
   recordClick(
     @Body() body: RecordAffiliateClickDto,
-    @Headers() headers: Record<string, string | string[] | undefined>,
     @Headers('user-agent') userAgent: string | undefined,
     @Ip() ip: string | undefined,
   ) {
-    this.affiliate.assertAffiliateAvailable(
-      countryFromRequest({ headers, ip }),
-    );
     return this.affiliate.recordClick(body.code, {
       branchClickId: body.branchClickId,
       campaign: body.campaign,
@@ -53,25 +56,13 @@ export class AffiliateController {
   claim(
     @Body() body: ClaimAffiliateDto,
     @CurrentUser() user: AuthPrincipal,
-    @Headers() headers: Record<string, string | string[] | undefined>,
-    @Ip() ip: string | undefined,
   ) {
-    this.affiliate.assertAffiliateAvailable(
-      countryFromRequest({ headers, ip }),
-    );
     return this.affiliate.claim(user.userId, body);
   }
 
   @Public()
   @Get('code/:code')
-  getByCode(
-    @Param() params: AffiliateCodeDto,
-    @Headers() headers: Record<string, string | string[] | undefined>,
-    @Ip() ip: string | undefined,
-  ) {
-    this.affiliate.assertAffiliateAvailable(
-      countryFromRequest({ headers, ip }),
-    );
+  getByCode(@Param() params: AffiliateCodeDto) {
     return this.affiliate.getByCode(params.code);
   }
 

@@ -3,6 +3,7 @@ import Purchases, {
   LOG_LEVEL,
   PURCHASES_ERROR_CODE,
   type PurchasesPackage,
+  type PurchasesStoreProduct,
 } from 'react-native-purchases';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -41,6 +42,20 @@ function packageByProductIds(
 ) {
   const byId = new Map(
     packages.map((item) => [item.product.identifier.toLowerCase(), item]),
+  );
+  for (const id of ids) {
+    const found = byId.get(id.toLowerCase());
+    if (found) return found;
+  }
+  return null;
+}
+
+function storeProductByIds(
+  products: PurchasesStoreProduct[],
+  ids: readonly string[],
+) {
+  const byId = new Map(
+    products.map((item) => [item.identifier.toLowerCase(), item]),
   );
   for (const id of ids) {
     const found = byId.get(id.toLowerCase());
@@ -165,11 +180,38 @@ async function loadOfferingsNow(): Promise<{
   businessPackage = coupon
     ? (couponBusiness ?? listBusiness)
     : listBusiness;
+  const storeProducts = await Purchases.getProducts(
+    [
+      ...PLUS_LIST_PRODUCT_IDS,
+      ...BUSINESS_LIST_PRODUCT_IDS,
+      ...PLUS_COUPON_PRODUCT_IDS,
+      ...BUSINESS_COUPON_PRODUCT_IDS,
+    ],
+    Purchases.PRODUCT_CATEGORY.SUBSCRIPTION,
+  ).catch(() => [] as PurchasesStoreProduct[]);
+  const listPlusProduct =
+    listPlus?.product ??
+    storeProductByIds(storeProducts, PLUS_LIST_PRODUCT_IDS);
+  const listBusinessProduct =
+    listBusiness?.product ??
+    storeProductByIds(storeProducts, BUSINESS_LIST_PRODUCT_IDS);
+  const activePlusProduct =
+    plusPackage?.product ??
+    storeProductByIds(
+      storeProducts,
+      coupon ? PLUS_COUPON_PRODUCT_IDS : PLUS_LIST_PRODUCT_IDS,
+    );
+  const activeBusinessProduct =
+    businessPackage?.product ??
+    storeProductByIds(
+      storeProducts,
+      coupon ? BUSINESS_COUPON_PRODUCT_IDS : BUSINESS_LIST_PRODUCT_IDS,
+    );
   const store = usePlusStore.getState();
   const storeCurrency =
-    listPlus?.product.currencyCode ??
-    plusPackage?.product.currencyCode ??
-    businessPackage?.product.currencyCode;
+    listPlusProduct?.currencyCode ??
+    activePlusProduct?.currencyCode ??
+    activeBusinessProduct?.currencyCode;
   const baseMarket =
     store.billingMarket ??
     billingMarketSnapshot(guessDeviceCountryCode()) ??
@@ -179,32 +221,32 @@ async function loadOfferingsNow(): Promise<{
   const labels = priceLabelsForMarket(market, coupon);
   store.setListPriceLabel(
     storefrontPriceLabel(
-      listPlus?.product.priceString,
-      listPlus?.product.currencyCode,
+      listPlusProduct?.priceString,
+      listPlusProduct?.currencyCode,
       market,
       labels.plusList,
     ),
   );
   store.setListBusinessPriceLabel(
     storefrontPriceLabel(
-      listBusiness?.product.priceString,
-      listBusiness?.product.currencyCode,
+      listBusinessProduct?.priceString,
+      listBusinessProduct?.currencyCode,
       market,
       labels.businessList,
     ),
   );
   store.setPriceLabel(
     storefrontPriceLabel(
-      plusPackage?.product.priceString,
-      plusPackage?.product.currencyCode,
+      activePlusProduct?.priceString,
+      activePlusProduct?.currencyCode,
       market,
       labels.plusActive,
     ),
   );
   store.setBusinessPriceLabel(
     storefrontPriceLabel(
-      businessPackage?.product.priceString,
-      businessPackage?.product.currencyCode,
+      activeBusinessProduct?.priceString,
+      activeBusinessProduct?.currencyCode,
       market,
       labels.businessActive,
     ),

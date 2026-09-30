@@ -25,7 +25,18 @@
         "NSSpeechRecognitionUsageDescription": "TecnoWallet transcribe lo que dices para crear el movimiento.",
         "NSCameraUsageDescription": "TecnoWallet necesita la cámara para fotografiar recibos y adjuntar fotos al calendario.",
         "NSPhotoLibraryUsageDescription": "TecnoWallet necesita acceso a tus fotos para adjuntar recibos y archivos al calendario.",
-        "NSPhotoLibraryAddUsageDescription": "TecnoWallet guarda en tus fotos las imágenes que descargas o compartes desde una tarea."
+        "NSPhotoLibraryAddUsageDescription": "TecnoWallet guarda en tus fotos las imágenes que descargas o compartes desde una tarea.",
+        "UIApplicationSceneManifest": {
+          "UIApplicationSupportsMultipleScenes": false,
+          "UISceneConfigurations": {
+            "UIWindowSceneSessionRoleApplication": [
+              {
+                "UISceneConfigurationName": "Default Configuration",
+                "UISceneDelegateClassName": "$(PRODUCT_MODULE_NAME).SceneDelegate"
+              }
+            ]
+          }
+        }
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -53,6 +64,7 @@
     },
     "plugins": [
       "./plugins/with-app-delegate-no-rctbridge.js",
+      "./plugins/with-uiscene-lifecycle.js",
       "expo-router",
       "expo-apple-authentication",
       [

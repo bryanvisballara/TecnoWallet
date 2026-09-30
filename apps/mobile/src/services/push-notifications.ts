@@ -1,8 +1,10 @@
 import { Platform } from "react-native";
 
 import { resolveCalendarReminderAt } from "@/data/calendar";
-import { getActiveMoneyCurrency } from "@/data/demo";
+import { getActiveMoneyCurrency, getActiveMoneyLocale } from "@/data/demo";
+import { displayLedgerName, displayStoredName } from "@/i18n/app-copy";
 import { localStorage } from "@/services/persistence";
+import { useLanguageStore } from "@/store/language";
 
 type ActivityKind =
   | "income"
@@ -428,6 +430,18 @@ export async function unregisterRemotePushToken(): Promise<void> {
   }
 }
 
+function localizePushText(value: string) {
+  const locale = useLanguageStore.getState().locale === "es" ? "es" : "en";
+  return value
+    .split(" · ")
+    .map((part) => {
+      const stored = displayStoredName(part, locale);
+      if (stored !== part) return stored;
+      return displayLedgerName(part, locale);
+    })
+    .join(" · ");
+}
+
 async function sendActivityNotification(input: {
   kind: ActivityKind;
   title: string;
@@ -461,8 +475,8 @@ async function sendActivityNotification(input: {
 
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: input.title,
-        body: input.body,
+        title: localizePushText(input.title),
+        body: localizePushText(input.body),
         sound,
         badge,
         ...(channelId ? { channelId } : {}),
@@ -491,7 +505,7 @@ export function notifyTransactionAdded(input: {
   amount: number;
   ledgerName: string;
 }) {
-  const amount = new Intl.NumberFormat("es-CO", {
+  const amount = new Intl.NumberFormat(getActiveMoneyLocale(), {
     style: "currency",
     currency: getActiveMoneyCurrency() || "USD",
     maximumFractionDigits: 0,
@@ -554,6 +568,7 @@ export async function scheduleCalendarReminder(input: {
   allDay: boolean;
   startHour?: number;
   reminder?: string;
+  timeZone?: string;
 }) {
   try {
     if (!(await reminderKindEnabled("calendar"))) return false;
@@ -567,20 +582,26 @@ export async function scheduleCalendarReminder(input: {
       allDay: input.allDay,
       startHour: input.startHour,
       reminder: input.reminder,
+      timeZone: input.timeZone,
     });
     if (!fireAt) return true;
     if (fireAt.getTime() <= Date.now() + 5_000) return false;
     if (!(await configureActivityNotifications())) return false;
 
-    const timeLabel = new Intl.DateTimeFormat("es-CO", {
+    const english = useLanguageStore.getState().locale !== "es";
+    const timeLabel = new Intl.DateTimeFormat(english ? "en-US" : "es-CO", {
       hour: "numeric",
       minute: "2-digit",
     }).format(fireAt);
 
     const identifier = await Notifications.scheduleNotificationAsync({
       content: {
-        title: `Recordatorio · ${input.typeLabel}`,
-        body: `${input.title} · aviso a las ${timeLabel}`,
+        title: english
+          ? `Reminder · ${input.typeLabel}`
+          : `Recordatorio · ${input.typeLabel}`,
+        body: english
+          ? `${input.title} · reminder at ${timeLabel}`
+          : `${input.title} · aviso a las ${timeLabel}`,
         sound: SOUND_CALENDARIO,
         ...(Platform.OS === "android" ? { channelId: "activity-calendar" } : {}),
         data: {
@@ -611,6 +632,7 @@ export async function syncCalendarReminders(
     allDay: boolean;
     startHour?: number;
     reminder?: string;
+    timeZone?: string;
   }>,
 ) {
   if (Platform.OS === "web") return;
@@ -620,7 +642,8 @@ export async function syncCalendarReminders(
     await new Promise<void>((resolve) => {
       InteractionManager.runAfterInteractions(() => resolve());
     });
-    const { typeLabels } = await import("@/data/calendar");
+    const { localizedTypeLabels } = await import("@/data/calendar");
+    const typeLabels = localizedTypeLabels(useLanguageStore.getState().locale);
     // Sequential + capped to avoid pegging the JS thread during hydrate.
     const capped = items.slice(0, 80);
     for (const item of capped) {
@@ -637,6 +660,7 @@ export async function syncCalendarReminders(
         allDay: item.allDay,
         startHour: item.startHour,
         reminder: item.reminder,
+        timeZone: item.timeZone,
       });
     }
   } catch {
@@ -664,9 +688,14 @@ export async function scheduleRecaudoReminder(input: {
     if (!match) return false;
     const hour = Number(match[1]);
     const minute = Number(match[2]);
+    const english = useLanguageStore.getState().locale !== "es";
     const content = {
-      title: "Tu aporte al recaudo está pendiente",
-      body: `Recuerda aportar a ${input.title}.`,
+      title: english
+        ? "Your collection contribution is due"
+        : "Tu aporte al recaudo está pendiente",
+      body: english
+        ? `Remember to contribute to ${input.title}.`
+        : `Recuerda aportar a ${input.title}.`,
       sound: SOUND_INGRESO,
       ...(Platform.OS === "android" ? { channelId: "activity-income" } : {}),
       data: {

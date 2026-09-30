@@ -1,3 +1,5 @@
+import { zonedWallToDate } from '@/lib/timezones';
+
 export type CalendarItemType = 'event' | 'task' | 'birthday';
 
 export type CalendarAttachment = {
@@ -15,8 +17,10 @@ export type CalendarItem = {
   date: string; // YYYY-MM-DD
   endDate?: string;
   allDay: boolean;
-  startHour?: number; // 0-23.75
+  startHour?: number; // 0-23.75 wall clock in `timeZone`
   endHour?: number;
+  /** IANA zone the start/end hours belong to (e.g. America/New_York). */
+  timeZone?: string;
   color: string;
   notes?: string;
   location?: string;
@@ -95,10 +99,45 @@ export function hhmmFromHour(value?: number, fallback = '10:00') {
   return `${`${hours}`.padStart(2, '0')}:${`${minutes}`.padStart(2, '0')}`;
 }
 
-export function formatReminderLabel(reminder: string) {
-  if (reminder === CALENDAR_REMINDER_NONE) return 'Sin notificación push';
-  if (reminder.startsWith('A las ')) return `Push a las ${reminder.slice(6)}`;
-  return `Push · ${reminder}`;
+const calendarUiEn: Record<string, string> = {
+  'No se repite': 'Does not repeat',
+  'Cada día': 'Every day',
+  'Cada semana': 'Every week',
+  'Cada mes': 'Every month',
+  'Cada año': 'Every year',
+  'Mi calendario': 'My calendar',
+  'Mis tareas': 'My tasks',
+  Trabajo: 'Work',
+  Personal: 'Personal',
+  'En el momento': 'At event time',
+  '5 minutos antes': '5 minutes before',
+  '10 minutos antes': '10 minutes before',
+  '15 minutos antes': '15 minutes before',
+  '30 minutos antes': '30 minutes before',
+  '1 hora antes': '1 hour before',
+  '2 horas antes': '2 hours before',
+  'El día del evento a las 09:00': 'On the event day at 09:00',
+  '1 día antes a las 09:00': '1 day before at 09:00',
+  '1 semana antes a las 09:00': '1 week before at 09:00',
+  'Hora personalizada…': 'Custom time…',
+  'Sin notificación': 'No notification',
+};
+
+export function displayCalendarUi(value: string, locale: string) {
+  if (locale === 'es') return value;
+  return calendarUiEn[value] ?? value;
+}
+
+export function formatReminderLabel(reminder: string, locale = 'es') {
+  if (reminder === CALENDAR_REMINDER_NONE) {
+    return locale === 'es' ? 'Sin notificación push' : 'No push notification';
+  }
+  if (reminder.startsWith('A las ')) {
+    const time = reminder.slice(6);
+    return locale === 'es' ? `Push a las ${time}` : `Push at ${time}`;
+  }
+  const label = displayCalendarUi(reminder, locale);
+  return locale === 'es' ? `Push · ${label}` : `Push · ${label}`;
 }
 
 /** Calcula cuándo debe dispararse el recordatorio push. */
@@ -107,6 +146,7 @@ export function resolveCalendarReminderAt(input: {
   allDay: boolean;
   startHour?: number;
   reminder?: string;
+  timeZone?: string;
 }): Date | null {
   const reminder = input.reminder?.trim();
   if (!reminder || reminder === CALENDAR_REMINDER_NONE || reminder === CALENDAR_REMINDER_CUSTOM) {
@@ -114,11 +154,15 @@ export function resolveCalendarReminderAt(input: {
   }
 
   const eventAt = (() => {
-    const date = parseDateKey(input.date);
     if (input.allDay || input.startHour == null) {
+      const date = parseDateKey(input.date);
       date.setHours(9, 0, 0, 0);
       return date;
     }
+    if (input.timeZone) {
+      return zonedWallToDate(input.date, input.startHour, input.timeZone);
+    }
+    const date = parseDateKey(input.date);
     const hours = Math.floor(input.startHour);
     const minutes = Math.round((input.startHour - hours) * 60);
     date.setHours(hours, minutes, 0, 0);

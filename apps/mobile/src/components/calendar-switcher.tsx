@@ -255,7 +255,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
             ) : joining ? (
               <View style={styles.createBox}>
                 <Text style={[styles.joinHint, { color: theme.muted }]}>
-                  Escribe el ID del calendario (ej. TC8F3K2M1Q) para solicitar ingreso.
+                  {copy.sharing.joinCalendarHint}
                 </Text>
                 <TextInput
                   autoFocus
@@ -280,7 +280,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
                   </Pressable>
                   <Pressable onPress={() => void onRequestJoin()} disabled={joiningBusy}>
                     <Text style={{ color: theme.primary, fontWeight: '700' }}>
-                      {joiningBusy ? 'Enviando…' : 'Solicitar ingreso'}
+                      {joiningBusy ? copy.sharing.sending : copy.sharing.requestAccess}
                     </Text>
                   </Pressable>
                 </View>
@@ -298,7 +298,7 @@ export function CalendarSwitcher({ compact = false }: Props) {
                 <ScalePressable
                   onPress={() => setJoining(true)}
                   style={[styles.addRow, { borderTopColor: theme.border }]}>
-                  <Text style={[styles.addText, { color: theme.text }]}>Unirse con ID</Text>
+                  <Text style={[styles.addText, { color: theme.text }]}>{copy.sharing.joinWithId}</Text>
                   <AppIcon name="person.badge.plus" color={theme.success} size={20} />
                 </ScalePressable>
               </>

@@ -18,9 +18,10 @@ import {
   ScalePressable,
   useAppTheme,
 } from '@/components/ui';
-import { useAppCopy } from '@/i18n/app-copy';
+import { getAppCopy } from '@/i18n/app-copy';
 import { ApiError } from '@/services/api';
 import { getAffiliateCode } from '@/services/affiliate-api';
+import { PROMO_COUPON_CODE, PROMO_COUPON_URL } from '@/services/billing-prices';
 import {
   claimPendingAffiliate,
   storeManualAffiliateCode,
@@ -45,6 +46,7 @@ import {
 import { useAffiliateStore } from '@/store/affiliate';
 import { useAppTutorialStore } from '@/store/app-tutorial';
 import { useAuthStore } from '@/store/auth';
+import { localeFromDevice } from '@/store/language';
 import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
 import {
@@ -78,7 +80,7 @@ const businessBenefitIcons = [
 
 export function PlusPaywallModal() {
   const theme = useAppTheme();
-  const copy = useAppCopy();
+  const copy = getAppCopy(localeFromDevice());
   const visible = usePlusStore((state) => state.paywallOpen);
   const reason = usePlusStore((state) => state.paywallReason);
   const plan = usePlusStore((state) => state.paywallPlan);
@@ -155,10 +157,16 @@ export function PlusPaywallModal() {
       setWorking('coupon');
     }
     try {
-      const affiliate = await getAffiliateCode(code);
-      await storeManualAffiliateCode(affiliate.code);
-      setCoupon(affiliate.code, affiliate.name);
-      setCouponDraft(affiliate.code);
+      try {
+        const affiliate = await getAffiliateCode(code);
+        await storeManualAffiliateCode(affiliate.code);
+        setCoupon(affiliate.code, affiliate.name);
+        setCouponDraft(affiliate.code);
+      } catch (lookupError) {
+        if (code !== PROMO_COUPON_CODE) throw lookupError;
+        setCoupon(PROMO_COUPON_CODE);
+        setCouponDraft(PROMO_COUPON_CODE);
+      }
       await loadOfferings();
     } catch (couponError) {
       if (options?.silent) return;
@@ -481,6 +489,17 @@ export function PlusPaywallModal() {
                 <Text style={[styles.couponLabel, { color: theme.text }]}>
                   {copy.paywall.couponLabel}
                 </Text>
+                <Text style={[styles.couponHint, { color: theme.muted }]}>
+                  {copy.paywall.couponGetHere}{' '}
+                  <Text
+                    accessibilityRole="link"
+                    onPress={() => {
+                      if (!working) void applyCoupon(PROMO_COUPON_CODE);
+                    }}
+                    style={[styles.couponLink, { color: theme.primary }]}>
+                    {PROMO_COUPON_URL}
+                  </Text>
+                </Text>
                 <View style={styles.couponRow}>
                   <TextInput
                     value={couponDraft}
@@ -685,6 +704,8 @@ const styles = StyleSheet.create({
   guestOk: { fontSize: 13, fontWeight: '700' },
   couponBlock: { gap: 6, marginTop: 4 },
   couponLabel: { fontSize: 13, fontWeight: '700' },
+  couponHint: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  couponLink: { fontSize: 13, fontWeight: '800', textDecorationLine: 'underline' },
   couponRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   couponInput: {
     flex: 1,

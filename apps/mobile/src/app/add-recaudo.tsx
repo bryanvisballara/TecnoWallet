@@ -347,7 +347,6 @@ export default function AddRecaudoScreen() {
               setTitle(value);
               clearError('title');
             }}
-            onFocus={focusScrollToEnd(scrollRef)}
             placeholder="Ej. Viaje de fin de año"
             placeholderTextColor={theme.muted}
             style={[

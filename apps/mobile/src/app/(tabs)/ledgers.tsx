@@ -356,7 +356,7 @@ export default function LedgersScreen() {
 
   const onDelete = () => {
     if (ledgers.length <= 1) {
-      Alert.alert('No puedes borrar este libro', 'Debes conservar al menos un libro.');
+      Alert.alert(copy.sharing.cannotDeleteBook, copy.sharing.keepOneBook);
       return;
     }
 
@@ -366,20 +366,20 @@ export default function LedgersScreen() {
         setSelectedId(nextActiveId);
       } catch (error) {
         Alert.alert(
-          'No se pudo borrar',
-          error instanceof Error ? error.message : 'Inténtalo nuevamente.',
+          copy.sharing.couldNotDelete,
+          error instanceof Error ? error.message : copy.common.tryAgain,
         );
       }
     };
 
-    const message = `Se borrarán permanentemente todos los movimientos, cuentas y sobres de "${selected.name}".`;
+    const message = copy.sharing.deleteBookBody(selected.name);
     if (Platform.OS === 'web') {
-      if (globalThis.confirm(`${message}\n\n¿Deseas continuar?`)) void remove();
+      if (globalThis.confirm(`${message}\n\n${copy.sharing.confirmContinue}`)) void remove();
       return;
     }
-    Alert.alert('¿Borrar este libro?', message, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Borrar libro', style: 'destructive', onPress: () => void remove() },
+    Alert.alert(copy.sharing.deleteBookTitle, message, [
+      { text: copy.common.cancel, style: 'cancel' },
+      { text: copy.sharing.deleteBook, style: 'destructive', onPress: () => void remove() },
     ]);
   };
 
@@ -389,25 +389,25 @@ export default function LedgersScreen() {
 
   const visibleIcons = ledgerIcons.some((item) => item.name === icon)
     ? ledgerIcons
-    : [{ name: icon, label: 'Actual' }, ...ledgerIcons];
+    : [{ name: icon, label: copy.sharing.currentIcon }, ...ledgerIcons];
   const visibleColors = ledgerPalette.includes(color) ? ledgerPalette : [color, ...ledgerPalette];
 
   const selectedLocked = isOwnedResourceLocked(selected, plusAccess);
   const settingsCard = selected && !selectedLocked ? (
     <Card style={styles.block}>
       <View style={uiStyles.between}>
-        <Text style={[styles.section, { color: theme.text }]}>Ajustes del libro</Text>
+        <Text style={[styles.section, { color: theme.text }]}>{copy.sharing.bookSettings}</Text>
         <Pill tone={selected.type === 'shared' ? 'blue' : 'neutral'}>
-          {selected.type === 'shared' ? 'Compartido' : 'Personal'}
+          {selected.type === 'shared' ? copy.sharing.shared : copy.common.personal}
         </Pill>
       </View>
-      <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
+      <Text style={[styles.label, { color: theme.muted }]}>{copy.sharing.name}</Text>
       <TextInput
         value={name}
         onChangeText={setName}
         style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
       />
-      <Text style={[styles.label, { color: theme.muted }]}>Icono</Text>
+      <Text style={[styles.label, { color: theme.muted }]}>{copy.sharing.icon}</Text>
       <View style={styles.icons}>
         {visibleIcons.map((item) => {
           const selectedIcon = icon === item.name;
@@ -428,7 +428,7 @@ export default function LedgersScreen() {
           );
         })}
       </View>
-      <Text style={[styles.label, { color: theme.muted }]}>Color</Text>
+      <Text style={[styles.label, { color: theme.muted }]}>{copy.sharing.color}</Text>
       <View style={styles.colors}>
         {visibleColors.map((item) => (
           <Pressable
@@ -446,15 +446,15 @@ export default function LedgersScreen() {
         onPress={async () => {
           try {
             await updateLedger(selected.id, { name, color, icon });
-            Alert.alert('Listo', 'Se guardaron los ajustes del libro.');
+            Alert.alert(copy.sharing.savedTitle, copy.sharing.bookSettingsSaved);
           } catch (error) {
             Alert.alert(
-              'No se pudo guardar',
-              error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+              copy.sharing.couldNotSave,
+              error instanceof Error ? error.message : copy.common.tryAgain,
             );
           }
         }}>
-        Guardar
+        {copy.common.save}
       </PrimaryButton>
       {selected.id !== activeLedgerId ? (
         <PrimaryButton
@@ -466,12 +466,12 @@ export default function LedgersScreen() {
             await setActiveLedger(selected.id);
             safeGoBack(shareMode ? '/(tabs)/inicio' : '/(tabs)/mas');
           }}>
-          Usar este libro
+          {copy.sharing.useThisBook}
         </PrimaryButton>
       ) : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Borrar libro ${selected.name}`}
+        accessibilityLabel={`${copy.sharing.deleteBook} ${selected.name}`}
         onPress={onDelete}
         style={({ pressed }) => [
           styles.deleteButton,
@@ -481,18 +481,16 @@ export default function LedgersScreen() {
           },
         ]}>
         <AppIcon name="trash" color={theme.danger} size={18} />
-        <Text style={[styles.deleteLabel, { color: theme.danger }]}>Borrar libro</Text>
+        <Text style={[styles.deleteLabel, { color: theme.danger }]}>{copy.sharing.deleteBook}</Text>
       </Pressable>
     </Card>
   ) : null;
 
   return (
     <Screen
-      title="Libros"
+      title={copy.sharing.booksTitle}
       subtitle={
-        shareMode
-          ? 'Comparte este libro con otras personas'
-          : 'Cambia y comparte tus libros'
+        shareMode ? copy.sharing.shareBookSubtitle : copy.sharing.manageBooksSubtitle
       }
       right={
         <Pressable
@@ -533,15 +531,13 @@ export default function LedgersScreen() {
                 <Text style={[styles.small, { color: theme.muted }]}>
                   {locked
                     ? copy.ledger.lockedMeta
-                    : `${ledger.members.length} miembro${ledger.members.length === 1 ? '' : 's'}${
-                        ledger.id === activeLedgerId ? ' · Activo' : ''
-                      }`}
+                    : copy.sharing.memberLine(ledger.members.length, ledger.id === activeLedgerId)}
                 </Text>
               </View>
               {locked ? (
                 <AppIcon name="lock.fill" color={theme.muted} size={16} />
               ) : ledger.id === activeLedgerId ? (
-                <Pill tone="green">En uso</Pill>
+                <Pill tone="green">{copy.sharing.inUse}</Pill>
               ) : null}
             </ScalePressable>
           );
@@ -552,14 +548,14 @@ export default function LedgersScreen() {
         <Card style={styles.block}>
           <Text style={[styles.section, { color: theme.text }]}>{selected?.name}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>{copy.ledger.lockedMeta}</Text>
-          <PrimaryButton onPress={() => openPaywall('UPGRADE')}>Desbloquear</PrimaryButton>
+          <PrimaryButton onPress={() => openPaywall('UPGRADE')}>{copy.sharing.unlock}</PrimaryButton>
         </Card>
       ) : selected ? (
         <>
           <Card style={styles.block}>
-            <Text style={[styles.section, { color: theme.text }]}>Personas con acceso</Text>
+            <Text style={[styles.section, { color: theme.text }]}>{copy.sharing.peopleWithAccess}</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Cada libro puede compartirse con personas distintas. Al cambiar de libro, cambian cuentas, sobres y movimientos.
+              {copy.sharing.bookAccessHint}
             </Text>
             {selected.members.map((member) => (
               <View key={member.id} style={styles.memberRow}>
@@ -569,28 +565,28 @@ export default function LedgersScreen() {
                 <View style={styles.copy}>
                   <Text style={[styles.memberName, { color: theme.text }]}>{member.name}</Text>
                   <Text style={[styles.small, { color: theme.muted }]}>
-                    {member.email} · {member.role}
+                    {member.email} · {member.role === 'owner' ? copy.sharing.roleOwner : member.role === 'editor' ? copy.sharing.roleEditor : member.role === 'viewer' ? copy.sharing.roleViewer : copy.sharing.roleMember}
                   </Text>
                 </View>
                 {member.id === 'me' && member.role !== 'owner' ? (
                   <Pressable onPress={onLeaveLedger}>
-                    <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>Salir</Text>
+                    <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>{copy.sharing.leave}</Text>
                   </Pressable>
                 ) : member.id === 'me' ? (
-                  <Pill tone="green">Tú</Pill>
+                  <Pill tone="green">{copy.sharing.you}</Pill>
                 ) : member.role !== 'owner' ? (
                   <Pressable onPress={() => void onRemoveMember(member.id, member.name)}>
-                    <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>Quitar</Text>
+                    <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>{copy.sharing.remove}</Text>
                   </Pressable>
                 ) : null}
               </View>
             ))}
 
-            <Text style={[styles.label, { color: theme.muted }]}>Invitar por correo</Text>
+            <Text style={[styles.label, { color: theme.muted }]}>{copy.sharing.inviteByEmail}</Text>
             <TextInput
               value={inviteName}
               onChangeText={setInviteName}
-              placeholder="Nombre (opcional)"
+              placeholder={copy.sharing.nameOptional}
               placeholderTextColor={theme.muted}
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
             />
@@ -599,46 +595,46 @@ export default function LedgersScreen() {
               onChangeText={setInviteEmail}
               autoCapitalize="none"
               keyboardType="email-address"
-              placeholder="correo@ejemplo.com"
+              placeholder={copy.sharing.emailPlaceholder}
               placeholderTextColor={theme.muted}
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSecondary }]}
             />
-            <PrimaryButton onPress={() => void onInvite()}>Compartir libro</PrimaryButton>
+            <PrimaryButton onPress={() => void onInvite()}>{copy.sharing.shareBook}</PrimaryButton>
             <CollaborationInvitesList
               invites={invites}
-              emptyLabel="Cuando invites a alguien, verás aquí si está pendiente o aceptó."
+              emptyLabel={copy.sharing.invitesEmpty}
               onCancelPending={(invite) => void onCancelInvite(invite)}
             />
 
-            <Text style={[styles.label, { color: theme.muted, marginTop: 4 }]}>ID del libro</Text>
+            <Text style={[styles.label, { color: theme.muted, marginTop: 4 }]}>{copy.sharing.bookId}</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Comparte este código para que pidan unirse desde “Unirse con ID”.
+              {copy.sharing.shareIdHint}
             </Text>
             <View style={[styles.codeBox, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}>
               <Text style={[styles.codeText, { color: theme.text }]}>
-                {shareCodeLoading ? 'Cargando…' : shareCode || '—'}
+                {shareCodeLoading ? copy.common.loading : shareCode || '—'}
               </Text>
             </View>
             <PrimaryButton
               onPress={async () => {
                 if (!shareCode) {
-                  Alert.alert('ID no disponible', 'Espera un momento e inténtalo de nuevo.');
+                  Alert.alert(copy.sharing.idUnavailable, copy.sharing.idUnavailableBody);
                   return;
                 }
                 const ok = await copyText(shareCode);
-                if (ok) Alert.alert('Listo', `ID del libro: ${shareCode}`);
+                if (ok) Alert.alert(copy.sharing.savedTitle, copy.sharing.bookIdReady(shareCode));
               }}>
-              Copiar / compartir ID
+              {copy.sharing.copyShareId}
             </PrimaryButton>
           </Card>
 
           <Card style={styles.block}>
-            <Text style={[styles.section, { color: theme.text }]}>Solicitudes</Text>
+            <Text style={[styles.section, { color: theme.text }]}>{copy.sharing.requests}</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Personas que pidieron unirse con el ID del libro.
+              {copy.sharing.bookRequestsHint}
             </Text>
             {accessRequests.length === 0 ? (
-              <Text style={[styles.small, { color: theme.muted }]}>No hay solicitudes pendientes.</Text>
+              <Text style={[styles.small, { color: theme.muted }]}>{copy.sharing.noPendingRequests}</Text>
             ) : (
               accessRequests.map((request) => (
                 <View key={request.id} style={styles.memberRow}>
@@ -650,10 +646,10 @@ export default function LedgersScreen() {
                     <Text style={[styles.small, { color: theme.muted }]}>{request.email}</Text>
                   </View>
                   <Pressable onPress={() => void onRejectRequest(request)} style={{ marginRight: 8 }}>
-                    <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>Rechazar</Text>
+                    <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>{copy.sharing.reject}</Text>
                   </Pressable>
                   <Pressable onPress={() => void onAcceptRequest(request)}>
-                    <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>Aceptar</Text>
+                    <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>{copy.sharing.accept}</Text>
                   </Pressable>
                 </View>
               ))

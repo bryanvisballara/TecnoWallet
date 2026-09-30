@@ -1,21 +1,12 @@
 import { NativeModules, Platform } from 'react-native';
 
 import { toDateKey, type CalendarItem } from '@/data/calendar';
-
-function hourLabel(hour?: number, allDay?: boolean) {
-  if (allDay || hour === undefined || !Number.isFinite(hour)) return 'Todo el día';
-  const h = Math.floor(hour);
-  const m = Math.round((hour - h) * 60);
-  const suffix = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${h12}:${String(m).padStart(2, '0')} ${suffix}`;
-}
+import { calendarTimeView } from '@/lib/timezones';
 
 function timeRange(item: CalendarItem) {
-  if (item.allDay || item.startHour == null) return 'Todo el día';
-  const start = hourLabel(item.startHour);
-  if (item.endHour == null || !Number.isFinite(item.endHour)) return start;
-  return `${start} – ${hourLabel(item.endHour)}`;
+  const view = calendarTimeView(item);
+  if (item.allDay || item.startHour == null) return view.rangeLabel;
+  return view.localHint ? `${view.rangeLabel} · ${view.localHint}` : view.rangeLabel;
 }
 
 function itemDateKey(value: unknown) {
@@ -31,14 +22,17 @@ export function syncCalendarWidget(items: CalendarItem[]) {
     | undefined;
   if (!sync?.writeSnapshot) return;
   const today = toDateKey(new Date());
-  const mapped = items.map((item) => ({
-    date: itemDateKey(item.date),
-    title: item.title,
-    time: timeRange(item),
-    color: item.color || '#0878F9',
-    type: item.type || 'event',
-    completed: Boolean(item.completed),
-  }));
+  const mapped = items.map((item) => {
+    const view = calendarTimeView(item);
+    return {
+      date: view.dateKey || itemDateKey(item.date),
+      title: item.title,
+      time: timeRange(item),
+      color: item.color || '#0878F9',
+      type: item.type || 'event',
+      completed: Boolean(item.completed),
+    };
+  });
   const dates = [...new Set(mapped.map((item) => item.date).filter(Boolean))];
   const todayEvents = mapped
     .filter((item) => item.date === today && !item.completed)

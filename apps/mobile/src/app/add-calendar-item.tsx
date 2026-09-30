@@ -43,12 +43,21 @@ import {
   resolveCalendarReminderAt,
   toDateKey,
   typeIcons,
-  typeLabels,
+  localizedTypeLabels,
+  displayCalendarUi,
   type CalendarAttachment,
   type CalendarItemType,
 } from '@/data/calendar';
 import { categoryIcons } from '@/lib/category-icons';
-import { displayCalendarName } from '@/i18n/app-copy';
+import { displayCalendarName, displayStoredName } from '@/i18n/app-copy';
+import { getFormsCopy, useFormsCopy } from '@/i18n/forms-copy';
+import {
+  calendarTimeZoneOptions,
+  deviceTimeZone,
+  localEquivalentHint,
+  normalizeTimeZone,
+  timeZoneRowLabel,
+} from '@/lib/timezones';
 import type { CalendarSharePayload } from '@/lib/calendar-share';
 import {
   scheduleCalendarReminder,
@@ -83,32 +92,37 @@ async function ensureImagePermission(kind: 'camera' | 'library') {
       ? await ImagePicker.requestCameraPermissionsAsync()
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (next.granted) return true;
+  const forms = getFormsCopy(useLanguageStore.getState().locale);
   Alert.alert(
-    kind === 'camera' ? 'Sin acceso a la cámara' : 'Sin acceso a tus fotos',
-    kind === 'camera'
-      ? 'Activa la cámara para TecnoWallet en Ajustes para tomar una foto.'
-      : 'Activa el acceso a fotos para TecnoWallet en Ajustes.',
+    kind === 'camera' ? forms.calendar.noCamera : forms.calendar.noPhotos,
+    kind === 'camera' ? forms.calendar.cameraHint : forms.calendar.photosHint,
     [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Abrir Ajustes', onPress: () => void Linking.openSettings() },
+      { text: forms.cancel, style: 'cancel' },
+      { text: forms.calendar.openSettings, onPress: () => void Linking.openSettings() },
     ],
   );
   return false;
 }
 
-function pickOption(title: string, options: readonly string[], onPick: (value: string) => void) {
+function pickOption(
+  title: string,
+  options: readonly { value: string; label: string }[],
+  onPick: (value: string) => void,
+  cancel: string,
+) {
   Alert.alert(title, undefined, [
     ...options.map((option) => ({
-      text: option,
-      onPress: () => onPick(option),
+      text: option.label,
+      onPress: () => onPick(option.value),
     })),
-    { text: 'Cancelar', style: 'cancel' as const },
+    { text: cancel, style: 'cancel' as const },
   ]);
 }
 
 export default function AddCalendarItemScreen() {
   usePaidCalendarGuard();
   const theme = useAppTheme();
+  const forms = useFormsCopy();
   const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);
   const addItem = useCalendarStore((state) => state.addItem);
@@ -173,6 +187,9 @@ export default function AddCalendarItemScreen() {
         : '10:00',
     ),
   );
+  const [timeZone, setTimeZone] = useState(
+    normalizeTimeZone(existing?.timeZone) || deviceTimeZone(),
+  );
   const [color, setColor] = useState<string>(
     existing?.color ?? calendarColors[initialType],
   );
@@ -221,6 +238,7 @@ export default function AddCalendarItemScreen() {
     setDateKey(existing.date);
     setStartTime(hhmmFromHour(existing.startHour, '09:00'));
     setEndTime(hhmmFromHour(existing.endHour, '10:00'));
+    setTimeZone(normalizeTimeZone(existing.timeZone));
     setColor(existing.color);
     setIcon(existing.icon?.trim() || typeIcons[existing.type]);
     if (existing.reminder?.startsWith('A las ')) {
@@ -253,8 +271,14 @@ export default function AddCalendarItemScreen() {
     () => formatDayLabel(parseDateKey(dateKey), locale),
     [dateKey, locale],
   );
-  const titlePlaceholder = type === 'birthday' ? 'Agregar nombre' : 'Agregar título';
+  const titlePlaceholder = type === 'birthday' ? forms.calendar.addName : forms.calendar.addTitle;
+  const typeLabels = localizedTypeLabels(locale);
   const timed = type !== 'birthday' && !allDay;
+  const startHourForHint = hourFromHhmm(normalizeHhmm(startTime) ?? startTime);
+  const timeZoneHint =
+    timed && startHourForHint != null
+      ? localEquivalentHint(dateKey, startHourForHint, timeZone, locale)
+      : '';
   const reminderIsCustom =
     reminder === CALENDAR_REMINDER_CUSTOM || reminder.startsWith('A las ');
   const reminderDisplay = reminderIsCustom
@@ -278,6 +302,7 @@ export default function AddCalendarItemScreen() {
       allDay: isAllDay,
       startHour: isAllDay ? undefined : hourFromHhmm(startNormalized),
       endHour: isAllDay ? undefined : hourFromHhmm(endNormalized),
+      timeZone: isAllDay ? undefined : timeZone,
       color,
       icon,
       notes: notes.trim() || undefined,
@@ -309,6 +334,7 @@ export default function AddCalendarItemScreen() {
     reminder,
     reminderIsCustom,
     startTime,
+    timeZone,
     title,
     type,
   ]);
@@ -316,15 +342,34 @@ export default function AddCalendarItemScreen() {
   const openShare = async () => {
     if (saving) return;
     if (!title.trim()) {
-      Alert.alert('Falta el título', 'Escribe un nombre para compartir esta entrada.');
+      Alert.alert(forms.calendar.missingTitle, forms.calendar.missingTitleBody);
       return;
     }
     const saved = await save({ dismiss: false });
     if (saved) setShareOpen(true);
   };
 
-  const pickRepeat = () => pickOption('Repetición', calendarRepeatOptions, setRepeat);
-  const pickList = () => pickOption('Lista', calendarListOptions, setList);
+  const pickRepeat = () =>
+    pickOption(
+      forms.calendar.repeatTitle,
+      calendarRepeatOptions.map((value) => ({ value, label: displayCalendarUi(value, locale) })),
+      setRepeat,
+      forms.cancel,
+    );
+  const pickTimeZone = () =>
+    pickOption(
+      forms.calendar.timeZoneTitle,
+      calendarTimeZoneOptions(locale),
+      setTimeZone,
+      forms.cancel,
+    );
+  const pickList = () =>
+    pickOption(
+      forms.calendar.listTitle,
+      calendarListOptions.map((value) => ({ value, label: displayCalendarUi(value, locale) })),
+      setList,
+      forms.cancel,
+    );
   const pickReminder = () => setShowReminderPicker((open) => !open);
   const selectReminder = (value: string) => {
     setReminder(value);
@@ -333,7 +378,7 @@ export default function AddCalendarItemScreen() {
     }
   };
   const pickAssignee = () => {
-    Alert.alert('Persona', undefined, [
+    Alert.alert(forms.calendar.personTitle, undefined, [
       ...people.map((person) => ({
         text: `${person.name} · ${person.email}`,
         onPress: () => {
@@ -341,7 +386,7 @@ export default function AddCalendarItemScreen() {
           setAssigneeEmail(person.email);
         },
       })),
-      { text: 'Cancelar', style: 'cancel' as const },
+      { text: forms.cancel, style: 'cancel' as const },
     ]);
   };
 
@@ -475,6 +520,7 @@ export default function AddCalendarItemScreen() {
           allDay: isAllDay,
           startHour,
           reminder: reminderValue,
+          timeZone: isAllDay ? undefined : timeZone,
         })
       : null;
 
@@ -490,6 +536,7 @@ export default function AddCalendarItemScreen() {
       allDay: isAllDay,
       startHour,
       endHour,
+      timeZone: isAllDay ? undefined : timeZone,
       color,
       icon,
       notes: notes.trim() || undefined,
@@ -526,6 +573,7 @@ export default function AddCalendarItemScreen() {
             allDay: isAllDay,
             startHour,
             reminder: reminderValue,
+            timeZone: isAllDay ? undefined : timeZone,
           })
         : true;
 
@@ -543,8 +591,8 @@ export default function AddCalendarItemScreen() {
       return true;
     } catch (error) {
       Alert.alert(
-        'No se pudo guardar',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        forms.saveFailed,
+        error instanceof Error ? error.message : forms.tryAgain,
       );
       return false;
     } finally {
@@ -562,8 +610,8 @@ export default function AddCalendarItemScreen() {
         safeGoBack('/(tabs)/calendario');
       } catch (error) {
         Alert.alert(
-          'No se pudo eliminar',
-          error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+          forms.deleteFailed,
+          error instanceof Error ? error.message : forms.tryAgain,
         );
       } finally {
         setSaving(false);
@@ -573,9 +621,9 @@ export default function AddCalendarItemScreen() {
       if (window.confirm(`¿Eliminar «${existing.title}»?`)) void run();
       return;
     }
-    Alert.alert('Eliminar', `¿Eliminar «${existing.title}» del calendario?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Eliminar', style: 'destructive', onPress: () => void run() },
+    Alert.alert(forms.delete, forms.calendar.deleteConfirm(existing.title), [
+      { text: forms.cancel, style: 'cancel' },
+      { text: forms.delete, style: 'destructive', onPress: () => void run() },
     ]);
   };
 
@@ -583,14 +631,14 @@ export default function AddCalendarItemScreen() {
     <SheetScreen fallback="/(tabs)/calendario">
       <View style={styles.flex}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/calendario')} style={styles.close}>
+          <Pressable accessibilityLabel={forms.close} onPress={() => safeGoBack('/(tabs)/calendario')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
           <ScalePressable
             onPress={saving ? undefined : () => void save()}
             style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
-            <Text style={styles.saveText}>{saving ? '…' : 'Guardar'}</Text>
+            <Text style={styles.saveText}>{saving ? '…' : forms.save}</Text>
           </ScalePressable>
         </View>
 
@@ -598,7 +646,6 @@ export default function AddCalendarItemScreen() {
           <TextInput
             value={title}
             onChangeText={setTitle}
-            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={titlePlaceholder}
             placeholderTextColor={theme.muted}
             style={[styles.titleInput, { color: theme.text }]}
@@ -606,9 +653,9 @@ export default function AddCalendarItemScreen() {
 
           <View style={styles.typeRow}>
             {([
-              { key: 'event' as const, label: 'Evento' },
-              { key: 'task' as const, label: 'Tarea' },
-              { key: 'birthday' as const, label: 'Cumpleaños' },
+              { key: 'event' as const, label: forms.calendar.event },
+              { key: 'task' as const, label: forms.calendar.task },
+              { key: 'birthday' as const, label: forms.calendar.birthday },
             ]).map((item) => {
               const active = type === item.key;
               return (
@@ -645,7 +692,7 @@ export default function AddCalendarItemScreen() {
 
           {type !== 'birthday' ? (
             <Row icon="clock">
-              <Text style={[styles.rowLabel, { color: theme.text }]}>Todo el día</Text>
+              <Text style={[styles.rowLabel, { color: theme.text }]}>{forms.calendar.allDay}</Text>
               <Switch value={allDay} onValueChange={setAllDay} trackColor={{ true: theme.primary }} />
             </Row>
           ) : null}
@@ -658,37 +705,50 @@ export default function AddCalendarItemScreen() {
                 next.setDate(next.getDate() + 1);
                 setDateKey(toDateKey(next));
               }}>
-              <Text style={{ color: theme.primary, fontWeight: '600' }}>+1 día</Text>
+              <Text style={{ color: theme.primary, fontWeight: '600' }}>{forms.calendar.plusOneDay}</Text>
             </Pressable>
           </Row>
 
           {timed ? (
-            <Row icon="clock">
-              <View style={styles.timeFields}>
-                <AppTimeField
-                  label="Inicio"
-                  value={startTime}
-                  onChange={setStartTime}
-                />
-                <AppTimeField
-                  label="Fin"
-                  value={endTime}
-                  onChange={setEndTime}
-                />
-              </View>
-            </Row>
+            <>
+              <Row icon="clock">
+                <View style={styles.timeFields}>
+                  <AppTimeField
+                    label={forms.calendar.start}
+                    value={startTime}
+                    onChange={setStartTime}
+                  />
+                  <AppTimeField
+                    label={forms.calendar.end}
+                    value={endTime}
+                    onChange={setEndTime}
+                  />
+                </View>
+              </Row>
+              <Row icon="globe" onPress={pickTimeZone}>
+                <View style={styles.flex}>
+                  <Text style={[styles.rowValue, { color: theme.text }]}>
+                    {timeZoneRowLabel(timeZone, locale)}
+                  </Text>
+                  <Text style={[styles.rowHint, { color: theme.muted }]}>
+                    {timeZoneHint || forms.calendar.timeZoneSame}
+                  </Text>
+                </View>
+                <AppIcon name="chevron" color={theme.muted} size={14} />
+              </Row>
+            </>
           ) : null}
 
           {type === 'event' || type === 'task' ? (
             <Row icon="repeat" onPress={pickRepeat}>
-              <Text style={[styles.rowValue, { color: theme.text }]}>{repeat}</Text>
+              <Text style={[styles.rowValue, { color: theme.text }]}>{displayCalendarUi(repeat, locale)}</Text>
               <AppIcon name="chevron" color={theme.muted} size={14} />
             </Row>
           ) : null}
 
           {type === 'task' ? (
             <Row icon="target">
-              <Text style={[styles.rowValue, { color: theme.muted }]}>Agregar fecha límite</Text>
+              <Text style={[styles.rowValue, { color: theme.muted }]}>{forms.calendar.addDeadline}</Text>
             </Row>
           ) : null}
 
@@ -703,7 +763,7 @@ export default function AddCalendarItemScreen() {
           <Row
             icon={type === 'task' ? 'line.3.horizontal.decrease' : 'calendar'}
             onPress={pickList}>
-            <Text style={[styles.rowValue, { color: theme.text }]}>{list}</Text>
+            <Text style={[styles.rowValue, { color: theme.text }]}>{displayCalendarUi(list, locale)}</Text>
             <AppIcon name="chevron" color={theme.muted} size={14} />
           </Row>
 
@@ -714,7 +774,7 @@ export default function AddCalendarItemScreen() {
                   value={location}
                   onChangeText={setLocation}
                   onFocus={focusScrollToEnd(scrollRef, 120)}
-                  placeholder="Agregar ubicación"
+                  placeholder={forms.calendar.addLocation}
                   placeholderTextColor={theme.muted}
                   style={[styles.inlineInput, { color: theme.text }]}
                 />
@@ -727,7 +787,7 @@ export default function AddCalendarItemScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="url"
-                  placeholder="Agregar link de reunión"
+                  placeholder={forms.calendar.addMeeting}
                   placeholderTextColor={theme.muted}
                   style={[styles.inlineInput, { color: theme.text }]}
                 />
@@ -738,12 +798,12 @@ export default function AddCalendarItemScreen() {
           <Row icon="bell" onPress={pickReminder}>
             <View style={styles.flex}>
               <Text style={[styles.rowValue, { color: theme.text }]}>
-                {formatReminderLabel(reminderDisplay)}
+                {formatReminderLabel(reminderDisplay, locale)}
               </Text>
               <Text style={[styles.rowHint, { color: theme.muted }]}>
                 {timed
-                  ? `Si empieza a las ${formatHhmmAmPm(startTime, locale)}, elige minutos antes o una hora fija.`
-                  : 'Toca para elegir cuándo quieres el aviso push.'}
+                  ? forms.calendar.reminderHintTimed(formatHhmmAmPm(startTime, locale === 'es' ? 'es' : 'en'))
+                  : forms.calendar.reminderHintAllDay}
               </Text>
             </View>
             <AppIcon
@@ -764,7 +824,7 @@ export default function AddCalendarItemScreen() {
               ]}
             >
               <Text style={[styles.reminderPickerTitle, { color: theme.muted }]}>
-                ¿Cuándo avisar?
+                {forms.calendar.whenRemind}
               </Text>
               <View style={styles.reminderChips}>
                 {calendarReminderOptions.map((option) => {
@@ -793,8 +853,8 @@ export default function AddCalendarItemScreen() {
                         }}
                       >
                         {option === CALENDAR_REMINDER_CUSTOM
-                          ? 'Hora fija…'
-                          : option}
+                          ? forms.calendar.fixedTime
+                          : displayCalendarUi(option, locale)}
                       </Text>
                     </Pressable>
                   );
@@ -803,7 +863,7 @@ export default function AddCalendarItemScreen() {
               {reminderIsCustom ? (
                 <View style={styles.customReminderBlock}>
                   <AppTimeField
-                    label="Hora fija del push"
+                    label={forms.calendar.fixedPush}
                     value={customReminderTime}
                     onChange={setCustomReminderTime}
                   />
@@ -813,7 +873,7 @@ export default function AddCalendarItemScreen() {
           ) : null}
 
           <View style={[styles.iconBlock, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.iconLabel, { color: theme.text }]}>Icono</Text>
+            <Text style={[styles.iconLabel, { color: theme.text }]}>{forms.icon}</Text>
             <View style={styles.icons}>
               {categoryIcons.map((item) => {
                 const selected = icon === item.name;
@@ -821,7 +881,7 @@ export default function AddCalendarItemScreen() {
                   <Pressable
                     key={item.name}
                     accessibilityRole="button"
-                    accessibilityLabel={item.label}
+                    accessibilityLabel={displayStoredName(item.label, locale)}
                     onPress={() => setIcon(item.name)}
                     style={[
                       styles.iconOption,
@@ -839,7 +899,7 @@ export default function AddCalendarItemScreen() {
 
           <Row icon="paintbrush.fill">
             <View style={[styles.swatch, { backgroundColor: color }]} />
-            <Text style={[styles.rowValue, { color: theme.text }]}>Color</Text>
+            <Text style={[styles.rowValue, { color: theme.text }]}>{forms.color}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.swatches}>
               {colors.map((item) => (
                 <Pressable
@@ -859,7 +919,7 @@ export default function AddCalendarItemScreen() {
               value={notes}
               onChangeText={setNotes}
               onFocus={focusScrollToEnd(scrollRef, 120)}
-              placeholder="Agregar detalles"
+              placeholder={forms.calendar.addDetails}
               placeholderTextColor={theme.muted}
               style={[styles.inlineInput, { color: theme.text }]}
               multiline
@@ -870,13 +930,13 @@ export default function AddCalendarItemScreen() {
             <View style={styles.attachBlock}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Agregar foto o archivo"
+                accessibilityLabel={forms.calendar.addFile}
                 onPress={chooseAttachment}
                 style={styles.attachHeader}>
                 <Text style={[styles.rowValue, { color: theme.text }]}>
                   {attachments.length
-                    ? `${attachments.length} adjunto${attachments.length === 1 ? '' : 's'}`
-                    : 'Agregar foto o archivo'}
+                    ? forms.calendar.attachments(attachments.length)
+                    : forms.calendar.addFile}
                 </Text>
                 <Text style={[styles.rowHint, { color: theme.primary, marginTop: 0 }]}>Añadir</Text>
               </Pressable>
@@ -918,11 +978,11 @@ export default function AddCalendarItemScreen() {
 
           <ScalePressable
             accessibilityRole="button"
-            accessibilityLabel="Compartir"
+            accessibilityLabel={locale === 'es' ? 'Compartir' : 'Share'}
             onPress={saving ? undefined : () => void openShare()}
             style={[styles.shareBtn, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
             <AppIcon name="square.and.arrow.up" color="#FFFFFF" size={18} />
-            <Text style={styles.shareBtnText}>{saving ? 'Guardando…' : 'Compartir'}</Text>
+            <Text style={styles.shareBtnText}>{saving ? forms.envelope.saving : locale === 'es' ? 'Compartir' : 'Share'}</Text>
           </ScalePressable>
 
           {isEditing ? (
@@ -930,7 +990,7 @@ export default function AddCalendarItemScreen() {
               onPress={saving ? undefined : confirmDelete}
               style={[styles.deleteBtn, { borderColor: theme.danger }]}>
               <Text style={[styles.deleteBtnText, { color: theme.danger }]}>
-                Eliminar
+                {forms.delete}
               </Text>
             </ScalePressable>
           ) : null}

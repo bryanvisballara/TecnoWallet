@@ -1,7 +1,6 @@
 import { claimAffiliate } from './affiliate-api';
 import { localStorage, tokenStorage } from './persistence';
 import { useAffiliateStore } from '@/store/affiliate';
-import { affiliateProgramEnabled, usePlusStore } from '@/store/plus';
 
 type PendingReferral = {
   code: string;
@@ -25,7 +24,6 @@ export async function clearBranchIdentity() {
 }
 
 export async function storeManualAffiliateCode(code: string) {
-  if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) return;
   await localStorage.set<PendingReferral>(PENDING_KEY, {
     code: code.trim().toUpperCase(),
     source: 'manual',
@@ -33,7 +31,6 @@ export async function storeManualAffiliateCode(code: string) {
 }
 
 export async function storeWebAffiliateReferral(code: string, clickId?: string) {
-  if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) return null;
   await localStorage.set<PendingReferral>(PENDING_KEY, {
     code: code.trim().toUpperCase(),
     clickId,
@@ -52,7 +49,6 @@ export async function peekPendingAffiliateCode() {
 }
 
 export async function claimPendingAffiliate(options?: { allowManual?: boolean }) {
-  if (!affiliateProgramEnabled(usePlusStore.getState().billingMarket)) return null;
   if (!(await tokenStorage.get())) return null;
   const pending = await localStorage.get<PendingReferral | null>(
     PENDING_KEY,

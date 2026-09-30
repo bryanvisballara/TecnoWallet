@@ -15,6 +15,27 @@ const VIDEO_KEYS: TutorialVideoKey[] = [
   'v12',
 ];
 
+/** Public Cloudinary delivery — not a secret. Used when Archive/TestFlight has no .env. */
+const DEFAULT_CLOUD_NAME = 'duh2g4lo0';
+
+const DEFAULT_PUBLIC_IDS: Record<TutorialLocale, Partial<Record<TutorialVideoKey, string>>> = {
+  es: {
+    v1: 'tecnowallet/tutorial/es/v1',
+    v2: 'tecnowallet/tutorial/es/v2',
+    v3: 'tecnowallet/tutorial/es/v3',
+    v4: 'tecnowallet/tutorial/es/v4',
+    v5: 'tecnowallet/tutorial/es/v5',
+    v6: 'tecnowallet/tutorial/es/v6',
+    v7: 'tecnowallet/tutorial/es/v7',
+    v8: 'tecnowallet/tutorial/es/v8',
+    v9: 'tecnowallet/tutorial/es/v9',
+    v10: 'tecnowallet/tutorial/es/v10',
+    v11: 'tecnowallet/tutorial/es/v11',
+    v12: 'tecnowallet/tutorial/es/v12',
+  },
+  en: {},
+};
+
 function envKey(locale: TutorialLocale, videoKey: TutorialVideoKey) {
   return `EXPO_PUBLIC_TUTORIAL_${locale.toUpperCase()}_${videoKey.toUpperCase()}` as const;
 }
@@ -24,10 +45,15 @@ function readEnv(name: string) {
   return value || '';
 }
 
+function publicIdFor(locale: TutorialLocale, videoKey: TutorialVideoKey) {
+  return readEnv(envKey(locale, videoKey)) || DEFAULT_PUBLIC_IDS[locale][videoKey] || '';
+}
+
 function buildCloudinaryUrl(publicId: string) {
   const cloudName =
     readEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME') ||
-    readEnv('EXPO_PUBLIC_TUTORIAL_CLOUDINARY_CLOUD');
+    readEnv('EXPO_PUBLIC_TUTORIAL_CLOUDINARY_CLOUD') ||
+    DEFAULT_CLOUD_NAME;
   if (!cloudName || !publicId) return '';
 
   const normalized = publicId.replace(/^\//, '').replace(/\.(mp4|mov)$/i, '');
@@ -46,11 +72,11 @@ export function resolveTutorialVideoUrl(
   locale: TutorialLocale,
   videoKey: TutorialVideoKey,
 ): string {
-  const direct = readEnv(envKey(locale, videoKey));
+  const direct = publicIdFor(locale, videoKey);
   if (direct) return resolveDirect(direct);
 
   if (locale !== 'es') {
-    const fallback = readEnv(envKey('es', videoKey));
+    const fallback = publicIdFor('es', videoKey);
     if (fallback) return resolveDirect(fallback);
   }
 

@@ -16,8 +16,11 @@ import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view'
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { isLiquidAccount, isWealthDebt } from '@/lib/accounts';
+import { displayLedgerName, displayStoredName } from '@/i18n/app-copy';
+import { useFormsCopy } from '@/i18n/forms-copy';
 import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 
 const liquidKinds = ['Cuenta corriente', 'Cuenta de ahorro', 'Efectivo'] as const;
 
@@ -70,6 +73,8 @@ function resolveKind(value: string | undefined, mode: FormMode): (typeof allKind
 export default function AddAccountScreen() {
   usePaidLedgerGuard();
   const theme = useAppTheme();
+  const forms = useFormsCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const scrollRef = useRef<ScrollView>(null);
   const { ledger, accounts } = useActiveLedger();
   const addAccount = useLedgerStore((state) => state.addAccount);
@@ -116,17 +121,21 @@ export default function AddAccountScreen() {
 
   const title = useMemo(() => {
     if (isEditing) {
-      if (mode === 'debt') return 'Editar deuda';
-      if (mode === 'asset') return 'Editar activo';
-      return 'Editar cuenta';
+      if (mode === 'debt') return forms.account.editDebt;
+      if (mode === 'asset') return forms.account.editAsset;
+      return forms.account.editAccount;
     }
-    if (mode === 'debt') return 'Nueva deuda';
-    if (mode === 'asset') return 'Nuevo activo';
-    return 'Nueva cuenta';
-  }, [isEditing, mode]);
+    if (mode === 'debt') return forms.account.newDebt;
+    if (mode === 'asset') return forms.account.newAsset;
+    return forms.account.newAccount;
+  }, [forms, isEditing, mode]);
 
   const entityLabel =
-    mode === 'debt' ? 'deuda' : mode === 'asset' ? 'activo' : 'cuenta';
+    mode === 'debt'
+      ? forms.account.entityDebt
+      : mode === 'asset'
+        ? forms.account.entityAsset
+        : forms.account.entityAccount;
   const listFallback =
     mode === 'asset' || mode === 'debt'
       ? '/(tabs)/salud-financiera'
@@ -135,20 +144,23 @@ export default function AddAccountScreen() {
   const showCreatedSuccess = (accountId: string, accountName: string) => {
     const title = isEditing
       ? mode === 'debt'
-        ? 'Deuda guardada'
+        ? forms.account.savedDebt
         : mode === 'asset'
-          ? 'Activo guardado'
-          : 'Cuenta guardada'
+          ? forms.account.savedAsset
+          : forms.account.savedAccount
       : mode === 'debt'
-        ? 'Deuda creada'
+        ? forms.account.createdDebt
         : mode === 'asset'
-          ? 'Activo creado'
-          : 'Cuenta creada';
+          ? forms.account.createdAsset
+          : forms.account.createdAccount;
     const body = isEditing
-      ? `Los cambios de «${accountName}» se guardaron correctamente.`
-      : `«${accountName}» se creó correctamente y ya aparece en ${
-          mode === 'asset' || mode === 'debt' ? 'Salud financiera' : 'Mis cuentas'
-        }.`;
+      ? forms.account.savedBody(accountName)
+      : forms.account.createdBody(
+          accountName,
+          mode === 'asset' || mode === 'debt'
+            ? forms.account.whereHealth
+            : forms.account.whereAccounts,
+        );
     const openDetail = () => {
       router.replace({
         pathname: '/(tabs)/account/[id]',
@@ -160,7 +172,7 @@ export default function AddAccountScreen() {
       openDetail();
       return;
     }
-    Alert.alert(title, body, [{ text: 'Ver', onPress: openDetail }]);
+    Alert.alert(title, body, [{ text: forms.view, onPress: openDetail }]);
   };
 
   const normalizeBalance = (parsed: number) => {
@@ -172,18 +184,18 @@ export default function AddAccountScreen() {
   const save = async () => {
     if (!name.trim()) {
       Alert.alert(
-        'Falta el nombre',
+        forms.missingName,
         mode === 'debt'
-          ? 'Escribe el nombre de la deuda.'
+          ? forms.account.nameRequiredDebt
           : mode === 'asset'
-            ? 'Escribe el nombre del activo.'
-            : 'Escribe cómo se llamará la cuenta.',
+            ? forms.account.nameRequiredAsset
+            : forms.account.nameRequiredAccount,
       );
       return;
     }
     const parsed = balance.trim() ? Number(balance.replace(',', '.')) : 0;
     if (!Number.isFinite(parsed)) {
-      Alert.alert('Monto inválido', 'Indica un número válido o déjalo en 0.');
+      Alert.alert(forms.invalidAmount, forms.account.invalidNumber);
       return;
     }
     const nextBalance = normalizeBalance(parsed);
@@ -216,8 +228,8 @@ export default function AddAccountScreen() {
       showCreatedSuccess(account.id, account.name);
     } catch (error) {
       Alert.alert(
-        isEditing ? 'No se pudo guardar' : 'No se pudo crear',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        isEditing ? forms.saveFailed : forms.createFailed,
+        error instanceof Error ? error.message : forms.tryAgain,
       );
     } finally {
       setSaving(false);
@@ -227,12 +239,12 @@ export default function AddAccountScreen() {
   const confirmDelete = () => {
     if (!editing) return;
     Alert.alert(
-      `Eliminar ${entityLabel}`,
-      `¿Seguro que quieres eliminar "${editing.name}"? Esta acción no se puede deshacer.`,
+      `${forms.delete} ${entityLabel}`,
+      forms.account.deleteConfirm(editing.name),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: forms.cancel, style: 'cancel' },
         {
-          text: 'Eliminar',
+          text: forms.delete,
           style: 'destructive',
           onPress: () => void runDelete(),
         },
@@ -249,8 +261,8 @@ export default function AddAccountScreen() {
       safeGoBack(listFallback);
     } catch (error) {
       Alert.alert(
-        'No se pudo eliminar',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        forms.deleteFailed,
+        error instanceof Error ? error.message : forms.tryAgain,
       );
     } finally {
       setSaving(false);
@@ -262,7 +274,7 @@ export default function AddAccountScreen() {
       <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable
-            accessibilityLabel="Cerrar"
+            accessibilityLabel={forms.close}
             onPress={() => safeGoBack(listFallback)}
             style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
@@ -272,32 +284,31 @@ export default function AddAccountScreen() {
             disabled={saving}
             onPress={() => void save()}
             style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
-            <Text style={styles.saveText}>{isEditing ? 'Guardar' : 'Crear'}</Text>
+            <Text style={styles.saveText}>{isEditing ? forms.save : forms.create}</Text>
           </ScalePressable>
         </View>
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
-            Libro {ledger.name}
+            {forms.book(displayLedgerName(ledger.name, locale))}
             {mode === 'debt'
-              ? ' · Va a Salud financiera (deudas)'
+              ? forms.account.hintDebt
               : mode === 'asset'
-                ? ' · Va a Salud financiera (bienes)'
-                : ' · Suma a tu liquidez'}
+                ? forms.account.hintAsset
+                : forms.account.hintLiquid}
           </Text>
 
-          <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.name}</Text>
           <TextInput
             value={name}
             onChangeText={setName}
-            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={
               mode === 'debt'
-                ? 'Ej. Visa, Préstamo carro'
+                ? forms.account.phDebt
                 : mode === 'asset'
-                  ? 'Ej. Casa, carro, terreno'
-                  : 'Ej. Cuenta nómina, Ahorros'
+                  ? forms.account.phAsset
+                  : forms.account.phAccount
             }
             placeholderTextColor={theme.muted}
             style={[
@@ -310,7 +321,7 @@ export default function AddAccountScreen() {
             ]}
           />
 
-          <Text style={[styles.label, { color: theme.muted }]}>Tipo</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.type}</Text>
           <View style={styles.kinds}>
             {kindOptions.map((item) => {
               const selected = kind === item;
@@ -337,7 +348,7 @@ export default function AddAccountScreen() {
                       fontWeight: '700',
                       fontSize: 13,
                     }}>
-                    {item}
+                    {displayStoredName(item, locale)}
                   </Text>
                 </Pressable>
               );
@@ -346,14 +357,14 @@ export default function AddAccountScreen() {
 
           <Text style={[styles.label, { color: theme.muted }]}>
             {mode === 'debt'
-              ? 'Monto de la deuda'
+              ? forms.account.debtAmount
               : mode === 'asset'
                 ? isEditing
-                  ? 'Valor'
-                  : 'Valor del activo'
+                  ? forms.account.value
+                  : forms.account.assetValue
                 : isEditing
-                  ? 'Saldo'
-                  : 'Saldo inicial'}
+                  ? forms.account.balance
+                  : forms.account.balanceInitial}
           </Text>
           <TextInput
             value={balance}
@@ -373,16 +384,16 @@ export default function AddAccountScreen() {
           />
           <Text style={[styles.hint, { color: theme.muted }]}>
             {mode === 'debt'
-              ? 'Escribe el monto que debes (se registrará como pasivo).'
+              ? forms.account.hintDebtAmount
               : mode === 'asset'
-                ? 'Escribe el valor del activo o el saldo disponible.'
-                : 'En deudas puedes usar un monto negativo o crearlas desde Salud financiera.'}
+                ? forms.account.hintAssetAmount
+                : forms.account.hintLiquidAmount}
           </Text>
 
           {isOffAccount ? null : (
             <>
               <Text style={[styles.label, { color: theme.muted }]}>
-                Últimos 4 dígitos (opcional)
+                {forms.account.lastFour}
               </Text>
               <TextInput
                 value={lastFour}
@@ -390,7 +401,7 @@ export default function AddAccountScreen() {
                 onFocus={focusScrollToEnd(scrollRef, 120)}
                 keyboardType="number-pad"
                 maxLength={4}
-                placeholder="••••"
+                placeholder={forms.account.lastFourPh}
                 placeholderTextColor={theme.muted}
                 style={[
                   styles.input,
@@ -404,14 +415,14 @@ export default function AddAccountScreen() {
             </>
           )}
 
-          <Text style={[styles.label, { color: theme.muted }]}>Icono</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.icon}</Text>
           <View style={styles.icons}>
             {accountIcons.map((item) => {
               const selected = icon === item.name;
               return (
                 <Pressable
                   key={item.name}
-                  accessibilityLabel={item.label}
+                  accessibilityLabel={displayStoredName(item.label, locale)}
                   onPress={() => setIcon(item.name)}
                   style={[
                     styles.iconOption,
@@ -426,7 +437,7 @@ export default function AddAccountScreen() {
             })}
           </View>
 
-          <Text style={[styles.label, { color: theme.muted }]}>Color</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.color}</Text>
           <View style={styles.colors}>
             {palette.map((item) => (
               <Pressable
@@ -444,7 +455,7 @@ export default function AddAccountScreen() {
           {isEditing ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Eliminar"
+              accessibilityLabel={forms.delete}
               disabled={saving}
               onPress={confirmDelete}
               style={[
@@ -454,10 +465,10 @@ export default function AddAccountScreen() {
               <AppIcon name="trash" color={theme.danger} size={16} />
               <Text style={[styles.deleteText, { color: theme.danger }]}>
                 {mode === 'debt'
-                  ? 'Eliminar deuda'
+                  ? forms.account.deleteDebt
                   : mode === 'asset'
-                    ? 'Eliminar activo'
-                    : 'Eliminar cuenta'}
+                    ? forms.account.deleteAsset
+                    : forms.account.deleteAccount}
               </Text>
             </Pressable>
           ) : null}

@@ -2,7 +2,6 @@ import { Alert, Platform, Share } from 'react-native';
 
 import {
   formatDayLabel,
-  formatHour,
   formatReminderLabel,
   parseDateKey,
   typeIcons,
@@ -12,6 +11,7 @@ import {
 } from '@/data/calendar';
 import { categoryIcons } from '@/lib/category-icons';
 import { isImageAttachment } from '@/lib/open-attachment';
+import { calendarTimeView } from '@/lib/timezones';
 import { pdfCategoryIcon, pdfRoundRect } from '@/lib/pdf-category-icon';
 import { saveExportFile } from '@/lib/save-export';
 
@@ -22,6 +22,7 @@ export type CalendarSharePayload = {
   allDay: boolean;
   startHour?: number;
   endHour?: number;
+  timeZone?: string;
   color: string;
   icon?: string;
   notes?: string;
@@ -141,11 +142,9 @@ function wrap(value: string, width: number) {
 export function calendarWhenLabel(payload: CalendarSharePayload) {
   const day = formatDayLabel(parseDateKey(payload.date));
   if (payload.allDay) return `${day} · Todo el día`;
-  const start = formatHour(payload.startHour);
-  const end = formatHour(payload.endHour);
-  if (start && end) return `${day} · ${start} – ${end}`;
-  if (start) return `${day} · ${start}`;
-  return day;
+  const view = calendarTimeView(payload);
+  const extra = view.localHint ? ` · ${view.localHint}` : '';
+  return `${day} · ${view.rangeLabel}${extra}`;
 }
 
 export function buildCalendarShareCaption(payload: CalendarSharePayload) {

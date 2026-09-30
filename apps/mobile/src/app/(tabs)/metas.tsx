@@ -7,7 +7,7 @@ import { AppIcon, Card, Pill, ScalePressable, Screen, useAppTheme } from '@/comp
 import { formatDayLabel, parseDateKey } from '@/data/calendar';
 import { money } from '@/data/demo';
 import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
-import { goalPeriodLabels, useGoalsStore, type GoalPeriod, type UserGoal } from '@/store/goals';
+import { goalPeriodLabel, useGoalsStore, type GoalPeriod, type UserGoal } from '@/store/goals';
 import { useActiveLedger } from '@/store/ledger';
 import { useLanguageStore } from '@/store/language';
 import { withPaidLedgerAccess } from '@/lib/require-paid-access';
@@ -18,7 +18,7 @@ function goalDeadlineLabel(goal: UserGoal, locale: string) {
   if (goal.period === 'date' && goal.targetDate) {
     return formatDayLabel(parseDateKey(goal.targetDate), locale);
   }
-  return goalPeriodLabels[goal.period];
+  return goalPeriodLabel(goal.period, locale);
 }
 
 function GoalCard({ goal }: { goal: UserGoal }) {
@@ -157,10 +157,10 @@ export default function MetasScreen() {
   const grouped = useMemo(() => {
     return periodOrder.map((period) => ({
       period,
-      label: goalPeriodLabels[period],
+      label: goalPeriodLabel(period, locale),
       items: goals.filter((item) => item.period === period),
     }));
-  }, [goals]);
+  }, [goals, locale]);
 
   const completedCount = goals.filter((item) => item.completed).length;
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
@@ -182,7 +182,7 @@ export default function MetasScreen() {
             <AppIcon name="arrow.left" color={theme.text} />
           </Pressable>
           <Pressable
-            accessibilityLabel="Nueva meta"
+            accessibilityLabel={copy.goals.newGoalA11y}
             onPress={() => withPaidLedgerAccess(() => router.push('/add-goal'))}
             style={[styles.back, { backgroundColor: theme.primarySoft }]}>
             <AppIcon name="plus" color={theme.primary} />
@@ -194,12 +194,12 @@ export default function MetasScreen() {
         title={
           goals.length === 0
             ? copy.goals.none
-            : `${goals.length} meta${goals.length === 1 ? '' : 's'}`
+            : copy.goals.count(goals.length)
         }
         hint={
           completedCount > 0
-            ? `${completedCount} completada${completedCount === 1 ? '' : 's'}`
-            : 'Metas con opcional sobre de ahorros'
+            ? copy.goals.completedHint(completedCount)
+            : copy.goals.savingsHint
         }
       />
 

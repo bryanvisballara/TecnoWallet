@@ -8,7 +8,7 @@ import { WeeklyBars, type WeeklyMode } from '@/components/charts';
 import { AppIcon, Card, ScalePressable, SectionTitle, useAppTheme } from '@/components/ui';
 import { money, type Envelope, type Transaction } from '@/data/demo';
 import { parseDateKey, toDateKey } from '@/data/calendar';
-import { useAppCopy } from '@/i18n/app-copy';
+import { displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import {
   buildExpenseSlices,
   buildPeriodBuckets,
@@ -21,12 +21,6 @@ import {
 import { openCashflowDetalle } from '@/lib/cashflow-filter';
 import { parseTransactionDate } from '@/lib/dates';
 import { useLanguageStore } from '@/store/language';
-
-const MODE_OPTIONS: Array<{ key: WeeklyMode; label: string }> = [
-  { key: 'expenses', label: 'Gastos' },
-  { key: 'income', label: 'Ingresos' },
-  { key: 'both', label: 'Ambos' },
-];
 
 type Props = {
   transactions: Transaction[];
@@ -52,6 +46,12 @@ export function ActivityOverview({
   const theme = useAppTheme();
   const copy = useAppCopy();
   const locale = useLanguageStore((state) => state.locale);
+  const formatMoney = (value: number, compact = false) => money(value, compact, currency);
+  const modeOptions: Array<{ key: WeeklyMode; label: string }> = [
+    { key: 'expenses', label: copy.home.expenses },
+    { key: 'income', label: copy.home.income },
+    { key: 'both', label: copy.home.both },
+  ];
   const [period, setPeriod] = useState<ActivityPeriod>('week');
   const [mode, setMode] = useState<WeeklyMode>('expenses');
   const [weekOffset, setWeekOffset] = useState(0);
@@ -218,7 +218,7 @@ export function ActivityOverview({
 
       <Card>
         <View style={styles.modeRow}>
-          {MODE_OPTIONS.map((item) => {
+          {modeOptions.map((item) => {
             const active = mode === item.key;
             return (
               <Pressable
@@ -251,6 +251,7 @@ export function ActivityOverview({
             mode={mode}
             onModeChange={setMode}
             hideModeRow
+            currency={currency}
           />
         ) : (
           <View style={styles.monthBars}>
@@ -258,11 +259,11 @@ export function ActivityOverview({
               <View style={styles.legendRow}>
                 <View style={styles.legendItem}>
                   <View style={[styles.legendDot, { backgroundColor: theme.danger }]} />
-                  <Text style={[styles.legendText, { color: theme.muted }]}>Gastos</Text>
+                  <Text style={[styles.legendText, { color: theme.muted }]}>{copy.home.expenses}</Text>
                 </View>
                 <View style={styles.legendItem}>
                   <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
-                  <Text style={[styles.legendText, { color: theme.muted }]}>Ingresos</Text>
+                  <Text style={[styles.legendText, { color: theme.muted }]}>{copy.home.income}</Text>
                 </View>
               </View>
             ) : null}
@@ -366,11 +367,11 @@ export function ActivityOverview({
                     <Text style={[styles.bucketSubtitle, { color: theme.muted }]}>
                       {selectedBucketTxs.length === 0
                         ? mode === 'income'
-                          ? 'Sin ingresos'
+                          ? copy.home.noIncomeShort
                           : mode === 'expenses'
-                            ? 'Sin gastos'
-                            : 'Sin movimientos'
-                        : `${selectedBucketTxs.length} movimiento${selectedBucketTxs.length === 1 ? '' : 's'}`}
+                            ? copy.home.noExpensesShort
+                            : copy.home.noMovementsShort
+                        : copy.home.movementCount(selectedBucketTxs.length)}
                     </Text>
                   </View>
                   <Text
@@ -390,13 +391,13 @@ export function ActivityOverview({
                       },
                     ]}>
                     {mode === 'both' && selectedBucketAmount > 0 ? '+' : ''}
-                    {money(selectedBucketAmount)}
+                    {formatMoney(selectedBucketAmount)}
                   </Text>
                 </View>
                 {selectedBucketTxs.slice(0, 4).map((tx) => (
                   <View key={tx.id} style={styles.bucketRow}>
                     <Text numberOfLines={1} style={[styles.bucketRowTitle, { color: theme.text }]}>
-                      {tx.title}
+                      {displayStoredName(tx.title, locale)}
                     </Text>
                     <Text
                       style={[
@@ -404,7 +405,7 @@ export function ActivityOverview({
                         { color: tx.amount >= 0 ? theme.success : theme.text },
                       ]}>
                       {tx.amount > 0 ? '+' : ''}
-                      {money(tx.amount)}
+                      {formatMoney(tx.amount)}
                     </Text>
                   </View>
                 ))}
@@ -452,7 +453,7 @@ export function ActivityOverview({
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.7}>
-                  {hidden ? '••••••' : money(item.amount)}
+                  {hidden ? '••••••' : formatMoney(item.amount)}
                 </Text>
               </View>
             </ScalePressable>

@@ -6,13 +6,17 @@ import * as Haptics from 'expo-haptics';
 
 import { AppIcon, Card, Pill, PrimaryButton, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { displayLedgerName, displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import { isWealthAsset, isWealthDebt } from '@/lib/accounts';
 import { resolveEnvelopeForTransaction } from '@/lib/envelope-match';
 import { withPaidLedgerAccess } from '@/lib/require-paid-access';
+import { useLanguageStore } from '@/store/language';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
 
 export default function AccountDetailScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { accounts, transactions, ledger, envelopes } = useActiveLedger();
   const removeAccount = useLedgerStore((state) => state.removeAccount);
@@ -21,8 +25,11 @@ export default function AccountDetailScreen() {
   const isAsset = isWealthAsset(account);
   const isDebt = isWealthDebt(account);
   const isWealthItem = isAsset || isDebt;
-  const masked = account.lastFour === '—' ? 'Sin número' : `•••• ${account.lastFour}`;
+  const masked = account.lastFour === '—' ? copy.accounts.noNumber : `•••• ${account.lastFour}`;
   const [deleting, setDeleting] = useState(false);
+  const kindLabel = displayStoredName(account.kind, locale);
+  const accountLabel = displayStoredName(account.name, locale);
+  const bookLabel = displayLedgerName(ledger.name, locale);
   const openEdit = () =>
     withPaidLedgerAccess(() =>
       router.push({
@@ -34,14 +41,22 @@ export default function AccountDetailScreen() {
       }),
     );
 
-  const entityLabel = isDebt ? 'deuda' : isAsset ? 'activo' : 'cuenta';
+  const entityLabel = isDebt
+    ? copy.accounts.entityDebt
+    : isAsset
+      ? copy.accounts.entityAsset
+      : copy.accounts.entityAccount;
   const fallback = isWealthItem ? '/(tabs)/salud-financiera' : '/(tabs)/mis-cuentas';
   const heroLabel = isDebt
-    ? 'Saldo pendiente'
+    ? copy.accounts.pendingBalance
     : isAsset
-      ? 'Valor del activo'
-      : 'Saldo disponible';
-  const heroBadge = isDebt ? 'Deuda' : isAsset ? 'Activo' : 'Cuenta';
+      ? copy.accounts.assetValue
+      : copy.accounts.availableBalance;
+  const heroBadge = isDebt
+    ? copy.health.badgeDebt
+    : isAsset
+      ? copy.health.badgeAsset
+      : copy.accounts.badgeAccount;
   const heroBadgeTone = isDebt ? 'orange' : isAsset ? 'blue' : 'neutral';
 
   // Wealth detail sits in the tabs stack; router.back() often lands on Inicio
@@ -55,18 +70,14 @@ export default function AccountDetailScreen() {
   };
 
   const confirmDelete = () => {
-    Alert.alert(
-      `Eliminar ${entityLabel}`,
-      `¿Seguro que quieres eliminar "${account.name}"? Esta acción no se puede deshacer.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: () => void runDelete(),
-        },
-      ],
-    );
+    Alert.alert(copy.accounts.deleteTitle(entityLabel), copy.accounts.deleteBody(accountLabel), [
+      { text: copy.common.cancel, style: 'cancel' },
+      {
+        text: copy.common.delete,
+        style: 'destructive',
+        onPress: () => void runDelete(),
+      },
+    ]);
   };
 
   const runDelete = async () => {
@@ -77,8 +88,8 @@ export default function AccountDetailScreen() {
       goBack();
     } catch (error) {
       Alert.alert(
-        'No se pudo eliminar',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        copy.accounts.deleteFailed,
+        error instanceof Error ? error.message : copy.common.tryAgain,
       );
     } finally {
       setDeleting(false);
@@ -87,8 +98,8 @@ export default function AccountDetailScreen() {
 
   return (
     <Screen
-      title={account.name}
-      subtitle={`${account.kind} · ${ledger.name}`}
+      title={accountLabel}
+      subtitle={`${kindLabel} · ${bookLabel}`}
       right={
         <View style={styles.headerActions}>
           <Pressable
@@ -97,13 +108,13 @@ export default function AccountDetailScreen() {
             <AppIcon name="arrow.left" color={theme.text} />
           </Pressable>
           <Pressable
-            accessibilityLabel="Editar cuenta"
+            accessibilityLabel={copy.accounts.tapToEdit}
             onPress={openEdit}
             style={[styles.back, { backgroundColor: theme.primarySoft }]}>
             <AppIcon name="paintbrush.fill" color={theme.primary} />
           </Pressable>
           <Pressable
-            accessibilityLabel={`Eliminar ${entityLabel}`}
+            accessibilityLabel={copy.accounts.deleteTitle(entityLabel)}
             disabled={deleting}
             onPress={confirmDelete}
             style={[styles.back, { backgroundColor: '#FDECEC', opacity: deleting ? 0.6 : 1 }]}>
@@ -113,7 +124,7 @@ export default function AccountDetailScreen() {
       }>
       <ScalePressable
         accessibilityRole="button"
-        accessibilityLabel={`Editar ${entityLabel} ${account.name}`}
+        accessibilityLabel={`${copy.accounts.tapToEdit} ${accountLabel}`}
         onPress={openEdit}>
         <Card style={[styles.hero, { backgroundColor: account.color }]}>
           <View style={uiStyles.between}>
@@ -125,7 +136,7 @@ export default function AccountDetailScreen() {
           <Text style={styles.heroLabel}>{heroLabel}</Text>
           <Text style={styles.heroValue}>{money(Math.abs(account.balance))}</Text>
           <Text style={styles.heroSmall}>
-            {isWealthItem ? 'Toca para editar' : `${masked} · Toca para editar`}
+            {isWealthItem ? copy.accounts.tapToEdit : `${masked} · ${copy.accounts.tapToEdit}`}
           </Text>
         </Card>
       </ScalePressable>
@@ -139,8 +150,8 @@ export default function AccountDetailScreen() {
             />
           </View>
           <View style={styles.copy}>
-            <Text style={[styles.title, { color: theme.text }]}>Tipo</Text>
-            <Text style={[styles.small, { color: theme.muted }]}>{account.kind}</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{copy.accounts.typeLabel}</Text>
+            <Text style={[styles.small, { color: theme.muted }]}>{kindLabel}</Text>
           </View>
         </View>
         {!isWealthItem ? (
@@ -153,9 +164,9 @@ export default function AccountDetailScreen() {
               <AppIcon name="arrow.left.arrow.right" color={theme.success} />
             </View>
             <View style={styles.copy}>
-              <Text style={[styles.title, { color: theme.text }]}>Sincronización</Text>
+              <Text style={[styles.title, { color: theme.text }]}>{copy.accounts.sync}</Text>
               <Text style={[styles.small, { color: theme.muted }]}>
-                Actualizada hoy · conexión activa
+                {copy.accounts.syncStatus}
               </Text>
             </View>
             <Pill tone="green">OK</Pill>
@@ -165,20 +176,23 @@ export default function AccountDetailScreen() {
 
       {!isWealthItem ? (
         <>
-          <SectionTitle action="Ver todos" onAction={() => router.push('/(tabs)/movimientos')}>
-            Movimientos
+          <SectionTitle action={copy.common.viewAll} onAction={() => router.push('/(tabs)/movimientos')}>
+            {copy.accounts.movements}
           </SectionTitle>
           <Card style={styles.list}>
             {accountTx.length > 0 ? (
               accountTx.map((item, index) => {
                 const envelope = resolveEnvelopeForTransaction(item, envelopes);
-                const envelopeLabel = envelope?.name.trim() || item.category.trim();
+                const envelopeLabel = displayStoredName(
+                  envelope?.name.trim() || item.category.trim(),
+                  locale,
+                );
                 return (
                   <ScalePressable
                     key={item.id}
                     haptic={false}
                     accessibilityRole="button"
-                    accessibilityLabel={`Ver ${item.title}${envelopeLabel ? `, sobre ${envelopeLabel}` : ', sin sobre'}`}
+                    accessibilityLabel={`${item.title}${envelopeLabel ? `, ${copy.accounts.envelopeLine(envelopeLabel)}` : `, ${copy.accounts.noEnvelope}`}`}
                     onPress={() =>
                       withPaidLedgerAccess(() =>
                         router.push({
@@ -198,9 +212,14 @@ export default function AccountDetailScreen() {
                       <AppIcon name={item.icon} color={account.color} />
                     </View>
                     <View style={styles.copy}>
-                      <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
+                      <Text style={[styles.title, { color: theme.text }]}>
+                        {displayStoredName(item.title, locale)}
+                      </Text>
                       <Text style={[styles.small, { color: theme.muted }]}>
-                        {envelopeLabel ? `Sobre ${envelopeLabel}` : 'Sin sobre'} · {item.date}
+                        {envelopeLabel
+                          ? copy.accounts.envelopeLine(envelopeLabel)
+                          : copy.accounts.noEnvelope}{' '}
+                        · {item.date}
                       </Text>
                     </View>
                     <Text
@@ -217,7 +236,7 @@ export default function AccountDetailScreen() {
               })
             ) : (
               <Text style={[styles.small, { color: theme.muted, paddingVertical: 12 }]}>
-                Aún no hay movimientos en esta cuenta.
+                {copy.accounts.emptyMovements}
               </Text>
             )}
           </Card>
@@ -229,20 +248,20 @@ export default function AccountDetailScreen() {
                 router.push({ pathname: '/add-transaction', params: { accountId: account.id } }),
               )
             }>
-            Registrar movimiento
+            {copy.accounts.addMovement}
           </PrimaryButton>
         </>
       ) : null}
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Eliminar ${entityLabel}`}
+        accessibilityLabel={copy.accounts.deleteTitle(entityLabel)}
         disabled={deleting}
         onPress={confirmDelete}
         style={[styles.deleteBtn, { borderColor: theme.danger, opacity: deleting ? 0.6 : 1 }]}>
         <AppIcon name="trash" color={theme.danger} size={16} />
         <Text style={[styles.deleteText, { color: theme.danger }]}>
-          {`Eliminar ${entityLabel}`}
+          {copy.accounts.deleteTitle(entityLabel)}
         </Text>
       </Pressable>
     </Screen>

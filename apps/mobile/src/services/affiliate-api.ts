@@ -93,6 +93,19 @@ export async function getAffiliateCode(code: string) {
   return unwrapAffiliate(result);
 }
 
+export async function submitCouponLead(input: {
+  name: string;
+  email: string;
+  country: string;
+  locale: string;
+  code: string;
+}) {
+  return apiRequest<{ saved: boolean }>('/affiliate/coupon-lead', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export async function recordAffiliateClick(input: {
   code: string;
   campaign?: string;

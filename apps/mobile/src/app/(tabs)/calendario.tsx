@@ -30,6 +30,7 @@ import {
   type CalendarItem,
   type CalendarItemType,
 } from '@/data/calendar';
+import { calendarTimeView } from '@/lib/timezones';
 import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
 import { dateLocale } from '@/i18n/locale-format';
 import { useAppRefresh } from '@/hooks/use-app-refresh';
@@ -125,7 +126,12 @@ export default function CalendarScreen() {
   const selectedDate = useMemo(() => parseDateKey(selectedKey), [selectedKey]);
   const visibleDateKeys = useMemo(() => {
     const keys = matrix.map((cell) => cell.key);
-    if (!keys.includes(selectedKey)) keys.push(selectedKey);
+    const selected = parseDateKey(selectedKey);
+    const prev = toDateKey(new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() - 1));
+    const next = toDateKey(new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() + 1));
+    for (const key of [selectedKey, prev, next]) {
+      if (!keys.includes(key)) keys.push(key);
+    }
     return keys;
   }, [matrix, selectedKey]);
   const expandedItems = useMemo(
@@ -135,16 +141,17 @@ export default function CalendarScreen() {
   const dayItems = useMemo(
     () =>
       expandedItems
-        .filter((item) => item.date === selectedKey)
-        .sort((a, b) => (a.startHour ?? -1) - (b.startHour ?? -1)),
+        .filter((item) => calendarTimeView(item).dateKey === selectedKey)
+        .sort((a, b) => (calendarTimeView(a).startHour ?? -1) - (calendarTimeView(b).startHour ?? -1)),
     [expandedItems, selectedKey],
   );
   const itemsByDay = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
     expandedItems.forEach((item) => {
-      const list = map.get(item.date) ?? [];
+      const key = calendarTimeView(item).dateKey;
+      const list = map.get(key) ?? [];
       list.push(item);
-      map.set(item.date, list);
+      map.set(key, list);
     });
     return map;
   }, [expandedItems]);
@@ -443,7 +450,10 @@ export default function CalendarScreen() {
                   {typeLabels[item.type]}
                   {item.allDay
                     ? ` · ${copy.calendar.allDay}`
-                    : ` · ${formatHour(item.startHour)}${item.endHour != null ? ` – ${formatHour(item.endHour)}` : ''}`}
+                    : (() => {
+                        const view = calendarTimeView(item);
+                        return ` · ${view.rangeLabel}${view.localHint ? ` · ${view.localHint}` : ''}`;
+                      })()}
                   {item.location ? ` · ${item.location}` : ''}
                 </Text>
               </View>
@@ -524,6 +534,7 @@ function DayTimeline({
   const hourHeight = compact ? 44 : 56;
   const timed = items.filter((item) => !item.allDay && item.startHour != null);
   const allDay = items.filter((item) => item.allDay);
+  const timedViews = timed.map((item) => ({ item, view: calendarTimeView(item) }));
 
   return (
     <View style={[styles.timelineCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -572,7 +583,9 @@ function DayTimeline({
       </View>
 
       {hours.map((hour) => {
-        const blocks = timed.filter((item) => Math.floor(item.startHour ?? 0) === hour);
+        const blocks = timedViews.filter(
+          ({ view }) => Math.floor(view.startHour ?? 0) === hour,
+        );
         return (
           <Pressable
             key={hour}
@@ -584,7 +597,7 @@ function DayTimeline({
               {formatHour(hour).replace(':00', '')}
             </Text>
             <View style={[styles.hourLine, { borderTopColor: theme.border }]}>
-              {blocks.map((block, index) => (
+              {blocks.map(({ item: block, view }, index) => (
                 <Pressable
                   key={block.id}
                   onPress={() => onOpenItem(block.id)}
@@ -594,10 +607,12 @@ function DayTimeline({
                       backgroundColor: block.completed ? '#0E9F6E' : block.color,
                       borderWidth: block.completed ? 3 : 0,
                       borderColor: block.completed ? '#054C32' : 'transparent',
-                      top: ((block.startHour ?? hour) - hour) * hourHeight,
+                      top: ((view.startHour ?? hour) - hour) * hourHeight,
                       height: Math.max(
                         compact ? 36 : 44,
-                        ((block.endHour ?? hour + 1) - (block.startHour ?? hour)) * hourHeight,
+                        ((view.endHour ?? (view.startHour ?? hour) + 1) -
+                          (view.startHour ?? hour)) *
+                          hourHeight,
                       ),
                       left: 8 + index * 8,
                       right: 8,

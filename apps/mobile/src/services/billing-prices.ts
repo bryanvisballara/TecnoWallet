@@ -45,3 +45,7 @@ export const PLUS_PRODUCT_IDS = PLUS_LIST_PRODUCT_IDS;
 export const BUSINESS_PRODUCT_IDS = BUSINESS_LIST_PRODUCT_IDS;
 
 export const AFFILIATE_OFFERING_ID = 'affiliate';
+
+/** In-paywall promo. The link applies this code and switches to the coupon price. */
+export const PROMO_COUPON_CODE = 'TECNO2026';
+export const PROMO_COUPON_URL = 'https://tecnowallet.app/cupon';

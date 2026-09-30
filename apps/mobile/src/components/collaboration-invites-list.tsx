@@ -1,13 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppIcon, Pill, useAppTheme } from '@/components/ui';
+import { useAppCopy } from '@/i18n/app-copy';
 import type { CollaborationResourceInvite } from '@/services/collaboration-api';
-
-const roleLabels: Record<CollaborationResourceInvite['role'], string> = {
-  member: 'Miembro',
-  editor: 'Puede editar',
-  viewer: 'Solo ver',
-};
 
 export function CollaborationInvitesList({
   invites,
@@ -19,10 +14,16 @@ export function CollaborationInvitesList({
   onCancelPending?: (invite: CollaborationResourceInvite) => void;
 }) {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const roleLabels: Record<CollaborationResourceInvite['role'], string> = {
+    member: copy.sharing.roleMember,
+    editor: copy.sharing.roleEditor,
+    viewer: copy.sharing.roleViewer,
+  };
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.title, { color: theme.text }]}>Invitaciones</Text>
+      <Text style={[styles.title, { color: theme.text }]}>{copy.sharing.invitations}</Text>
       {invites.length === 0 ? (
         <Text style={[styles.empty, { color: theme.muted }]}>{emptyLabel}</Text>
       ) : (
@@ -52,12 +53,12 @@ export function CollaborationInvitesList({
                   hitSlop={8}
                   style={styles.cancelBtn}>
                   <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
-                    Cancelar
+                    {copy.common.cancel}
                   </Text>
                 </Pressable>
               ) : (
                 <Pill tone={accepted ? 'green' : 'orange'}>
-                  {accepted ? 'Aceptado' : 'Pendiente'}
+                  {accepted ? copy.sharing.accepted : copy.sharing.pending}
                 </Pill>
               )}
             </View>

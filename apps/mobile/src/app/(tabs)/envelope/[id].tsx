@@ -6,6 +6,8 @@ import * as Haptics from 'expo-haptics';
 
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
+import { displayLedgerName, displayStoredName, useAppCopy } from '@/i18n/app-copy';
+import { useFormsCopy } from '@/i18n/forms-copy';
 import { filterTransactionsByMonth } from '@/lib/dates';
 import { needWantLabel } from '@/lib/need-want';
 import { useLanguageStore } from '@/store/language';
@@ -16,6 +18,8 @@ import { usePeriodStore } from '@/store/period';
 
 export default function EnvelopeDetailScreen() {
   const theme = useAppTheme();
+  const copy = useAppCopy();
+  const forms = useFormsCopy();
   const locale = useLanguageStore((state) => state.locale);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { envelopes, transactions, ledger } = useActiveLedger();
@@ -56,12 +60,12 @@ export default function EnvelopeDetailScreen() {
 
   const confirmDelete = () => {
     Alert.alert(
-      'Eliminar sobre',
-      `¿Seguro que quieres eliminar "${envelope.name}"? Esta acción no se puede deshacer.`,
+      forms.envelope.deleteEnvelope,
+      forms.envelope.deleteConfirm(envelope.name),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: forms.cancel, style: 'cancel' },
         {
-          text: 'Eliminar',
+          text: forms.delete,
           style: 'destructive',
           onPress: () => void runDelete(),
         },
@@ -77,8 +81,8 @@ export default function EnvelopeDetailScreen() {
       safeGoBack('/(tabs)/sobres');
     } catch (error) {
       Alert.alert(
-        'No se pudo eliminar',
-        error instanceof Error ? error.message : 'Inténtalo de nuevo.',
+        forms.deleteFailed,
+        error instanceof Error ? error.message : forms.tryAgain,
       );
     } finally {
       setDeleting(false);
@@ -87,8 +91,8 @@ export default function EnvelopeDetailScreen() {
 
   return (
     <Screen
-      title={envelope.name}
-      subtitle={`${ledger.name} · ${monthLabel}`}
+      title={displayStoredName(envelope.name, locale)}
+      subtitle={`${displayLedgerName(ledger.name, locale)} · ${monthLabel}`}
       right={
         <View style={styles.headerActions}>
           <Pressable
@@ -122,20 +126,20 @@ export default function EnvelopeDetailScreen() {
             </View>
             <Pill tone="neutral">
               {hasBudget
-                ? `${percent}% ${isIncome ? 'recibido' : isSavings ? 'ahorrado' : 'usado'}`
-                : 'Sin presupuesto'}
+                ? `${percent}% ${isIncome ? copy.envelopes.received : isSavings ? copy.envelopes.saved : copy.envelopes.spent}`
+                : copy.envelopes.noBudget}
             </Pill>
           </View>
           <Text style={styles.heroLabel}>
             {isIncome
-              ? 'Ingresos recibidos'
+              ? locale === 'es' ? 'Ingresos recibidos' : 'Income received'
               : isSavings
                 ? hasBudget
-                  ? 'Ahorrado hacia la meta'
-                  : 'Ahorros registrados'
+                  ? locale === 'es' ? 'Ahorrado hacia la meta' : 'Saved toward the goal'
+                  : locale === 'es' ? 'Ahorros registrados' : 'Savings recorded'
                 : hasBudget
-                  ? 'Saldo disponible'
-                  : 'Gastos registrados'}
+                  ? locale === 'es' ? 'Saldo disponible' : 'Available balance'
+                  : locale === 'es' ? 'Gastos registrados' : 'Expenses recorded'}
           </Text>
           <Text style={styles.heroValue}>
             {money(isIncome || isSavings || !hasBudget ? spent : available)}
@@ -148,12 +152,12 @@ export default function EnvelopeDetailScreen() {
           <View style={uiStyles.between}>
             <Text style={styles.heroSmall}>
               {money(spent)}{' '}
-              {isIncome ? 'recibidos' : isSavings ? 'ahorrados' : 'gastados'}
+              {isIncome ? copy.envelopes.received : isSavings ? copy.envelopes.saved : copy.envelopes.spent}
             </Text>
             <Text style={styles.heroSmall}>
               {hasBudget
-                ? `${money(envelope.budget)} ${isIncome ? 'esperados' : isSavings ? 'meta' : 'asignados'}`
-                : 'Toca para editar'}
+                ? `${money(envelope.budget)} ${isIncome ? (locale === 'es' ? 'esperados' : 'expected') : isSavings ? (locale === 'es' ? 'meta' : 'goal') : (locale === 'es' ? 'asignados' : 'assigned')}`
+                : locale === 'es' ? 'Toca para editar' : 'Tap to edit'}
             </Text>
           </View>
         </Card>
@@ -165,9 +169,15 @@ export default function EnvelopeDetailScreen() {
               <AppIcon name="repeat" color={theme.primary} />
             </View>
             <View style={styles.copy}>
-              <Text style={[styles.title, { color: theme.text }]}>Rollover mensual</Text>
+              <Text style={[styles.title, { color: theme.text }]}>
+                {locale === 'es' ? 'Rollover mensual' : 'Monthly rollover'}
+              </Text>
               <Text style={[styles.small, { color: theme.muted }]}>
-                {envelope.rollover ? 'El saldo sobrante se acumula' : 'El saldo se reinicia'}
+                {envelope.rollover
+                  ? forms.envelope.rolloverHint
+                  : locale === 'es'
+                    ? 'El saldo se reinicia'
+                    : 'The balance resets each month'}
               </Text>
             </View>
             <Switch value={envelope.rollover} disabled />
@@ -203,44 +213,72 @@ export default function EnvelopeDetailScreen() {
             />
           </View>
           <View style={styles.copy}>
-            <Text style={[styles.title, { color: theme.text }]}>Tipo de sobre</Text>
+            <Text style={[styles.title, { color: theme.text }]}>
+              {locale === 'es' ? 'Tipo de sobre' : 'Envelope type'}
+            </Text>
             <Text style={[styles.small, { color: theme.muted }]}>
               {isIncome
-                ? 'Sobre de ingresos'
+                ? locale === 'es'
+                  ? 'Sobre de ingresos'
+                  : 'Income envelope'
                 : isSavings
-                  ? 'Sobre de ahorros · Creado desde Metas/Ahorros'
-                  : 'Sobre de gastos'}
+                  ? locale === 'es'
+                    ? 'Sobre de ahorros · Creado desde Metas/Ahorros'
+                    : 'Savings envelope · Created from Goals/Savings'
+                  : locale === 'es'
+                    ? 'Sobre de gastos'
+                    : 'Expense envelope'}
             </Text>
           </View>
           <Pill tone={isIncome ? 'green' : isSavings ? 'blue' : 'orange'}>
-            {isIncome ? 'Ingreso' : isSavings ? 'Ahorro' : 'Gasto'}
+            {isIncome ? copy.tx.income : isSavings ? copy.envelopes.badgeSave : copy.tx.expense}
           </Pill>
         </View>
       </Card>
       {hasBudget ? (
         <>
-          <SectionTitle>{isSavings ? 'Progreso de ahorro' : 'Meta del sobre'}</SectionTitle>
+          <SectionTitle>
+            {isSavings
+              ? locale === 'es'
+                ? 'Progreso de ahorro'
+                : 'Savings progress'
+              : locale === 'es'
+                ? 'Meta del sobre'
+                : 'Envelope target'}
+          </SectionTitle>
           <Card>
             <View style={uiStyles.between}>
               <Text style={[styles.title, { color: theme.text }]}>
-                {isSavings ? 'Meta de ahorro' : 'Reserva mensual'}
+                {isSavings
+                  ? locale === 'es'
+                    ? 'Meta de ahorro'
+                    : 'Savings goal'
+                  : locale === 'es'
+                    ? 'Reserva mensual'
+                    : 'Monthly reserve'}
               </Text>
               <Text style={[styles.title, { color: theme.text }]}>{percent}%</Text>
             </View>
             <ProgressBar value={ratio} color={envelope.color} />
             <Text style={[styles.small, { color: theme.muted }]}>
               {remainingToGoal > 0
-                ? `Faltan ${money(remainingToGoal)} para completar la meta.`
-                : 'La meta está completa.'}
+                ? locale === 'es'
+                  ? `Faltan ${money(remainingToGoal)} para completar la meta.`
+                  : `${money(remainingToGoal)} left to complete the goal.`
+                : locale === 'es'
+                  ? 'La meta está completa.'
+                  : 'The goal is complete.'}
             </Text>
           </Card>
         </>
       ) : null}
-      <SectionTitle>Movimientos</SectionTitle>
+      <SectionTitle>{copy.cashflow.movements}</SectionTitle>
       <Card style={styles.list}>
         {envelopeTransactions.length === 0 ? (
           <Text style={[styles.empty, { color: theme.muted }]}>
-            No hay movimientos de este sobre en {monthLabel}.
+            {locale === 'es'
+              ? `No hay movimientos de este sobre en ${monthLabel}.`
+              : `No activity in this envelope in ${monthLabel}.`}
           </Text>
         ) : (
           envelopeTransactions.map((item, index) => (
@@ -312,17 +350,23 @@ export default function EnvelopeDetailScreen() {
             }),
           )
         }>
-        {isIncome ? 'Registrar ingreso' : isSavings ? 'Registrar aporte' : 'Registrar gasto'}
+        {isIncome
+          ? copy.home.registerIncome
+          : isSavings
+            ? locale === 'es'
+              ? 'Registrar aporte'
+              : 'Record contribution'
+            : copy.home.registerExpense}
       </PrimaryButton>
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Eliminar sobre"
+        accessibilityLabel={forms.envelope.deleteEnvelope}
         disabled={deleting}
         onPress={confirmDelete}
         style={[styles.deleteBtn, { borderColor: theme.danger, opacity: deleting ? 0.6 : 1 }]}>
         <AppIcon name="trash" color={theme.danger} size={16} />
-        <Text style={[styles.deleteText, { color: theme.danger }]}>Eliminar sobre</Text>
+        <Text style={[styles.deleteText, { color: theme.danger }]}>{forms.envelope.deleteEnvelope}</Text>
       </Pressable>
     </Screen>
   );

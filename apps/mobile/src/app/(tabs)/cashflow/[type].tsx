@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, Pill, PrimaryButton, ProgressBar, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money } from '@/data/demo';
-import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
+import { displayLedgerName, displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import { openCashflowDetalle } from '@/lib/cashflow-filter';
 import { filterTransactionsByMonth } from '@/lib/dates';
 import { needWantLabel, parseNeedWant } from '@/lib/need-want';
@@ -77,13 +77,13 @@ export default function CashflowDetailScreen() {
   const categories = useMemo(() => {
     const map = new Map<string, { name: string; amount: number; icon: string }>();
     monthItems.forEach((item) => {
-      const name = item.category.trim() || 'Otros';
+      const name = item.category.trim() || copy.cashflow.otherCategory;
       const current = map.get(name) ?? { name, amount: 0, icon: item.icon };
       current.amount += Math.abs(item.amount);
       map.set(name, current);
     });
     return [...map.values()].sort((a, b) => b.amount - a.amount);
-  }, [monthItems]);
+  }, [monthItems, copy.cashflow.otherCategory]);
 
   const accent = type === 'ingresos' ? theme.success : theme.danger;
   const soft = type === 'ingresos' ? theme.successSoft : '#FDECEC';
@@ -99,7 +99,7 @@ export default function CashflowDetailScreen() {
       right={
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Volver"
+          accessibilityLabel={copy.common.back}
           onPress={() => safeGoBack('/(tabs)/inicio')}
           style={[styles.back, { backgroundColor: theme.surfaceSecondary }]}>
           <AppIcon name="arrow.left" color={theme.text} />
@@ -180,12 +180,13 @@ export default function CashflowDetailScreen() {
         ) : (
           categories.map((category) => {
             const ratio = total > 0 ? category.amount / total : 0;
+            const displayName = displayStoredName(category.name, locale);
             return (
               <ScalePressable
                 key={category.name}
                 haptic={false}
                 accessibilityRole="button"
-                accessibilityLabel={copy.cashflow.viewCategoryA11y(category.name)}
+                accessibilityLabel={copy.cashflow.viewCategoryA11y(displayName)}
                 onPress={() => openDetalle({ category: category.name })}
                 style={styles.categoryRow}>
                 <View style={[styles.categoryIcon, { backgroundColor: soft }]}>
@@ -193,7 +194,7 @@ export default function CashflowDetailScreen() {
                 </View>
                 <View style={styles.categoryCopy}>
                   <View style={uiStyles.between}>
-                    <Text style={[styles.categoryName, { color: theme.text }]}>{category.name}</Text>
+                    <Text style={[styles.categoryName, { color: theme.text }]}>{displayName}</Text>
                     <View style={styles.categoryAmountRow}>
                       <Text style={[styles.categoryAmount, { color: theme.text }]}>
                         {money(category.amount)}
@@ -204,7 +205,7 @@ export default function CashflowDetailScreen() {
                   <ProgressBar
                     value={ratio}
                     color={accent}
-                    label={`${category.name} ${Math.round(ratio * 100)}%`}
+                    label={`${displayName} ${Math.round(ratio * 100)}%`}
                   />
                   <Text style={[styles.categoryShare, { color: theme.muted }]}>
                     {Math.round(ratio * 100)}

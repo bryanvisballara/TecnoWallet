@@ -6,12 +6,14 @@ import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 import { Swipeable } from 'react-native-gesture-handler';
 
 import { AppIcon, Card, Pill, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
-import { useAppCopy } from '@/i18n/app-copy';
+import { displayLedgerName, displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import { localStorage } from '@/services/persistence';
 import { useAuthStore } from '@/store/auth';
+import { useLanguageStore } from '@/store/language';
 import { useLedgerStore } from '@/store/ledger';
 import {
   buildNotificationFeed,
+  formatNotificationWhen,
   notificationToneColors,
   useNotificationsStore,
   visibleNotifications,
@@ -267,8 +269,15 @@ function NotificationRow({
 }) {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const colors = notificationToneColors(item.tone, theme);
   const kindLabel = notificationKindLabel(item.kind, copy.notifications);
+  const title = displayStoredName(item.title, locale);
+  const body = item.body
+    .split(' · ')
+    .map((part) => displayLedgerName(displayStoredName(part, locale), locale))
+    .join(' · ');
+  const when = formatNotificationWhen(item.createdAt, locale);
   const pillTone =
     item.kind === 'income' || item.kind === 'recaudo'
       ? 'green'
@@ -285,7 +294,7 @@ function NotificationRow({
       renderRightActions={() => (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={copy.notifications.deleteItemA11y(item.title)}
+          accessibilityLabel={copy.notifications.deleteItemA11y(title)}
           onPress={onDelete}
           style={[styles.swipeDelete, { backgroundColor: theme.danger }]}>
           <AppIcon name="trash" color="#FFFFFF" size={22} />
@@ -301,7 +310,7 @@ function NotificationRow({
         <Pressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: selected }}
-          accessibilityLabel={copy.notifications.selectItemA11y(item.title)}
+          accessibilityLabel={copy.notifications.selectItemA11y(title)}
           onPress={onToggle}
           hitSlop={8}
           style={styles.checkHit}>
@@ -317,15 +326,15 @@ function NotificationRow({
           </View>
           <View style={styles.copy}>
             <View style={uiStyles.between}>
-              <Text style={[styles.title, { color: theme.text }]}>{item.title}</Text>
+              <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
               {unread ? <View style={[styles.dot, { backgroundColor: theme.primary }]} /> : null}
             </View>
-            <Text style={[styles.body, { color: theme.muted }]}>{item.body}</Text>
+            <Text style={[styles.body, { color: theme.muted }]}>{body}</Text>
             <View style={styles.meta}>
               <Pill tone={pillTone}>
                 {kindLabel}
               </Pill>
-              <Text style={[styles.when, { color: theme.muted }]}>{item.when}</Text>
+              <Text style={[styles.when, { color: theme.muted }]}>{when}</Text>
             </View>
           </View>
         </ScalePressable>

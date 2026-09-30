@@ -103,18 +103,19 @@ export function mergeBillingMarketWithStoreCurrency(
   return market;
 }
 
-/** Use App Store price only when currency matches the regional market. */
+/**
+ * App Store Connect price for this storefront.
+ * `priceString` is already localized by Apple (currency and amount).
+ * The regional label is only a stand-in until StoreKit returns a product.
+ */
 export function storefrontPriceLabel(
   priceString: string | undefined | null,
-  currencyCode: string | undefined | null,
-  market: BillingMarketSnapshot,
+  _currencyCode: string | undefined | null,
+  _market: BillingMarketSnapshot,
   fallback: string,
 ) {
-  const storeCurrency = currencyCode?.trim().toUpperCase();
-  const marketCurrency = market.currency?.trim().toUpperCase();
-  if (priceString && storeCurrency && storeCurrency === marketCurrency) {
-    return priceString;
-  }
+  const label = priceString?.trim();
+  if (label) return label;
   return fallback;
 }
 

@@ -16,13 +16,16 @@ import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view'
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import type { PlanningBucket } from '@/data/ledgers';
+import { displayLedgerName } from '@/i18n/app-copy';
+import { useFormsCopy } from '@/i18n/forms-copy';
 import { usePaidLedgerGuard } from '@/hooks/use-paid-access-guard';
 import { useActiveLedger, useLedgerStore } from '@/store/ledger';
+import { useLanguageStore } from '@/store/language';
 
-const expenseBuckets: Array<{ id: Exclude<PlanningBucket, 'income'>; label: string }> = [
-  { id: 'bill', label: 'Factura' },
-  { id: 'subscription', label: 'Suscripción' },
-  { id: 'recurring', label: 'Recurrente' },
+const expenseBuckets: Array<{ id: Exclude<PlanningBucket, 'income'>; labelKey: 'bill' | 'subscription' | 'recurring' }> = [
+  { id: 'bill', labelKey: 'bill' },
+  { id: 'subscription', labelKey: 'subscription' },
+  { id: 'recurring', labelKey: 'recurring' },
 ];
 
 function resolveCashflow(value: string | undefined): 'income' | 'expense' {
@@ -41,6 +44,8 @@ function resolveBucket(
 export default function AddPlanningItemScreen() {
   usePaidLedgerGuard();
   const theme = useAppTheme();
+  const forms = useFormsCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const scrollRef = useRef<ScrollView>(null);
   const { ledger, planning } = useActiveLedger();
   const addPlanningItem = useLedgerStore((state) => state.addPlanningItem);
@@ -81,20 +86,18 @@ export default function AddPlanningItemScreen() {
 
   const title = isEditing
     ? cashflow === 'income'
-      ? 'Editar ingreso recurrente'
-      : 'Editar gasto recurrente'
+      ? forms.planning.editIncome
+      : forms.planning.editExpense
     : cashflow === 'income'
-      ? 'Nuevo ingreso recurrente'
-      : 'Nuevo gasto recurrente';
+      ? forms.planning.newIncome
+      : forms.planning.newExpense;
   const hint = useMemo(
     () =>
-      cashflow === 'income'
-        ? 'Ej. salario, nómina o alquiler cobrado. Se proyecta cada mes en Planificación.'
-        : 'Facturas, suscripciones u otros gastos fijos del mes.',
-    [cashflow],
+      cashflow === 'income' ? forms.planning.hintIncome : forms.planning.hintExpense,
+    [cashflow, forms],
   );
   const placeholder =
-    cashflow === 'income' ? 'Ej. Salario' : 'Ej. Internet, Netflix, arriendo';
+    cashflow === 'income' ? forms.planning.phIncome : forms.planning.phExpense;
 
   const clearError = (key: 'name' | 'amount') => {
     setErrors((prev) => {
@@ -110,21 +113,21 @@ export default function AddPlanningItemScreen() {
     const missing: string[] = [];
     if (!name.trim()) {
       nextErrors.name = true;
-      missing.push('nombre');
+      missing.push(forms.planning.fieldName);
     }
     const parsed = Number(amount.replace(',', '.'));
     if (!amount.trim() || !Number.isFinite(parsed) || parsed <= 0) {
       nextErrors.amount = true;
-      missing.push('monto mensual');
+      missing.push(forms.planning.fieldAmount);
     }
     if (missing.length > 0) {
       setErrors(nextErrors);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
-        'Campos incompletos',
+        forms.missingFields,
         missing.length === 1
-          ? `Debes completar: ${missing[0]}.`
-          : `Debes completar: ${missing.join(' y ')}.`,
+          ? forms.completeOne(missing[0])
+          : forms.completeMany(missing.join(', ')),
       );
       return;
     }
@@ -145,7 +148,7 @@ export default function AddPlanningItemScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       safeGoBack('/(tabs)/salud-financiera');
     } catch {
-      Alert.alert('No se pudo guardar', 'Inténtalo de nuevo.');
+      Alert.alert(forms.saveFailed, forms.tryAgain);
     } finally {
       setSaving(false);
     }
@@ -155,7 +158,7 @@ export default function AddPlanningItemScreen() {
     <SheetScreen heightRatio={0.78} fallback="/(tabs)/salud-financiera">
       <View style={styles.flex}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/salud-financiera')} style={styles.close}>
+          <Pressable accessibilityLabel={forms.close} onPress={() => safeGoBack('/(tabs)/salud-financiera')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
@@ -163,19 +166,19 @@ export default function AddPlanningItemScreen() {
             disabled={saving}
             onPress={() => void save()}
             style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
-            <Text style={styles.saveText}>Guardar</Text>
+            <Text style={styles.saveText}>{forms.save}</Text>
           </ScalePressable>
         </View>
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>
-            Libro {ledger?.name ?? 'Hogar'} · {hint}
+            {forms.book(displayLedgerName(ledger?.name ?? '', locale))} · {hint}
           </Text>
 
           {cashflow === 'expense' ? (
             <>
-              <Text style={[styles.label, { color: theme.muted }]}>Tipo</Text>
+              <Text style={[styles.label, { color: theme.muted }]}>{forms.type}</Text>
               <View style={styles.chips}>
                 {expenseBuckets.map((item) => {
                   const active = bucket === item.id;
@@ -192,7 +195,7 @@ export default function AddPlanningItemScreen() {
                         },
                       ]}>
                       <Text style={[styles.chipText, { color: active ? theme.primary : theme.text }]}>
-                        {item.label}
+                        {forms.planning[item.labelKey]}
                       </Text>
                     </Pressable>
                   );
@@ -202,7 +205,7 @@ export default function AddPlanningItemScreen() {
           ) : null}
 
           <Text style={[styles.label, { color: errors.name ? theme.danger : theme.muted }]}>
-            Nombre
+            {forms.name}
           </Text>
           <TextInput
             value={name}
@@ -210,7 +213,6 @@ export default function AddPlanningItemScreen() {
               setName(value);
               clearError('name');
             }}
-            onFocus={focusScrollToEnd(scrollRef)}
             placeholder={placeholder}
             placeholderTextColor={theme.muted}
             style={[
@@ -225,7 +227,7 @@ export default function AddPlanningItemScreen() {
           />
 
           <Text style={[styles.label, { color: errors.amount ? theme.danger : theme.muted }]}>
-            Monto mensual
+            {forms.planning.monthlyAmount}
           </Text>
           <TextInput
             value={amount}

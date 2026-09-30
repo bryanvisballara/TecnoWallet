@@ -341,14 +341,14 @@ export default function RecaudosScreen() {
               <PrimaryButton
                 icon="paperplane.fill"
                 onPress={inviting ? undefined : () => void onInvite()}>
-                {inviting ? 'Enviando…' : 'Enviar invitación'}
+                {inviting ? copy.sharing.sending : copy.sharing.sendInvite}
               </PrimaryButton>
 
               <Text style={[styles.label, { color: theme.muted, marginTop: 4 }]}>
-                ID del recaudo
+                {copy.sharing.collectionId}
               </Text>
               <Text style={[styles.hint, { color: theme.muted }]}>
-                Comparte este código para que pidan unirse desde “Unirse con ID”.
+                {copy.sharing.shareIdHint}
               </Text>
               <View
                 style={[
@@ -356,30 +356,30 @@ export default function RecaudosScreen() {
                   { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
                 ]}>
                 <Text style={[styles.codeText, { color: theme.text }]}>
-                  {shareCodeLoading ? 'Cargando…' : shareCode || '—'}
+                  {shareCodeLoading ? copy.common.loading : shareCode || '—'}
                 </Text>
               </View>
               <PrimaryButton
                 onPress={async () => {
                   if (!shareCode) {
-                    Alert.alert('ID no disponible', 'Espera un momento e inténtalo de nuevo.');
+                    Alert.alert(copy.sharing.idUnavailable, copy.sharing.idUnavailableBody);
                     return;
                   }
                   const ok = await copyText(shareCode);
-                  if (ok) Alert.alert('Listo', `ID del recaudo: ${shareCode}`);
+                  if (ok) Alert.alert(copy.sharing.savedTitle, copy.sharing.collectionIdReady(shareCode));
                 }}>
-                Copiar / compartir ID
+                {copy.sharing.copyShareId}
               </PrimaryButton>
             </Card>
 
             <Card style={styles.block}>
-              <Text style={[styles.section, { color: theme.text }]}>Solicitudes</Text>
+              <Text style={[styles.section, { color: theme.text }]}>{copy.sharing.requests}</Text>
               <Text style={[styles.hint, { color: theme.muted }]}>
-                Personas que pidieron unirse con el ID del recaudo.
+                {copy.sharing.collectionRequestsHint}
               </Text>
               {accessRequests.length === 0 ? (
                 <Text style={[styles.small, { color: theme.muted }]}>
-                  No hay solicitudes pendientes.
+                  {copy.sharing.noPendingRequests}
                 </Text>
               ) : (
                 accessRequests.map((request) => (
@@ -399,7 +399,7 @@ export default function RecaudosScreen() {
                       }
                       style={{ marginRight: 8 }}>
                       <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
-                        Rechazar
+                        {copy.sharing.reject}
                       </Text>
                     </Pressable>
                     <Pressable
@@ -409,7 +409,7 @@ export default function RecaudosScreen() {
                           .then(() => loadAccessRequests(selected.id))
                       }>
                       <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
-                        Aceptar
+                        {copy.sharing.accept}
                       </Text>
                     </Pressable>
                   </View>
@@ -487,7 +487,7 @@ export default function RecaudosScreen() {
               </Pressable>
               <Pressable onPress={() => void onRequestJoin()} disabled={joinBusy}>
                 <Text style={{ color: theme.primary, fontWeight: '700' }}>
-                  {joinBusy ? 'Enviando…' : 'Solicitar ingreso'}
+                  {joinBusy ? copy.sharing.sending : copy.sharing.requestAccess}
                 </Text>
               </Pressable>
             </View>

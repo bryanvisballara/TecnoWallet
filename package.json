@@ -25,10 +25,10 @@
     "typecheck": "yarn workspace api build && yarn workspace tecnowallet-mobile typecheck"
   },
   "dependencies": {
-    "expo-modules-jsi": "57.1.0",
+    "expo-modules-jsi": "57.0.4",
     "patch-package": "^8.0.1"
   },
   "resolutions": {
-    "expo-modules-jsi": "57.1.0"
+    "expo-modules-jsi": "57.0.4"
   }
 }

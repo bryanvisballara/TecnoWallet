@@ -17,7 +17,10 @@ import { focusScrollToEnd, FormScrollView } from '@/components/form-scroll-view'
 import { SheetScreen } from '@/components/sheet-screen';
 import { AppIcon, ScalePressable, useAppTheme } from '@/components/ui';
 import { formatDayLabel, parseDateKey, toDateKey } from '@/data/calendar';
+import { displayLedgerName } from '@/i18n/app-copy';
+import { useFormsCopy } from '@/i18n/forms-copy';
 import {
+  goalPeriodLabel,
   goalPeriodLabels,
   isValidGoalDateKey,
   useGoalsStore,
@@ -37,6 +40,7 @@ type FieldErrors = Partial<Record<FieldKey, boolean>>;
 export default function AddGoalScreen() {
   usePaidLedgerGuard();
   const theme = useAppTheme();
+  const forms = useFormsCopy();
   const scrollRef = useRef<ScrollView>(null);
   const locale = useLanguageStore((state) => state.locale);
   const params = useLocalSearchParams<{ id?: string }>();
@@ -105,12 +109,12 @@ export default function AddGoalScreen() {
 
     if (!title.trim()) {
       nextErrors.title = true;
-      missing.push('nombre de la meta');
+      missing.push(forms.goal.fieldName);
     }
 
     if (period === 'date' && !isValidGoalDateKey(targetDate)) {
       nextErrors.date = true;
-      missing.push('fecha objetivo');
+      missing.push(forms.goal.fieldDate);
     }
 
     const parsed = amount.trim() ? Number(amount.replace(',', '.')) : undefined;
@@ -118,21 +122,21 @@ export default function AddGoalScreen() {
     if (wantsEnvelope) {
       if (parsed === undefined || !Number.isFinite(parsed) || parsed <= 0) {
         nextErrors.amount = true;
-        missing.push('meta financiera');
+        missing.push(forms.goal.fieldFinancial);
       }
     } else if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0)) {
       nextErrors.amount = true;
-      missing.push('monto válido');
+      missing.push(forms.goal.fieldAmount);
     }
 
     if (missing.length > 0) {
       setErrors(nextErrors);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
-        'Campos incompletos',
+        forms.missingFields,
         missing.length === 1
-          ? `Debes completar: ${missing[0]}.`
-          : `Debes completar los campos faltantes: ${missing.join(', ')}.`,
+          ? forms.completeOne(missing[0])
+          : forms.completeMany(missing.join(', ')),
       );
       return;
     }
@@ -180,8 +184,8 @@ export default function AddGoalScreen() {
       safeGoBack('/(tabs)/metas');
     } catch {
       Alert.alert(
-        editing ? 'No se pudo guardar' : 'No se pudo crear',
-        'Inténtalo de nuevo.',
+        editing ? forms.saveFailed : forms.createFailed,
+        forms.tryAgain,
       );
     } finally {
       setSaving(false);
@@ -192,11 +196,11 @@ export default function AddGoalScreen() {
     return (
       <SheetScreen fallback="/(tabs)/metas">
         <View style={[styles.flex, styles.missing]}>
-          <Text style={[styles.title, { color: theme.text }]}>Meta no encontrada</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{forms.goal.notFound}</Text>
           <ScalePressable
             onPress={() => safeGoBack('/(tabs)/metas')}
             style={[styles.save, { backgroundColor: theme.primary }]}>
-            <Text style={styles.saveText}>Volver</Text>
+            <Text style={styles.saveText}>{forms.close}</Text>
           </ScalePressable>
         </View>
       </SheetScreen>
@@ -207,7 +211,7 @@ export default function AddGoalScreen() {
     <SheetScreen fallback="/(tabs)/metas">
       <View style={styles.flex}>
         <View style={styles.header}>
-          <Pressable accessibilityLabel="Cerrar" onPress={() => safeGoBack('/(tabs)/metas')} style={styles.close}>
+          <Pressable accessibilityLabel={forms.close} onPress={() => safeGoBack('/(tabs)/metas')} style={styles.close}>
             <AppIcon name="xmark" color={theme.text} size={20} />
           </Pressable>
           <View style={styles.headerSpacer} />
@@ -215,18 +219,20 @@ export default function AddGoalScreen() {
             disabled={saving || (editing && !hydratedEdit)}
             onPress={() => void save()}
             style={[styles.save, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}>
-            <Text style={styles.saveText}>{editing ? 'Guardar' : 'Crear'}</Text>
+            <Text style={styles.saveText}>{editing ? forms.save : forms.create}</Text>
           </ScalePressable>
         </View>
 
         <FormScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>
-            {editing ? 'Editar meta' : 'Nueva meta'}
+            {editing ? forms.goal.editTitle : forms.goal.newTitle}
           </Text>
-          <Text style={[styles.hint, { color: theme.muted }]}>Libro {ledger.name}</Text>
+          <Text style={[styles.hint, { color: theme.muted }]}>
+            {forms.book(displayLedgerName(ledger.name, locale))}
+          </Text>
 
           <Text style={[styles.label, { color: errors.title ? theme.danger : theme.muted }]}>
-            ¿Qué quieres lograr?
+            {forms.goal.what}
           </Text>
           <TextInput
             value={title}
@@ -234,8 +240,7 @@ export default function AddGoalScreen() {
               setTitle(value);
               clearError('title');
             }}
-            onFocus={focusScrollToEnd(scrollRef)}
-            placeholder="Ej. Viaje a Cartagena"
+            placeholder={forms.goal.placeholder}
             placeholderTextColor={theme.muted}
             style={[
               styles.input,
@@ -247,10 +252,10 @@ export default function AddGoalScreen() {
             ]}
           />
           {errors.title ? (
-            <Text style={[styles.errorText, { color: theme.danger }]}>Completa este campo</Text>
+            <Text style={[styles.errorText, { color: theme.danger }]}>{forms.goal.completeField}</Text>
           ) : null}
 
-          <Text style={[styles.label, { color: theme.muted }]}>Plazo</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.goal.period}</Text>
           <View style={styles.periods}>
             {periods.map((item) => {
               const selected = period === item;
@@ -274,7 +279,7 @@ export default function AddGoalScreen() {
                       fontWeight: '700',
                       fontSize: 13,
                     }}>
-                    {goalPeriodLabels[item]}
+                    {goalPeriodLabel(item, locale)}
                   </Text>
                 </Pressable>
               );
@@ -284,20 +289,20 @@ export default function AddGoalScreen() {
           {period === 'date' ? (
             <View style={styles.dateBlock}>
               <Text style={[styles.fieldHint, { color: errors.date ? theme.danger : theme.muted }]}>
-                Fecha objetivo · p. ej. el día del viaje
+                {forms.goal.dateHint}
               </Text>
               <AppDateField
                 value={targetDate}
                 minimumDate={editing ? undefined : new Date()}
                 error={Boolean(errors.date)}
-                placeholder="Toca para elegir en el calendario"
+                placeholder={forms.goal.pickDate}
                 onChange={(next) => {
                   setTargetDate(next);
                   clearError('date');
                 }}
               />
               {errors.date ? (
-                <Text style={[styles.errorText, { color: theme.danger }]}>Elige una fecha válida</Text>
+                <Text style={[styles.errorText, { color: theme.danger }]}>{forms.goal.pickValidDate}</Text>
               ) : null}
             </View>
           ) : null}
@@ -309,9 +314,9 @@ export default function AddGoalScreen() {
                 { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
               ]}>
               <View style={styles.switchCopy}>
-                <Text style={[styles.switchTitle, { color: theme.text }]}>Sobre vinculado</Text>
+                <Text style={[styles.switchTitle, { color: theme.text }]}>{forms.goal.linkedTitle}</Text>
                 <Text style={[styles.switchHint, { color: theme.muted }]}>
-                  Esta meta ya tiene un sobre de ahorros. Puedes gestionarlo en Sobres.
+                  {forms.goal.linkedHint}
                 </Text>
               </View>
               <AppIcon name="leaf.fill" color={theme.success} size={20} />
@@ -324,12 +329,12 @@ export default function AddGoalScreen() {
               ]}>
               <View style={styles.switchCopy}>
                 <Text style={[styles.switchTitle, { color: theme.text }]}>
-                  ¿Es una meta de ahorro?
+                  {forms.goal.savingsQ}
                 </Text>
                 <Text style={[styles.switchHint, { color: theme.muted }]}>
                   {withSavingsEnvelope
-                    ? 'Sí: crearemos un sobre en Sobres para seguir cuánto ahorras.'
-                    : 'No: es solo un objetivo. No necesitas un sobre de ahorros.'}
+                    ? forms.goal.savingsYes
+                    : forms.goal.savingsNo}
                 </Text>
               </View>
               <Switch
@@ -345,12 +350,12 @@ export default function AddGoalScreen() {
 
           <Text style={[styles.label, { color: errors.amount ? theme.danger : theme.muted }]}>
             {withSavingsEnvelope && !existing?.envelopeId
-              ? 'Meta financiera'
-              : 'Monto objetivo (opcional)'}
+              ? forms.goal.financialGoal
+              : forms.goal.optionalAmount}
           </Text>
           {withSavingsEnvelope && !existing?.envelopeId ? (
             <Text style={[styles.fieldHint, { color: errors.amount ? theme.danger : theme.muted }]}>
-              Indica cuánto quieres ahorrar (obligatorio para el sobre).
+              {forms.goal.financialHint}
             </Text>
           ) : null}
           <TextInput
@@ -362,7 +367,9 @@ export default function AddGoalScreen() {
             onFocus={focusScrollToEnd(scrollRef, 120)}
             keyboardType="decimal-pad"
             placeholder={
-              withSavingsEnvelope && !existing?.envelopeId ? 'Ej. 1500' : 'Sin monto'
+              withSavingsEnvelope && !existing?.envelopeId
+                ? forms.goal.amountExample
+                : forms.goal.noAmount
             }
             placeholderTextColor={theme.muted}
             style={[
@@ -377,12 +384,12 @@ export default function AddGoalScreen() {
           {errors.amount ? (
             <Text style={[styles.errorText, { color: theme.danger }]}>
               {withSavingsEnvelope && !existing?.envelopeId
-                ? 'Indica un monto mayor a 0'
-                : 'Monto inválido'}
+                ? forms.goal.amountRequired
+                : forms.goal.amountInvalid}
             </Text>
           ) : null}
 
-          <Text style={[styles.label, { color: theme.muted }]}>Color</Text>
+          <Text style={[styles.label, { color: theme.muted }]}>{forms.color}</Text>
           <View style={styles.colors}>
             {palette.map((item) => (
               <Pressable

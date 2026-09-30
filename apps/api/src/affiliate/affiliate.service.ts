@@ -22,6 +22,7 @@ import { PushService } from '../push/push.service';
 import {
   Affiliate,
   AffiliateClick,
+  CouponLead,
   AffiliateInstall,
   CommissionEvent,
   type AffiliateUsdtNetwork,
@@ -78,6 +79,8 @@ export class AffiliateService implements OnModuleInit {
     private readonly attributions: Model<UserAttribution>,
     @InjectModel(CommissionEvent.name)
     private readonly commissions: Model<CommissionEvent>,
+    @InjectModel(CouponLead.name)
+    private readonly couponLeads: Model<CouponLead>,
     @InjectModel(User.name)
     private readonly users: Model<User>,
     @InjectModel(Subscription.name)
@@ -103,6 +106,27 @@ export class AffiliateService implements OnModuleInit {
         'The affiliate program is not available in your region',
       );
     }
+  }
+
+  async saveCouponLead(input: {
+    name: string;
+    email: string;
+    country: string;
+    locale: string;
+    code: string;
+  }) {
+    try {
+      await this.couponLeads.create({
+        name: input.name.trim(),
+        email: input.email.trim().toLowerCase(),
+        country: input.country.trim().toUpperCase(),
+        locale: input.locale.trim().toLowerCase(),
+        code: input.code.trim().toUpperCase(),
+      });
+    } catch (error) {
+      if (!this.isDuplicateKey(error)) throw error;
+    }
+    return { saved: true };
   }
 
   async recordClick(code: string, metadata: ClickMetadata) {
@@ -584,6 +608,10 @@ export class AffiliateService implements OnModuleInit {
       .lean();
     if (!affiliate) return null;
 
+    const purchaseCurrency = input.currency.trim().toUpperCase();
+    const commissionCurrency =
+      purchaseCurrency === 'USD' || purchaseCurrency === 'EUR';
+
     const isRefund =
       input.status === 'reversed' ||
       input.eventType.trim().toUpperCase() === 'REFUND';
@@ -603,6 +631,10 @@ export class AffiliateService implements OnModuleInit {
       );
       return null;
     }
+
+    // Colombia (COP) and any storefront that is not USD or EUR can use the coupon.
+    // That purchase does not pay the affiliate.
+    if (!commissionCurrency) return null;
 
     // Conversion counts even during the 3-day trial: the referred user chose Plus/Business.
     const alreadyPaidOut = await this.commissions.findOne({
@@ -685,57 +717,10 @@ export class AffiliateService implements OnModuleInit {
     return event.commissionAmountMinor === AFFILIATE_FLAT_BOUNTY_MINOR;
   }
 
-  private async grantFlatBountiesForAffiliate(affiliateId: string) {
-    const attributions = await this.attributions
-      .find({ affiliateId })
-      .select('userId')
-      .lean();
-    if (!attributions.length) return;
-
-    const userIds = attributions.map((row) => row.userId);
-    const [subscriptions, existing] = await Promise.all([
-      this.subscriptions.find({ userId: { $in: userIds } }).lean(),
-      this.commissions
-        .find({
-          affiliateId,
-          userId: { $in: userIds },
-          status: { $in: ['pending', 'approved', 'paid'] },
-          commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
-        })
-        .select('userId')
-        .lean(),
-    ]);
-    const subByUser = new Map(
-      subscriptions.map((row) => [row.userId.toString(), row]),
-    );
-    const granted = new Set(existing.map((row) => row.userId.toString()));
-
-    for (const attr of attributions) {
-      const uid = attr.userId.toString();
-      if (granted.has(uid)) continue;
-      const sub = subByUser.get(uid);
-      if (!sub || !this.subscriptionIsActivePaid(sub)) continue;
-      try {
-        await this.commissions.create({
-          providerEventId: `flat-bounty-${affiliateId}-${uid}`,
-          userId: attr.userId,
-          affiliateId,
-          product: sub.productId || sub.entitlementId || 'plus',
-          eventType: 'flat_bounty',
-          grossAmountMinor: 0,
-          netAmountMinor: 0,
-          storeFeeAmountMinor: 0,
-          commissionAmountMinor: AFFILIATE_FLAT_BOUNTY_MINOR,
-          commissionRate: 0,
-          currency: AFFILIATE_FLAT_BOUNTY_CURRENCY,
-          status: 'pending',
-          occurredAt: sub.purchasedAt ?? new Date(),
-          monthsSinceAttribution: 0,
-        });
-      } catch (error) {
-        if (!this.isDuplicateKey(error)) throw error;
-      }
-    }
+  private async grantFlatBountiesForAffiliate(_affiliateId: string) {
+    // Bounties come only from the App Store purchase event, which includes
+    // the currency. An active subscription in Colombia (COP) must not pay.
+    return;
   }
 
   private payoutRequestState(

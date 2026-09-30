@@ -8,7 +8,7 @@ import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { LedgerSwitcher } from '@/components/ledger-switcher';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { AppIcon, Card, IconButton, ScalePressable, Screen, SectionTitle, uiStyles, useAppTheme } from '@/components/ui';
-import { getActiveMoneyCurrency, money, moneyAmount, setActiveMoneyCurrency } from '@/data/demo';
+import { getActiveMoneyCurrency, money, moneyAmount, setActiveMoneyCurrency, setActiveMoneyLocale } from '@/data/demo';
 import {
   displayLedgerName,
   timeGreeting,
@@ -62,10 +62,13 @@ export default function DashboardScreen() {
   const setHideBalances = usePreferencesStore((state) => state.setHideBalances);
   const [hidden, setHidden] = useState(hideBalances);
   const [movementFilter, setMovementFilter] = useState<MovementFilterKey>('all');
-  const value = (amount: number, compact = false) => (hidden ? '••••••' : money(amount, compact));
+  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'USD').toUpperCase();
+  if (ledger?.baseCurrency) setActiveMoneyCurrency(ledger.baseCurrency);
+  setActiveMoneyLocale(locale);
+  const value = (amount: number, compact = false) =>
+    hidden ? '••••••' : money(amount, compact, moneyCurrency);
   const amountOnly = (amount: number, compact = false) =>
     hidden ? '••••••' : moneyAmount(amount, compact);
-  const moneyCurrency = (ledger?.baseCurrency || getActiveMoneyCurrency() || 'USD').toUpperCase();
   const ledgerLabel = ledger ? displayLedgerName(ledger.name, locale) : '';
 
   useEffect(() => {

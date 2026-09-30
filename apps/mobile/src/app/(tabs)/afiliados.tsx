@@ -66,8 +66,8 @@ function AffiliateRewardGuide() {
       </Text>
       <Text style={[styles.body, { color: theme.muted, marginTop: 4 }]}>
         {locale === 'es'
-          ? 'Cuando alguien usa tu cupón o enlace y compra TecnoWallet+ o Business, ganas US$ 5.'
-          : 'When someone uses your coupon or link and buys TecnoWallet+ or Business, you earn US$ 5.'}
+          ? 'Cuando alguien usa tu cupón o enlace y compra TecnoWallet+ o Business en dólares o euros, ganas US$ 5. Si esa persona paga en pesos colombianos, el cupón le sirve y a ti no te bonifica.'
+          : 'When someone uses your coupon or link and buys TecnoWallet+ or Business in dollars or euros, you earn US$ 5. If they pay in Colombian pesos, the coupon still works and you are not paid.'}
       </Text>
     </Card>
   );

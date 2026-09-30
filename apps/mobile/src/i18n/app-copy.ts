@@ -38,6 +38,7 @@ export type AppCopy = {
     back: string;
     delete: string;
     close: string;
+    save: string;
     tryAgain: string;
   };
   ledger: {
@@ -50,6 +51,82 @@ export type AppCopy = {
     shareA11y: (name: string) => string;
     lockedMeta: string;
     lockedA11y: (name: string) => string;
+  };
+  sharing: {
+    booksTitle: string;
+    calendarsTitle: string;
+    shareBookSubtitle: string;
+    manageBooksSubtitle: string;
+    shareCalendarSubtitle: string;
+    manageCalendarsSubtitle: string;
+    memberLine: (count: number, active: boolean) => string;
+    inUse: string;
+    peopleWithAccess: string;
+    bookAccessHint: string;
+    calendarAccessHint: string;
+    you: string;
+    remove: string;
+    leave: string;
+    inviteByEmail: string;
+    nameOptional: string;
+    emailPlaceholder: string;
+    shareBook: string;
+    inviteToCalendar: string;
+    invitesEmpty: string;
+    bookId: string;
+    calendarId: string;
+    shareIdHint: string;
+    joinWithId: string;
+    joinBookHint: string;
+    joinCalendarHint: string;
+    requestAccess: string;
+    sending: string;
+    roleOwner: string;
+    roleEditor: string;
+    roleViewer: string;
+    roleMember: string;
+    invitations: string;
+    pending: string;
+    accepted: string;
+    canEdit: string;
+    viewOnly: string;
+    copyShareId: string;
+    requests: string;
+    bookRequestsHint: string;
+    calendarRequestsHint: string;
+    collectionRequestsHint: string;
+    noPendingRequests: string;
+    bookSettings: string;
+    calendarSettings: (name: string) => string;
+    shared: string;
+    name: string;
+    icon: string;
+    color: string;
+    deleteBook: string;
+    useThisBook: string;
+    useThisCalendar: string;
+    savedTitle: string;
+    bookSettingsSaved: string;
+    nameUpdated: string;
+    saveName: string;
+    couldNotSave: string;
+    cannotDeleteBook: string;
+    keepOneBook: string;
+    couldNotDelete: string;
+    deleteBookTitle: string;
+    deleteBookBody: (name: string) => string;
+    confirmContinue: string;
+    idUnavailable: string;
+    idUnavailableBody: string;
+    bookIdReady: (code: string) => string;
+    calendarIdReady: (code: string) => string;
+    collectionId: string;
+    collectionIdReady: (code: string) => string;
+    reject: string;
+    accept: string;
+    unlock: string;
+    currentIcon: string;
+    sendInvite: string;
   };
   home: {
     greetingMorning: string;
@@ -100,6 +177,27 @@ export type AppCopy = {
     dateTo: string;
     viewBreakdown: string;
     noExpensesInPeriod: string;
+    both: string;
+    noExpensesShort: string;
+    noIncomeShort: string;
+    noMovementsShort: string;
+    expensesAndIncome: string;
+    thisWeek: string;
+    lastWeek: string;
+    nextWeek: string;
+    prevWeekA11y: string;
+    nextWeekA11y: string;
+    weekChartA11y: string;
+    noExpensesThisDay: string;
+    noIncomeThisDay: string;
+    noActivityThisDay: string;
+    emptyWeekExpenses: string;
+    emptyWeekIncome: string;
+    emptyWeekMovements: string;
+    noActivityOnThisDay: string;
+    movementCount: (n: number) => string;
+    incomeCount: (n: number) => string;
+    expenseCount: (n: number) => string;
     movementsMonth: (month: string) => string;
     filters: Record<MovementFilterKey, string>;
     balanceMonth: (month: string) => string;
@@ -141,6 +239,75 @@ export type AppCopy = {
     spent: string;
     almostEmpty: string;
     noMonthlyLimit: string;
+    recordedNoBudget: (spent: string) => string;
+    ofExpected: (spent: string, budget: string) => string;
+    ofGoal: (spent: string, budget: string) => string;
+    ofBudget: (spent: string, budget: string) => string;
+    pctUsed: (pct: number) => string;
+    addIncomeA11y: string;
+    addExpenseA11y: string;
+    linkedGoals: (n: number) => string;
+    activeCount: (n: number) => string;
+  };
+  tx: {
+    newTitle: (ledger: string) => string;
+    editTitle: (ledger: string) => string;
+    expense: string;
+    income: string;
+    amountA11y: string;
+    concept: string;
+    conceptPlaceholder: string;
+    envelopeIncome: string;
+    envelopeExpense: string;
+    savings: string;
+    noEnvelopes: (kind: string) => string;
+    tapToCreateIn: (ledger: string) => string;
+    expenseType: string;
+    need: string;
+    want: string;
+    na: string;
+    naHint: string;
+    accountIn: string;
+    accountOut: string;
+    selectAccountA11y: (name: string) => string;
+    noLiquid: string;
+    noLiquidHint: (ledger: string) => string;
+    date: string;
+    pickDate: string;
+    today: string;
+    yesterday: string;
+    note: string;
+    tags: string;
+    tagsPlaceholder: string;
+    recurring: string;
+    recurringHint: string;
+    receipt: string;
+    takePhoto: string;
+    pickPhoto: string;
+    attached: string;
+    saveChanges: string;
+    saveMovement: string;
+    voidMovement: string;
+    voidConfirmTitle: string;
+    voidConfirmBody: string;
+    voidAction: string;
+    voidFailedTitle: string;
+    voidFailedBody: string;
+    missingDataTitle: string;
+    missingDataBody: string;
+    missingEnvelopeTitle: string;
+    missingEnvelopeBody: (kind: string, ledger: string) => string;
+    missingAccountTitle: string;
+    missingAccountBody: (ledger: string) => string;
+    needWantTitle: string;
+    needWantBody: string;
+    saveFailedTitle: string;
+    saveFailedBody: string;
+    gone: string;
+    editHint: string;
+    offline: string;
+    kindIncome: string;
+    kindExpense: string;
   };
   collections: {
     title: string;
@@ -303,6 +470,7 @@ export type AppCopy = {
     pricePerMonth: (price: string) => string;
     priceBeforeConfirm: string;
     couponLabel: string;
+    couponGetHere: string;
     couponPlaceholder: string;
     couponApply: string;
     couponApplying: string;
@@ -333,6 +501,7 @@ export type AppCopy = {
     videoCoachTitle: string;
     videoCoachBody: string;
     videoCoachAction: string;
+    skip: string;
     guideTitle: string;
     guideSubtitle: string;
     guideIntro: string;
@@ -352,6 +521,26 @@ export type AppCopy = {
     empty: string;
     noMovement: string;
     upToDate: string;
+    availableBalance: string;
+    pendingBalance: string;
+    assetValue: string;
+    badgeAccount: string;
+    noNumber: string;
+    tapToEdit: string;
+    typeLabel: string;
+    sync: string;
+    syncStatus: string;
+    movements: string;
+    emptyMovements: string;
+    addMovement: string;
+    entityAccount: string;
+    entityDebt: string;
+    entityAsset: string;
+    deleteTitle: (entity: string) => string;
+    deleteBody: (name: string) => string;
+    deleteFailed: string;
+    envelopeLine: (name: string) => string;
+    noEnvelope: string;
   };
   health: {
     title: string;
@@ -439,6 +628,10 @@ export type AppCopy = {
     active: string;
     markPending: string;
     markCompleted: string;
+    count: (n: number) => string;
+    savingsHint: string;
+    completedHint: (n: number) => string;
+    newGoalA11y: string;
   };
   movements: {
     title: string;
@@ -471,6 +664,7 @@ export type AppCopy = {
     emptyFilter: string;
     viewNeedA11y: string;
     viewWantA11y: string;
+    otherCategory: string;
   };
   more: {
     title: string;
@@ -557,6 +751,7 @@ const es: AppCopy = {
     back: 'Volver',
     delete: 'Eliminar',
     close: 'Cerrar',
+    save: 'Guardar',
     tryAgain: 'Inténtalo de nuevo.',
   },
   ledger: {
@@ -569,6 +764,86 @@ const es: AppCopy = {
     shareA11y: (name) => `Compartir ${name}`,
     lockedMeta: 'Bloqueado · empieza la prueba para usarlo',
     lockedA11y: (name) => `${name} bloqueado. Abre TecnoWallet+ para usarlo`,
+  },
+  sharing: {
+    booksTitle: 'Libros',
+    calendarsTitle: 'Calendarios',
+    shareBookSubtitle: 'Comparte este libro con otras personas',
+    manageBooksSubtitle: 'Cambia y comparte tus libros',
+    shareCalendarSubtitle: 'Comparte este calendario con otras personas',
+    manageCalendarsSubtitle: 'Nombra, cambia e invita a ver o editar',
+    memberLine: (count, active) =>
+      `${count} miembro${count === 1 ? '' : 's'}${active ? ' · Activo' : ''}`,
+    inUse: 'En uso',
+    peopleWithAccess: 'Personas con acceso',
+    bookAccessHint:
+      'Cada libro puede compartirse con personas distintas. Al cambiar de libro, cambian cuentas, sobres y movimientos.',
+    calendarAccessHint:
+      'Invita a ver el calendario o a editar eventos y tareas. Cada calendario tiene su propia lista de personas.',
+    you: 'Tú',
+    remove: 'Quitar',
+    leave: 'Salir',
+    inviteByEmail: 'Invitar por correo',
+    nameOptional: 'Nombre (opcional)',
+    emailPlaceholder: 'correo@ejemplo.com',
+    shareBook: 'Compartir libro',
+    inviteToCalendar: 'Invitar al calendario',
+    invitesEmpty: 'Cuando invites a alguien, verás aquí si está pendiente o aceptó.',
+    bookId: 'ID del libro',
+    calendarId: 'ID del calendario',
+    shareIdHint: 'Comparte este código para que pidan unirse desde “Unirse con ID”.',
+    joinWithId: 'Unirse con ID',
+    joinBookHint: 'Escribe el ID del libro (ej. TW8F3K2M1Q) para solicitar ingreso.',
+    joinCalendarHint: 'Escribe el ID del calendario (ej. TC8F3K2M1Q) para solicitar ingreso.',
+    requestAccess: 'Solicitar ingreso',
+    sending: 'Enviando…',
+    roleOwner: 'Propietario',
+    roleEditor: 'Puede editar',
+    roleViewer: 'Solo ver',
+    roleMember: 'Miembro',
+    invitations: 'Invitaciones',
+    pending: 'Pendiente',
+    accepted: 'Aceptado',
+    canEdit: 'Puede editar',
+    viewOnly: 'Solo ver',
+    copyShareId: 'Copiar / compartir ID',
+    requests: 'Solicitudes',
+    bookRequestsHint: 'Personas que pidieron unirse con el ID del libro.',
+    calendarRequestsHint: 'Personas que pidieron unirse con el ID de tus calendarios.',
+    collectionRequestsHint: 'Personas que pidieron unirse con el ID del recaudo.',
+    noPendingRequests: 'No hay solicitudes pendientes.',
+    bookSettings: 'Ajustes del libro',
+    calendarSettings: (name) => `Ajustes de ${name}`,
+    shared: 'Compartido',
+    name: 'Nombre',
+    icon: 'Icono',
+    color: 'Color',
+    deleteBook: 'Borrar libro',
+    useThisBook: 'Usar este libro',
+    useThisCalendar: 'Usar este calendario',
+    savedTitle: 'Listo',
+    bookSettingsSaved: 'Se guardaron los ajustes del libro.',
+    nameUpdated: 'Nombre actualizado',
+    saveName: 'Guardar nombre',
+    couldNotSave: 'No se pudo guardar',
+    cannotDeleteBook: 'No puedes borrar este libro',
+    keepOneBook: 'Debes conservar al menos un libro.',
+    couldNotDelete: 'No se pudo borrar',
+    deleteBookTitle: '¿Borrar este libro?',
+    deleteBookBody: (name) =>
+      `Se borrarán permanentemente todos los movimientos, cuentas y sobres de "${name}".`,
+    confirmContinue: '¿Deseas continuar?',
+    idUnavailable: 'ID no disponible',
+    idUnavailableBody: 'Espera un momento e inténtalo de nuevo.',
+    bookIdReady: (code) => `ID del libro: ${code}`,
+    calendarIdReady: (code) => `ID del calendario: ${code}`,
+    collectionId: 'ID del recaudo',
+    collectionIdReady: (code) => `ID del recaudo: ${code}`,
+    reject: 'Rechazar',
+    accept: 'Aceptar',
+    unlock: 'Desbloquear',
+    currentIcon: 'Actual',
+    sendInvite: 'Enviar invitación',
   },
   home: {
     greetingMorning: 'Buenos días',
@@ -620,6 +895,27 @@ const es: AppCopy = {
     dateTo: 'Hasta',
     viewBreakdown: 'Ver detalle',
     noExpensesInPeriod: 'No hay gastos en este periodo.',
+    both: 'Ambos',
+    noExpensesShort: 'Sin gastos',
+    noIncomeShort: 'Sin ingresos',
+    noMovementsShort: 'Sin movimientos',
+    expensesAndIncome: 'Gastos e ingresos',
+    thisWeek: 'Esta semana',
+    lastWeek: 'Semana pasada',
+    nextWeek: 'Próxima semana',
+    prevWeekA11y: 'Semana anterior',
+    nextWeekA11y: 'Semana siguiente',
+    weekChartA11y: 'Actividad de esta semana. Toca una barra para ver el detalle.',
+    noExpensesThisDay: 'Sin gastos este día',
+    noIncomeThisDay: 'Sin ingresos este día',
+    noActivityThisDay: 'Sin movimientos este día',
+    emptyWeekExpenses: 'Este libro aún no tiene gastos esta semana.',
+    emptyWeekIncome: 'Este libro aún no tiene ingresos esta semana.',
+    emptyWeekMovements: 'Este libro aún no tiene movimientos esta semana.',
+    noActivityOnThisDay: 'No hay movimientos en este día.',
+    movementCount: (n) => `${n} movimiento${n === 1 ? '' : 's'}`,
+    incomeCount: (n) => `${n} ingreso${n === 1 ? '' : 's'}`,
+    expenseCount: (n) => `${n} gasto${n === 1 ? '' : 's'}`,
     movementsMonth: (month) => `Movimientos · ${month}`,
     filters: {
       all: 'Todos',
@@ -667,6 +963,78 @@ const es: AppCopy = {
     spent: 'gastado',
     almostEmpty: 'Casi agotado',
     noMonthlyLimit: 'Sin límite mensual',
+    recordedNoBudget: (spent) => `${spent} registrados · Sin presupuesto`,
+    ofExpected: (spent, budget) => `${spent} de ${budget} esperados`,
+    ofGoal: (spent, budget) => `${spent} de ${budget} meta`,
+    ofBudget: (spent, budget) => `${spent} de ${budget}`,
+    pctUsed: (pct) => `${pct}% usado`,
+    addIncomeA11y: 'Agregar sobre de ingresos',
+    addExpenseA11y: 'Agregar sobre de gastos',
+    linkedGoals: (n) => (n === 1 ? '1 vinculado a metas' : `${n} vinculados a metas`),
+    activeCount: (n) => (n === 1 ? '1 activo' : `${n} activos`),
+  },
+  tx: {
+    newTitle: (ledger) => `Nuevo · ${ledger}`,
+    editTitle: (ledger) => `Editar · ${ledger}`,
+    expense: 'Gasto',
+    income: 'Ingreso',
+    amountA11y: 'Importe',
+    concept: 'Concepto',
+    conceptPlaceholder: '¿En qué fue?',
+    envelopeIncome: 'Sobre de ingresos',
+    envelopeExpense: 'Sobre de gastos o ahorros',
+    savings: 'ahorro',
+    noEnvelopes: (kind) => `No hay sobres de ${kind}`,
+    tapToCreateIn: (ledger) => `Toca para crear uno en ${ledger}.`,
+    expenseType: 'Tipo de gasto',
+    need: 'Necesidad',
+    want: 'Deseo',
+    na: 'No aplica',
+    naHint: 'Márcalo si es un gasto de negocio o no es deseo/necesidad',
+    accountIn: '¿A qué cuenta ingresó?',
+    accountOut: '¿De qué cuenta salió?',
+    selectAccountA11y: (name) => `Seleccionar cuenta ${name}`,
+    noLiquid: 'Este libro aún no tiene cuentas líquidas',
+    noLiquidHint: (ledger) =>
+      `Crea una cuenta (corriente, ahorro o efectivo) en ${ledger}. Los bienes y deudas no sirven para movimientos.`,
+    date: 'Fecha',
+    pickDate: 'Elegir fecha',
+    today: 'Hoy',
+    yesterday: 'Ayer',
+    note: 'Nota',
+    tags: 'Etiquetas',
+    tagsPlaceholder: 'Opcional · hogar, compartido…',
+    recurring: 'Movimiento recurrente',
+    recurringHint: 'Repetir y recibir recordatorios',
+    receipt: 'Recibo',
+    takePhoto: 'Tomar foto',
+    pickPhoto: 'Elegir foto',
+    attached: 'Adjuntado ✓',
+    saveChanges: 'Guardar cambios',
+    saveMovement: 'Guardar movimiento',
+    voidMovement: 'Anular movimiento',
+    voidConfirmTitle: 'Anular movimiento',
+    voidConfirmBody: 'Se quitará del libro. ¿Continuar?',
+    voidAction: 'Anular',
+    voidFailedTitle: 'No se pudo anular',
+    voidFailedBody: 'No se pudo anular el movimiento.',
+    missingDataTitle: 'Faltan datos',
+    missingDataBody: 'Agrega un concepto y un importe válido.',
+    missingEnvelopeTitle: 'Falta un sobre',
+    missingEnvelopeBody: (kind, ledger) =>
+      `Crea un sobre de ${kind} en ${ledger} para clasificar este movimiento.`,
+    missingAccountTitle: 'Falta una cuenta',
+    missingAccountBody: (ledger) =>
+      `Crea una cuenta en el libro ${ledger} para registrar este movimiento.`,
+    needWantTitle: 'Tipo de gasto',
+    needWantBody: 'Elige si es necesidad, deseo o no aplica antes de guardar.',
+    saveFailedTitle: 'No se pudo guardar',
+    saveFailedBody: 'No se pudo guardar el movimiento. Inténtalo de nuevo.',
+    gone: 'Este movimiento ya no está disponible (puede haberse anulado).',
+    editHint: 'Al guardar se corrige el movimiento original en el libro.',
+    offline: 'Sin conexión se guardará y sincronizará después.',
+    kindIncome: 'ingresos',
+    kindExpense: 'gastos',
   },
   collections: {
     title: 'Mis recaudos',
@@ -864,6 +1232,7 @@ const es: AppCopy = {
     pricePerMonth: (price) => `Luego ${price} al mes`,
     priceBeforeConfirm: 'Precio mostrado antes de confirmar',
     couponLabel: 'Cupón de descuento',
+    couponGetHere: 'Obtén un cupón de descuento acá:',
     couponPlaceholder: 'Ej. TECNO10',
     couponApply: 'Aplicar',
     couponApplying: 'Aplicando…',
@@ -900,6 +1269,7 @@ const es: AppCopy = {
     videoCoachBody:
       'En Datos y utilidades, abre Cómo usar TecnoWallet. Elige español o inglés y toca un módulo para ver el video.',
     videoCoachAction: 'Abrir guía',
+    skip: 'Omitir',
     guideTitle: 'Como usar TecnoWallet',
     guideSubtitle: '12 módulos en español e inglés',
     guideIntro: 'Elige un idioma y luego toca un módulo para ver el video.',
@@ -919,6 +1289,26 @@ const es: AppCopy = {
     empty: 'Este libro no tiene cuentas líquidas todavía.',
     noMovement: 'Sin movimiento',
     upToDate: 'Al día',
+    availableBalance: 'Saldo disponible',
+    pendingBalance: 'Saldo pendiente',
+    assetValue: 'Valor del activo',
+    badgeAccount: 'Cuenta',
+    noNumber: 'Sin número',
+    tapToEdit: 'Toca para editar',
+    typeLabel: 'Tipo',
+    sync: 'Sincronización',
+    syncStatus: 'Actualizada hoy · conexión activa',
+    movements: 'Movimientos',
+    emptyMovements: 'Aún no hay movimientos en esta cuenta.',
+    addMovement: 'Registrar movimiento',
+    entityAccount: 'cuenta',
+    entityDebt: 'deuda',
+    entityAsset: 'activo',
+    deleteTitle: (entity) => `Eliminar ${entity}`,
+    deleteBody: (name) => `¿Seguro que quieres eliminar "${name}"? Esta acción no se puede deshacer.`,
+    deleteFailed: 'No se pudo eliminar',
+    envelopeLine: (name) => `Sobre ${name}`,
+    noEnvelope: 'Sin sobre',
   },
   health: {
     title: 'Salud financiera',
@@ -1014,6 +1404,10 @@ const es: AppCopy = {
     active: 'Activa',
     markPending: 'Marcar pendiente',
     markCompleted: 'Marcar completada',
+    count: (n) => (n === 1 ? '1 meta' : `${n} metas`),
+    savingsHint: 'Metas con opcional sobre de ahorros',
+    completedHint: (n) => (n === 1 ? '1 completada' : `${n} completadas`),
+    newGoalA11y: 'Nueva meta',
   },
   movements: {
     title: 'Movimientos',
@@ -1046,6 +1440,7 @@ const es: AppCopy = {
     emptyFilter: 'No hay gastos con ese filtro este mes',
     viewNeedA11y: 'Filtrar gastos de necesidad',
     viewWantA11y: 'Filtrar gastos de deseo',
+    otherCategory: 'Otros',
   },
   more: {
     title: 'Más',
@@ -1190,6 +1585,7 @@ const en: AppCopy = {
     back: 'Back',
     delete: 'Delete',
     close: 'Close',
+    save: 'Save',
     tryAgain: 'Please try again.',
   },
   ledger: {
@@ -1202,6 +1598,86 @@ const en: AppCopy = {
     shareA11y: (name) => `Share ${name}`,
     lockedMeta: 'Locked · start the trial to use it',
     lockedA11y: (name) => `${name} locked. Open TecnoWallet+ to use it`,
+  },
+  sharing: {
+    booksTitle: 'Books',
+    calendarsTitle: 'Calendars',
+    shareBookSubtitle: 'Share this book with other people',
+    manageBooksSubtitle: 'Switch and share your books',
+    shareCalendarSubtitle: 'Share this calendar with other people',
+    manageCalendarsSubtitle: 'Name, switch, and invite people to view or edit',
+    memberLine: (count, active) =>
+      `${count} ${count === 1 ? 'member' : 'members'}${active ? ' · Active' : ''}`,
+    inUse: 'In use',
+    peopleWithAccess: 'People with access',
+    bookAccessHint:
+      'Each book can be shared with different people. Switching books switches accounts, envelopes, and activity.',
+    calendarAccessHint:
+      'Invite people to view the calendar or edit events and tasks. Each calendar has its own list of people.',
+    you: 'You',
+    remove: 'Remove',
+    leave: 'Leave',
+    inviteByEmail: 'Invite by email',
+    nameOptional: 'Name (optional)',
+    emailPlaceholder: 'name@example.com',
+    shareBook: 'Share book',
+    inviteToCalendar: 'Invite to calendar',
+    invitesEmpty: 'When you invite someone, you’ll see here if it’s pending or accepted.',
+    bookId: 'Book ID',
+    calendarId: 'Calendar ID',
+    shareIdHint: 'Share this code so they can request access from “Join with ID”.',
+    joinWithId: 'Join with ID',
+    joinBookHint: 'Enter the book ID (e.g. TW8F3K2M1Q) to request access.',
+    joinCalendarHint: 'Enter the calendar ID (e.g. TC8F3K2M1Q) to request access.',
+    requestAccess: 'Request access',
+    sending: 'Sending…',
+    roleOwner: 'Owner',
+    roleEditor: 'Can edit',
+    roleViewer: 'View only',
+    roleMember: 'Member',
+    invitations: 'Invitations',
+    pending: 'Pending',
+    accepted: 'Accepted',
+    canEdit: 'Can edit',
+    viewOnly: 'View only',
+    copyShareId: 'Copy / share ID',
+    requests: 'Requests',
+    bookRequestsHint: 'People who asked to join with the book ID.',
+    calendarRequestsHint: 'People who asked to join with your calendar ID.',
+    collectionRequestsHint: 'People who asked to join with the collection ID.',
+    noPendingRequests: 'No pending requests.',
+    bookSettings: 'Book settings',
+    calendarSettings: (name) => `${name} settings`,
+    shared: 'Shared',
+    name: 'Name',
+    icon: 'Icon',
+    color: 'Color',
+    deleteBook: 'Delete book',
+    useThisBook: 'Use this book',
+    useThisCalendar: 'Use this calendar',
+    savedTitle: 'Done',
+    bookSettingsSaved: 'Book settings saved.',
+    nameUpdated: 'Name updated',
+    saveName: 'Save name',
+    couldNotSave: "Couldn't save",
+    cannotDeleteBook: "You can't delete this book",
+    keepOneBook: 'You need to keep at least one book.',
+    couldNotDelete: "Couldn't delete",
+    deleteBookTitle: 'Delete this book?',
+    deleteBookBody: (name) =>
+      `All activity, accounts, and envelopes in "${name}" will be permanently deleted.`,
+    confirmContinue: 'Continue?',
+    idUnavailable: 'ID unavailable',
+    idUnavailableBody: 'Wait a moment and try again.',
+    bookIdReady: (code) => `Book ID: ${code}`,
+    calendarIdReady: (code) => `Calendar ID: ${code}`,
+    collectionId: 'Collection ID',
+    collectionIdReady: (code) => `Collection ID: ${code}`,
+    reject: 'Decline',
+    accept: 'Accept',
+    unlock: 'Unlock',
+    currentIcon: 'Current',
+    sendInvite: 'Send invitation',
   },
   home: {
     greetingMorning: 'Good morning',
@@ -1255,6 +1731,27 @@ const en: AppCopy = {
     dateTo: 'To',
     viewBreakdown: 'View details',
     noExpensesInPeriod: 'No expenses in this period.',
+    both: 'Both',
+    noExpensesShort: 'No expenses',
+    noIncomeShort: 'No income',
+    noMovementsShort: 'No activity',
+    expensesAndIncome: 'Expenses and income',
+    thisWeek: 'This week',
+    lastWeek: 'Last week',
+    nextWeek: 'Next week',
+    prevWeekA11y: 'Previous week',
+    nextWeekA11y: 'Next week',
+    weekChartA11y: 'Activity this week. Tap a bar to see the details.',
+    noExpensesThisDay: 'No expenses this day',
+    noIncomeThisDay: 'No income this day',
+    noActivityThisDay: 'No activity this day',
+    emptyWeekExpenses: 'This book has no expenses this week.',
+    emptyWeekIncome: 'This book has no income this week.',
+    emptyWeekMovements: 'This book has no activity this week.',
+    noActivityOnThisDay: 'No activity on this day.',
+    movementCount: (n) => `${n} ${n === 1 ? 'movement' : 'movements'}`,
+    incomeCount: (n) => `${n} ${n === 1 ? 'income' : 'incomes'}`,
+    expenseCount: (n) => `${n} ${n === 1 ? 'expense' : 'expenses'}`,
     movementsMonth: (month) => `Activity · ${month}`,
     filters: {
       all: 'All',
@@ -1302,6 +1799,78 @@ const en: AppCopy = {
     spent: 'spent',
     almostEmpty: 'Almost empty',
     noMonthlyLimit: 'No monthly limit',
+    recordedNoBudget: (spent) => `${spent} recorded · No budget`,
+    ofExpected: (spent, budget) => `${spent} of ${budget} expected`,
+    ofGoal: (spent, budget) => `${spent} of ${budget} goal`,
+    ofBudget: (spent, budget) => `${spent} of ${budget}`,
+    pctUsed: (pct) => `${pct}% used`,
+    addIncomeA11y: 'Add income envelope',
+    addExpenseA11y: 'Add expense envelope',
+    linkedGoals: (n) => (n === 1 ? '1 linked to goals' : `${n} linked to goals`),
+    activeCount: (n) => (n === 1 ? '1 active' : `${n} active`),
+  },
+  tx: {
+    newTitle: (ledger) => `New · ${ledger}`,
+    editTitle: (ledger) => `Edit · ${ledger}`,
+    expense: 'Expense',
+    income: 'Income',
+    amountA11y: 'Amount',
+    concept: 'Description',
+    conceptPlaceholder: 'What was this for?',
+    envelopeIncome: 'Income envelope',
+    envelopeExpense: 'Expense or savings envelope',
+    savings: 'savings',
+    noEnvelopes: (kind) => `No ${kind} envelopes yet`,
+    tapToCreateIn: (ledger) => `Tap to create one in ${ledger}.`,
+    expenseType: 'Expense type',
+    need: 'Need',
+    want: 'Want',
+    na: 'Does not apply',
+    naHint: 'Use this for a business expense or when it is not a need or want',
+    accountIn: 'Which account did it go into?',
+    accountOut: 'Which account did it come from?',
+    selectAccountA11y: (name) => `Select account ${name}`,
+    noLiquid: 'This book has no liquid accounts yet',
+    noLiquidHint: (ledger) =>
+      `Create a checking, savings, or cash account in ${ledger}. Assets and debts cannot be used for transactions.`,
+    date: 'Date',
+    pickDate: 'Pick a date',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    note: 'Note',
+    tags: 'Tags',
+    tagsPlaceholder: 'Optional · home, shared…',
+    recurring: 'Recurring transaction',
+    recurringHint: 'Repeat and get reminders',
+    receipt: 'Receipt',
+    takePhoto: 'Take photo',
+    pickPhoto: 'Choose photo',
+    attached: 'Attached ✓',
+    saveChanges: 'Save changes',
+    saveMovement: 'Save transaction',
+    voidMovement: 'Void transaction',
+    voidConfirmTitle: 'Void transaction',
+    voidConfirmBody: 'It will be removed from the book. Continue?',
+    voidAction: 'Void',
+    voidFailedTitle: 'Couldn’t void',
+    voidFailedBody: 'The transaction could not be voided.',
+    missingDataTitle: 'Missing details',
+    missingDataBody: 'Add a description and a valid amount.',
+    missingEnvelopeTitle: 'Missing envelope',
+    missingEnvelopeBody: (kind, ledger) =>
+      `Create a ${kind} envelope in ${ledger} to classify this transaction.`,
+    missingAccountTitle: 'Missing account',
+    missingAccountBody: (ledger) =>
+      `Create an account in ${ledger} to record this transaction.`,
+    needWantTitle: 'Expense type',
+    needWantBody: 'Choose need, want, or does not apply before saving.',
+    saveFailedTitle: 'Couldn’t save',
+    saveFailedBody: 'The transaction could not be saved. Please try again.',
+    gone: 'This transaction is no longer available (it may have been voided).',
+    editHint: 'Saving updates the original transaction in the book.',
+    offline: 'If you’re offline, it will save and sync later.',
+    kindIncome: 'income',
+    kindExpense: 'expense',
   },
   collections: {
     title: 'My collections',
@@ -1498,6 +2067,7 @@ const en: AppCopy = {
     pricePerMonth: (price) => `Then ${price} / month`,
     priceBeforeConfirm: 'Price shown before you confirm',
     couponLabel: 'Discount coupon',
+    couponGetHere: 'Get a discount coupon here:',
     couponPlaceholder: 'e.g. TECNO10',
     couponApply: 'Apply',
     couponApplying: 'Applying…',
@@ -1532,6 +2102,7 @@ const en: AppCopy = {
     videoCoachBody:
       'Under Data & utilities, open How to use TecnoWallet. Pick Spanish or English and tap a module to play the video.',
     videoCoachAction: 'Open guide',
+    skip: 'Skip',
     guideTitle: 'How to use TecnoWallet',
     guideSubtitle: '12 modules in Spanish and English',
     guideIntro: 'Pick a language, then tap a module to watch the video.',
@@ -1551,6 +2122,26 @@ const en: AppCopy = {
     empty: 'This book has no liquid accounts yet.',
     noMovement: 'No activity',
     upToDate: 'Up to date',
+    availableBalance: 'Available balance',
+    pendingBalance: 'Balance due',
+    assetValue: 'Asset value',
+    badgeAccount: 'Account',
+    noNumber: 'No number',
+    tapToEdit: 'Tap to edit',
+    typeLabel: 'Type',
+    sync: 'Sync',
+    syncStatus: 'Updated today · connection active',
+    movements: 'Activity',
+    emptyMovements: 'No activity in this account yet.',
+    addMovement: 'Add activity',
+    entityAccount: 'account',
+    entityDebt: 'debt',
+    entityAsset: 'asset',
+    deleteTitle: (entity) => `Delete ${entity}`,
+    deleteBody: (name) => `Delete "${name}"? This can't be undone.`,
+    deleteFailed: "Couldn't delete",
+    envelopeLine: (name) => `Envelope ${name}`,
+    noEnvelope: 'No envelope',
   },
   health: {
     title: 'Financial health',
@@ -1644,6 +2235,10 @@ const en: AppCopy = {
     active: 'Active',
     markPending: 'Mark pending',
     markCompleted: 'Mark completed',
+    count: (n) => (n === 1 ? '1 goal' : `${n} goals`),
+    savingsHint: 'Goals with optional savings envelope',
+    completedHint: (n) => (n === 1 ? '1 completed' : `${n} completed`),
+    newGoalA11y: 'New goal',
   },
   movements: {
     title: 'Activity',
@@ -1676,6 +2271,7 @@ const en: AppCopy = {
     emptyFilter: 'No expenses match that filter this month',
     viewNeedA11y: 'Filter need expenses',
     viewWantA11y: 'Filter want expenses',
+    otherCategory: 'Other',
   },
   more: {
     title: 'More',
@@ -1790,6 +2386,140 @@ const defaultLedgerNames: Record<string, { es: string; en: string }> = {
   hogar: { es: 'Hogar', en: 'Home' },
   home: { es: 'Hogar', en: 'Home' },
 };
+
+const defaultStoredNames: Record<string, { es: string; en: string }> = {
+  'gastos generales': { es: 'Gastos generales', en: 'General expenses' },
+  'general expenses': { es: 'Gastos generales', en: 'General expenses' },
+  ingresos: { es: 'Ingresos', en: 'Income' },
+  income: { es: 'Ingresos', en: 'Income' },
+  efectivo: { es: 'Efectivo', en: 'Cash' },
+  cash: { es: 'Efectivo', en: 'Cash' },
+  'cuenta corriente': { es: 'Cuenta corriente', en: 'Checking' },
+  checking: { es: 'Cuenta corriente', en: 'Checking' },
+  'cuenta de ahorro': { es: 'Cuenta de ahorro', en: 'Savings account' },
+  'savings account': { es: 'Cuenta de ahorro', en: 'Savings account' },
+  'sin cuenta': { es: 'Sin cuenta', en: 'No account' },
+  'no account': { es: 'Sin cuenta', en: 'No account' },
+  inversión: { es: 'Inversión', en: 'Investment' },
+  inversion: { es: 'Inversión', en: 'Investment' },
+  investment: { es: 'Inversión', en: 'Investment' },
+  'tarjeta de crédito': { es: 'Tarjeta de crédito', en: 'Credit card' },
+  'tarjeta de credito': { es: 'Tarjeta de crédito', en: 'Credit card' },
+  'credit card': { es: 'Tarjeta de crédito', en: 'Credit card' },
+  'préstamo personal': { es: 'Préstamo personal', en: 'Personal loan' },
+  'prestamo personal': { es: 'Préstamo personal', en: 'Personal loan' },
+  'personal loan': { es: 'Préstamo personal', en: 'Personal loan' },
+  hipoteca: { es: 'Hipoteca', en: 'Mortgage' },
+  mortgage: { es: 'Hipoteca', en: 'Mortgage' },
+  'otro pasivo': { es: 'Otro pasivo', en: 'Other liability' },
+  'other liability': { es: 'Otro pasivo', en: 'Other liability' },
+  otros: { es: 'Otros', en: 'Other' },
+  other: { es: 'Otros', en: 'Other' },
+  'cuenta agregada': { es: 'Cuenta agregada', en: 'Account added' },
+  'account added': { es: 'Cuenta agregada', en: 'Account added' },
+  'deuda agregada': { es: 'Deuda agregada', en: 'Debt added' },
+  'debt added': { es: 'Deuda agregada', en: 'Debt added' },
+  'activo agregada': { es: 'Activo agregada', en: 'Asset added' },
+  'activo agregado': { es: 'Activo agregado', en: 'Asset added' },
+  'asset added': { es: 'Activo agregado', en: 'Asset added' },
+  'sobre creado': { es: 'Sobre creado', en: 'Envelope created' },
+  'envelope created': { es: 'Sobre creado', en: 'Envelope created' },
+  'sobre eliminado': { es: 'Sobre eliminado', en: 'Envelope deleted' },
+  'envelope deleted': { es: 'Sobre eliminado', en: 'Envelope deleted' },
+  'ingreso registrado': { es: 'Ingreso registrado', en: 'Income recorded' },
+  'income recorded': { es: 'Ingreso registrado', en: 'Income recorded' },
+  'gasto registrado': { es: 'Gasto registrado', en: 'Expense recorded' },
+  'expense recorded': { es: 'Gasto registrado', en: 'Expense recorded' },
+  'saldo inicial': { es: 'Saldo inicial', en: 'Opening balance' },
+  'opening balance': { es: 'Saldo inicial', en: 'Opening balance' },
+  'ajuste de saldo': { es: 'Ajuste de saldo', en: 'Balance adjustment' },
+  'balance adjustment': { es: 'Ajuste de saldo', en: 'Balance adjustment' },
+  'meta creada': { es: 'Meta creada', en: 'Goal created' },
+  'goal created': { es: 'Meta creada', en: 'Goal created' },
+  'ingreso recurrente creado': { es: 'Ingreso recurrente creado', en: 'Recurring income created' },
+  'recurring income created': { es: 'Ingreso recurrente creado', en: 'Recurring income created' },
+  'gasto recurrente creado': { es: 'Gasto recurrente creado', en: 'Recurring expense created' },
+  'recurring expense created': { es: 'Gasto recurrente creado', en: 'Recurring expense created' },
+  'nuevo elemento en el calendario': { es: 'Nuevo elemento en el calendario', en: 'New calendar item' },
+  'new calendar item': { es: 'Nuevo elemento en el calendario', en: 'New calendar item' },
+  'solicitud de acceso': { es: 'Solicitud de acceso', en: 'Access request' },
+  'access request': { es: 'Solicitud de acceso', en: 'Access request' },
+  'calendario compartido': { es: 'Calendario compartido', en: 'Shared calendar' },
+  'shared calendar': { es: 'Calendario compartido', en: 'Shared calendar' },
+  'sobre del equipo': { es: 'Sobre del equipo', en: 'Team envelope' },
+  'team envelope': { es: 'Sobre del equipo', en: 'Team envelope' },
+  'cuenta del equipo': { es: 'Cuenta del equipo', en: 'Team account' },
+  'team account': { es: 'Cuenta del equipo', en: 'Team account' },
+  'meta del equipo': { es: 'Meta del equipo', en: 'Team goal' },
+  'team goal': { es: 'Meta del equipo', en: 'Team goal' },
+  'salud financiera': { es: 'Salud financiera', en: 'Financial health' },
+  'financial health': { es: 'Salud financiera', en: 'Financial health' },
+  libro: { es: 'Libro', en: 'Book' },
+  book: { es: 'Libro', en: 'Book' },
+  'segun necesidad': { es: 'Según necesidad', en: 'As needed' },
+  'as needed': { es: 'Según necesidad', en: 'As needed' },
+  'sin regla aun': { es: 'Sin regla aún', en: 'No rule yet' },
+  'no rule yet': { es: 'Sin regla aún', en: 'No rule yet' },
+  'ingreso variable': { es: 'Ingreso variable', en: 'Variable income' },
+  'variable income': { es: 'Ingreso variable', en: 'Variable income' },
+  'sobre de ahorros · meta': { es: 'Sobre de ahorros · Meta', en: 'Savings envelope · Goal' },
+  'savings envelope · goal': { es: 'Sobre de ahorros · Meta', en: 'Savings envelope · Goal' },
+  'sin presupuesto': { es: 'Sin presupuesto', en: 'No budget' },
+  'no budget': { es: 'Sin presupuesto', en: 'No budget' },
+  'ahorro · semana': { es: 'Ahorro · Semana', en: 'Savings · Week' },
+  'ahorro · mes': { es: 'Ahorro · Mes', en: 'Savings · Month' },
+  'ahorro · ano': { es: 'Ahorro · Año', en: 'Savings · Year' },
+  'ahorro · fecha': { es: 'Ahorro · Fecha', en: 'Savings · Date' },
+  factura: { es: 'Factura', en: 'Bill' },
+  bill: { es: 'Factura', en: 'Bill' },
+  suscripcion: { es: 'Suscripción', en: 'Subscription' },
+  subscription: { es: 'Suscripción', en: 'Subscription' },
+  recurrente: { es: 'Recurrente', en: 'Recurring' },
+  recurring: { es: 'Recurrente', en: 'Recurring' },
+  casa: { es: 'Casa', en: 'Home' },
+  carro: { es: 'Carro', en: 'Car' },
+  gasolina: { es: 'Gasolina', en: 'Fuel' },
+  comida: { es: 'Comida', en: 'Food' },
+  compras: { es: 'Compras', en: 'Shopping' },
+  tienda: { es: 'Tienda', en: 'Store' },
+  salud: { es: 'Salud', en: 'Health' },
+  deporte: { es: 'Deporte', en: 'Sports' },
+  ejercicio: { es: 'Ejercicio', en: 'Workout' },
+  ocio: { es: 'Ocio', en: 'Leisure' },
+  entradas: { es: 'Entradas', en: 'Tickets' },
+  familia: { es: 'Familia', en: 'Family' },
+  pareja: { es: 'Pareja', en: 'Partner' },
+  servicios: { es: 'Servicios', en: 'Utilities' },
+  internet: { es: 'Internet', en: 'Internet' },
+  agua: { es: 'Agua', en: 'Water' },
+  movil: { es: 'Móvil', en: 'Phone' },
+  estudios: { es: 'Estudios', en: 'Study' },
+  trabajo: { es: 'Trabajo', en: 'Work' },
+  transporte: { es: 'Transporte', en: 'Transit' },
+  viajes: { es: 'Viajes', en: 'Travel' },
+  mascotas: { es: 'Mascotas', en: 'Pets' },
+  regalos: { es: 'Regalos', en: 'Gifts' },
+  tarjeta: { es: 'Tarjeta', en: 'Card' },
+  calendario: { es: 'Calendario', en: 'Calendar' },
+  tarea: { es: 'Tarea', en: 'Task' },
+  banco: { es: 'Banco', en: 'Bank' },
+  billetera: { es: 'Billetera', en: 'Wallet' },
+};
+
+function storedNameKey(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Translate built-in envelope/account labels; leave custom names as-is. */
+export function displayStoredName(name: string, locale: Locale) {
+  const mapped = defaultStoredNames[storedNameKey(name)] ?? defaultStoredNames[name.trim().toLowerCase()];
+  if (!mapped) return name;
+  return locale === 'es' ? mapped.es : mapped.en;
+}
 
 export function displayLedgerName(name: string, locale: Locale) {
   const key = name.trim().toLowerCase();

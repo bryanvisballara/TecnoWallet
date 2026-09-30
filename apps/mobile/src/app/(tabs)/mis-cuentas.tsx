@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { HeroBalanceBanner } from '@/components/hero-balance-banner';
 import { AppIcon, Card, ScalePressable, Screen, uiStyles, useAppTheme } from '@/components/ui';
 import { money, type Account } from '@/data/demo';
-import { displayLedgerName, useAppCopy } from '@/i18n/app-copy';
+import { displayLedgerName, displayStoredName, useAppCopy } from '@/i18n/app-copy';
 import { isLiquidAccount, sumBalances } from '@/lib/accounts';
 import { withPaidLedgerAccess } from '@/lib/require-paid-access';
 import { useActiveLedger } from '@/store/ledger';
@@ -15,10 +15,13 @@ import { usePreferencesStore } from '@/store/preferences';
 function AccountRow({ account }: { account: Account }) {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
+  const displayName = displayStoredName(account.name, locale);
+  const displayKind = displayStoredName(account.kind, locale);
   return (
     <ScalePressable
       accessibilityRole="button"
-      accessibilityLabel={`Ver detalle de ${account.name}`}
+      accessibilityLabel={displayName}
       onPress={() => router.push({ pathname: '/(tabs)/account/[id]', params: { id: account.id } })}>
       <Card>
         <View style={[uiStyles.row, uiStyles.gap12]}>
@@ -26,9 +29,9 @@ function AccountRow({ account }: { account: Account }) {
             <AppIcon name={account.icon} color={account.color} size={24} />
           </View>
           <View style={styles.copy}>
-            <Text style={[styles.accountName, { color: theme.text }]}>{account.name}</Text>
+            <Text style={[styles.accountName, { color: theme.text }]}>{displayName}</Text>
             <Text style={[styles.small, { color: theme.muted }]}>
-              {account.kind}
+              {displayKind}
               {account.lastFour === '—' ? '' : ` · •••• ${account.lastFour}`}
             </Text>
           </View>

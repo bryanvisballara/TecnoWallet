@@ -75,42 +75,55 @@ export default function RootLayout() {
 
   useEffect(() => {
     void (async () => {
-      // Local prefs first so the branded overlay can move immediately.
-      const localBoot = Promise.all([
-        hydrateLanguage(),
-        hydratePreferences(),
-        hydrateNotifications(),
-      ]);
+      try {
+        // Local prefs first so the branded overlay can move immediately.
+        const localBoot = Promise.all([
+          hydrateLanguage(),
+          hydratePreferences(),
+          hydrateNotifications(),
+        ]);
 
-      await hydrateAuth();
-      await localBoot;
+        await hydrateAuth();
+        await localBoot;
 
-      const isAuthed = useAuthStore.getState().authenticated;
-      if (isAuthed) {
-        // Purchases / push / Branch must never gate ledger or first paint.
-        void localStorage.get('auth-user-id', '').then((userId) => {
-          if (!userId) return;
-          void import('@/services/purchases').then(({ configurePurchases }) =>
-            configurePurchases(userId).catch(() => undefined),
-          );
-        });
+        const isAuthed = useAuthStore.getState().authenticated;
+        if (isAuthed) {
+          // Purchases / push / Branch must never gate ledger or first paint.
+          void localStorage.get('auth-user-id', '').then((userId) => {
+            if (!userId) return;
+            void import('@/services/purchases').then(({ configurePurchases }) =>
+              configurePurchases(userId).catch(() => undefined),
+            );
+          });
 
-        // Billing first so a Free guest is routed to a shared book, not locked Hogar.
-        await hydratePlus();
-        const { useAppTutorialStore } = await import('@/store/app-tutorial');
-        await useAppTutorialStore.getState().hydrate();
-        await hydrateLedger();
-        void hydrateCalendar();
-        void hydrateGoals();
-        void hydrateRecaudos();
-      } else {
-        usePlusStore.getState().reset();
-        await hydrateFinance();
-        // Mark empty product stores so the UI does not wait forever.
-        useLedgerStore.setState({ hydrated: true, ledgers: [], activeLedgerId: '' });
-        useRecaudosStore.setState({ hydrated: true, recaudos: [] });
-        useGoalsStore.setState({ hydrated: true, goals: [] });
-        useCalendarStore.setState({ hydrated: true });
+          // Billing first so a Free guest is routed to a shared book, not locked Hogar.
+          await hydratePlus();
+          const { useAppTutorialStore } = await import('@/store/app-tutorial');
+          await useAppTutorialStore.getState().hydrate();
+          await hydrateLedger();
+          void hydrateCalendar();
+          void hydrateGoals();
+          void hydrateRecaudos();
+        } else {
+          usePlusStore.getState().reset();
+          await hydrateFinance();
+          // Mark empty product stores so the UI does not wait forever.
+          useLedgerStore.setState({ hydrated: true, ledgers: [], activeLedgerId: '' });
+          useRecaudosStore.setState({ hydrated: true, recaudos: [] });
+          useGoalsStore.setState({ hydrated: true, goals: [] });
+          useCalendarStore.setState({ hydrated: true });
+        }
+      } catch (error) {
+        console.warn('App boot failed', error);
+        useLanguageStore.setState({ hydrated: true });
+        usePreferencesStore.setState({ hydrated: true });
+        useNotificationsStore.setState({ hydrated: true });
+        if (!useAuthStore.getState().hydrated) {
+          useAuthStore.setState({ hydrated: true, authenticated: false });
+        }
+        if (!useLedgerStore.getState().hydrated) {
+          useLedgerStore.setState({ hydrated: true });
+        }
       }
     })();
   }, [
@@ -125,6 +138,14 @@ export default function RootLayout() {
     hydrateGoals,
     hydrateRecaudos,
   ]);
+
+  useEffect(() => {
+    if (languageHydrated) return;
+    const retry = setTimeout(() => {
+      if (!useLanguageStore.getState().hydrated) void hydrateLanguage();
+    }, 1200);
+    return () => clearTimeout(retry);
+  }, [languageHydrated, hydrateLanguage]);
 
   useEffect(() => {
     if (!authenticated || !plusHydrated) return;

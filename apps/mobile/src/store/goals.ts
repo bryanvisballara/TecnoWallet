@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { apiRequest } from '@/services/api';
 import { objectId, toMinor, fromMinor } from '@/services/ledgers-api';
+import { getFormsCopy } from '@/i18n/forms-copy';
 import { useLedgerStore } from '@/store/ledger';
 import { recordActivity } from '@/store/notifications';
 import { localStorage } from '@/services/persistence';
@@ -58,6 +59,10 @@ export const goalPeriodLabels: Record<GoalPeriod, string> = {
   year: 'Año',
   date: 'Fecha',
 };
+
+export function goalPeriodLabel(period: GoalPeriod, locale: string) {
+  return getFormsCopy(locale).goal.periods[period];
+}
 
 export function isValidGoalDateKey(value: string) {
   if (!DATE_KEY_RE.test(value)) return false;

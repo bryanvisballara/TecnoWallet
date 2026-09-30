@@ -23,16 +23,16 @@ import {
   type CollaborationAccessRequest,
   type CollaborationResourceInvite,
 } from '@/services/collaboration-api';
-import { useAppCopy } from '@/i18n/app-copy';
+import { displayCalendarName, useAppCopy } from '@/i18n/app-copy';
 import { isSelfOwner } from '@/lib/collaboration-roles';
 import { isOwnedResourceLocked } from '@/lib/guest-access';
 import {
   calendarAccessRequests,
   useAccessRequestsStore,
 } from '@/store/access-requests';
+import { useLanguageStore } from '@/store/language';
 import {
   useCalendarStore,
-  type CalendarMemberRole,
 } from '@/store/calendar';
 import {
   hasPaidPlan,
@@ -41,12 +41,6 @@ import {
   plusReasonFromError,
   usePlusStore,
 } from '@/store/plus';
-
-const roleLabels: Record<CalendarMemberRole, string> = {
-  owner: 'Propietario',
-  editor: 'Puede editar',
-  viewer: 'Solo ver',
-};
 
 async function copyText(value: string) {
   try {
@@ -68,6 +62,7 @@ async function copyText(value: string) {
 export default function CalendarsScreen() {
   const theme = useAppTheme();
   const copy = useAppCopy();
+  const locale = useLanguageStore((state) => state.locale);
   const params = useLocalSearchParams<{ focus?: string; tab?: string }>();
   const shareMode = params.tab === 'share';
   const calendars = useCalendarStore((state) => state.calendars);
@@ -335,11 +330,9 @@ export default function CalendarsScreen() {
 
   return (
     <Screen
-      title="Calendarios"
+      title={copy.sharing.calendarsTitle}
       subtitle={
-        shareMode
-          ? 'Comparte este calendario con otras personas'
-          : 'Nombra, cambia e invita a ver o editar'
+        shareMode ? copy.sharing.shareCalendarSubtitle : copy.sharing.manageCalendarsSubtitle
       }
       right={
         <Pressable
@@ -376,20 +369,21 @@ export default function CalendarsScreen() {
               </View>
               <View style={styles.copy}>
                 <Text style={[styles.calendarName, { color: locked ? theme.muted : theme.text }]}>
-                  {calendar.name}
+                  {displayCalendarName(calendar.name, locale)}
                 </Text>
                 <Text style={[styles.small, { color: theme.muted }]}>
                   {locked
                     ? copy.ledger.lockedMeta
-                    : `${calendar.members.length} miembro${calendar.members.length === 1 ? '' : 's'}${
-                        calendar.id === activeCalendarId ? ' · Activo' : ''
-                      }`}
+                    : copy.sharing.memberLine(
+                        calendar.members.length,
+                        calendar.id === activeCalendarId,
+                      )}
                 </Text>
               </View>
               {locked ? (
                 <AppIcon name="lock.fill" color={theme.muted} size={16} />
               ) : calendar.id === activeCalendarId ? (
-                <Pill tone="green">En uso</Pill>
+                <Pill tone="green">{copy.sharing.inUse}</Pill>
               ) : null}
             </ScalePressable>
           );
@@ -424,15 +418,14 @@ export default function CalendarsScreen() {
         <Card style={styles.block}>
           <Text style={[styles.section, { color: theme.text }]}>{selected?.name}</Text>
           <Text style={[styles.hint, { color: theme.muted }]}>{copy.ledger.lockedMeta}</Text>
-          <PrimaryButton onPress={() => openPaywall('UPGRADE')}>Desbloquear</PrimaryButton>
+          <PrimaryButton onPress={() => openPaywall('UPGRADE')}>{copy.sharing.unlock}</PrimaryButton>
         </Card>
       ) : selected ? (
         <>
           <Card style={styles.block}>
-            <Text style={[styles.section, { color: theme.text }]}>Personas con acceso</Text>
+            <Text style={[styles.section, { color: theme.text }]}>{copy.sharing.peopleWithAccess}</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Invita a ver el calendario o a editar eventos y tareas. Cada calendario tiene su
-              propia lista de personas.
+              {copy.sharing.calendarAccessHint}
             </Text>
             {selected.members.map((member) => (
               <View key={member.id} style={styles.memberRow}>
@@ -442,32 +435,37 @@ export default function CalendarsScreen() {
                 <View style={styles.copy}>
                   <Text style={[styles.memberName, { color: theme.text }]}>{member.name}</Text>
                   <Text style={[styles.small, { color: theme.muted }]}>
-                    {member.email} · {roleLabels[member.role]}
+                    {member.email} ·{' '}
+                    {member.role === 'owner'
+                      ? copy.sharing.roleOwner
+                      : member.role === 'viewer'
+                        ? copy.sharing.roleViewer
+                        : copy.sharing.roleEditor}
                   </Text>
                 </View>
                 {member.id === 'me' && member.role !== 'owner' ? (
                   <Pressable onPress={onLeaveCalendar}>
                     <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>
-                      Salir
+                      {copy.sharing.leave}
                     </Text>
                   </Pressable>
                 ) : member.id === 'me' ? (
-                  <Pill tone="green">Tú</Pill>
+                  <Pill tone="green">{copy.sharing.you}</Pill>
                 ) : member.role !== 'owner' ? (
                   <Pressable onPress={() => void removeMember(selected.id, member.id)}>
                     <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 13 }}>
-                      Quitar
+                      {copy.sharing.remove}
                     </Text>
                   </Pressable>
                 ) : null}
               </View>
             ))}
 
-            <Text style={[styles.label, { color: theme.muted }]}>Invitar por correo</Text>
+            <Text style={[styles.label, { color: theme.muted }]}>{copy.sharing.inviteByEmail}</Text>
             <TextInput
               value={inviteName}
               onChangeText={setInviteName}
-              placeholder="Nombre (opcional)"
+              placeholder={copy.sharing.nameOptional}
               placeholderTextColor={theme.muted}
               style={[
                 styles.input,
@@ -483,7 +481,7 @@ export default function CalendarsScreen() {
               onChangeText={setInviteEmail}
               autoCapitalize="none"
               keyboardType="email-address"
-              placeholder="correo@ejemplo.com"
+              placeholder={copy.sharing.emailPlaceholder}
               placeholderTextColor={theme.muted}
               style={[
                 styles.input,
@@ -511,7 +509,7 @@ export default function CalendarsScreen() {
                     fontWeight: '700',
                     fontSize: 13,
                   }}>
-                  Puede editar
+                  {copy.sharing.canEdit}
                 </Text>
               </Pressable>
               <Pressable
@@ -530,53 +528,51 @@ export default function CalendarsScreen() {
                     fontWeight: '700',
                     fontSize: 13,
                   }}>
-                  Solo ver
+                  {copy.sharing.viewOnly}
                 </Text>
               </Pressable>
             </View>
-            <PrimaryButton onPress={() => void onInvite()}>Invitar al calendario</PrimaryButton>
+            <PrimaryButton onPress={() => void onInvite()}>{copy.sharing.inviteToCalendar}</PrimaryButton>
             <CollaborationInvitesList
               invites={invites}
-              emptyLabel="Cuando invites a alguien, verás aquí si está pendiente o aceptó."
+              emptyLabel={copy.sharing.invitesEmpty}
               onCancelPending={(invite) => void onCancelInvite(invite)}
             />
 
             <Text style={[styles.label, { color: theme.muted, marginTop: 4 }]}>
-              ID del calendario
+              {copy.sharing.calendarId}
             </Text>
-            <Text style={[styles.hint, { color: theme.muted }]}>
-              Comparte este código para que pidan unirse desde “Unirse con ID”.
-            </Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>{copy.sharing.shareIdHint}</Text>
             <View
               style={[
                 styles.codeBox,
                 { backgroundColor: theme.surfaceSecondary, borderColor: theme.border },
               ]}>
               <Text style={[styles.codeText, { color: theme.text }]}>
-                {shareCodeLoading ? 'Cargando…' : shareCode || '—'}
+                {shareCodeLoading ? copy.common.loading : shareCode || '—'}
               </Text>
             </View>
             <PrimaryButton
               onPress={async () => {
                 if (!shareCode) {
-                  Alert.alert('ID no disponible', 'Espera un momento e inténtalo de nuevo.');
+                  Alert.alert(copy.sharing.idUnavailable, copy.sharing.idUnavailableBody);
                   return;
                 }
                 const ok = await copyText(shareCode);
-                if (ok) Alert.alert('Listo', `ID del calendario: ${shareCode}`);
+                if (ok) Alert.alert(copy.sharing.savedTitle, copy.sharing.calendarIdReady(shareCode));
               }}>
-              Copiar / compartir ID
+              {copy.sharing.copyShareId}
             </PrimaryButton>
           </Card>
 
           <Card style={styles.block}>
-            <Text style={[styles.section, { color: theme.text }]}>Solicitudes</Text>
+            <Text style={[styles.section, { color: theme.text }]}>{copy.sharing.requests}</Text>
             <Text style={[styles.hint, { color: theme.muted }]}>
-              Personas que pidieron unirse con el ID de tus calendarios.
+              {copy.sharing.calendarRequestsHint}
             </Text>
             {accessRequests.length === 0 ? (
               <Text style={[styles.small, { color: theme.muted }]}>
-                No hay solicitudes pendientes.
+                {copy.sharing.noPendingRequests}
               </Text>
             ) : (
               accessRequests.map((request) => {
@@ -604,12 +600,12 @@ export default function CalendarsScreen() {
                       onPress={() => void onRejectRequest(request)}
                       style={{ marginRight: 8 }}>
                       <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13 }}>
-                        Rechazar
+                        {copy.sharing.reject}
                       </Text>
                     </Pressable>
                     <Pressable onPress={() => void onAcceptRequest(request)}>
                       <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13 }}>
-                        Aceptar
+                        {copy.sharing.accept}
                       </Text>
                     </Pressable>
                   </View>
@@ -621,13 +617,13 @@ export default function CalendarsScreen() {
           <Card style={styles.block}>
             <View style={uiStyles.between}>
               <Text style={[styles.section, { color: theme.text }]}>
-                Ajustes de {selected.name}
+                {copy.sharing.calendarSettings(displayCalendarName(selected.name, locale))}
               </Text>
               <Pill tone={selected.members.length > 1 ? 'blue' : 'neutral'}>
-                {selected.members.length > 1 ? 'Compartido' : 'Personal'}
+                {selected.members.length > 1 ? copy.sharing.shared : copy.common.personal}
               </Pill>
             </View>
-            <Text style={[styles.label, { color: theme.muted }]}>Nombre</Text>
+            <Text style={[styles.label, { color: theme.muted }]}>{copy.sharing.name}</Text>
             <TextInput
               value={name}
               onChangeText={setName}
@@ -643,9 +639,9 @@ export default function CalendarsScreen() {
             <PrimaryButton
               onPress={async () => {
                 await renameCalendar(selected.id, name);
-                Alert.alert('Nombre actualizado');
+                Alert.alert(copy.sharing.nameUpdated);
               }}>
-              Guardar nombre
+              {copy.sharing.saveName}
             </PrimaryButton>
             {selected.id !== activeCalendarId ? (
               <PrimaryButton
@@ -657,7 +653,7 @@ export default function CalendarsScreen() {
                   await setActiveCalendar(selected.id);
                   safeGoBack('/(tabs)/calendario');
                 }}>
-                Usar este calendario
+                {copy.sharing.useThisCalendar}
               </PrimaryButton>
             ) : null}
           </Card>

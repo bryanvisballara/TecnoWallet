@@ -8,9 +8,9 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppLinearGradient } from '@/components/app-linear-gradient';
 import { useAuthStore } from '@/store/auth';
@@ -26,8 +26,6 @@ import { useRecaudosStore } from '@/store/recaudos';
 const ICON = require('@/assets/images/app-icon.png');
 const COBALT = '#1E4BB3';
 const SKY = '#79B2F9';
-const GOLD = '#C9926A';
-
 type BrandSplashOverlayProps = {
   /** When true, fill to 100% and fade out. */
   ready: boolean;
@@ -38,11 +36,10 @@ type BrandSplashOverlayProps = {
  * cobalt field, sky-blue loader, gold accent. Native hold matches this field.
  */
 export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
-  const insets = useSafeAreaInsets();
   const [mounted, setMounted] = useState(true);
-  const [displayPct, setDisplayPct] = useState(8);
   const opacity = useSharedValue(1);
   const fill = useSharedValue(0.08);
+  const pulse = useSharedValue(1);
 
   const authHydrated = useAuthStore((s) => s.hydrated);
   const languageHydrated = useLanguageStore((s) => s.hydrated);
@@ -87,17 +84,12 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   };
 
   useEffect(() => {
-    if (ready) return;
-    const id = setInterval(() => {
-      setDisplayPct((prev) => {
-        const target = Math.round(progressRatio * 100);
-        if (prev < target) return Math.min(target, prev + 2);
-        if (prev < Math.min(90, target + 6)) return prev + 1;
-        return prev;
-      });
-    }, 90);
-    return () => clearInterval(id);
-  }, [ready, progressRatio]);
+    pulse.value = withRepeat(
+      withTiming(1.045, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    );
+  }, [pulse]);
 
   useEffect(() => {
     const next = ready ? 1 : progressRatio;
@@ -105,8 +97,6 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
       duration: ready ? 280 : 420,
       easing: Easing.out(Easing.cubic),
     });
-    if (ready) setDisplayPct(100);
-    else setDisplayPct((prev) => Math.max(prev, Math.round(progressRatio * 100)));
   }, [progressRatio, ready, fill]);
 
   useEffect(() => {
@@ -124,6 +114,9 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
   }, [ready, opacity]);
 
   const fadeStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const iconStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+  }));
   const barStyle = useAnimatedStyle(() => ({
     width: `${Math.round(interpolate(fill.value, [0, 1], [0, 100]))}%`,
   }));
@@ -143,8 +136,8 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.stage, { paddingTop: insets.top + 64 }]}>
-        <View style={styles.markWrap}>
+      <View style={styles.stage}>
+        <Animated.View style={[styles.markWrap, iconStyle]}>
           <Image
             source={ICON}
             style={styles.mark}
@@ -153,19 +146,12 @@ export function BrandSplashOverlay({ ready }: BrandSplashOverlayProps) {
             cachePolicy="none"
             priority="high"
           />
-        </View>
-        <View style={styles.rule} />
-        <Text style={styles.taglineLead}>Toma el control</Text>
-        <Text style={styles.tagline}>de tus finanzas..</Text>
-      </View>
-
-      <View style={[styles.loader, { bottom: Math.max(insets.bottom, 16) + 56 }]}>
-        <Text style={styles.loadingLabel}>Cargando tu experiencia...</Text>
-        <View style={styles.progressRow}>
+        </Animated.View>
+        <Text style={styles.brand}>TecnoWallet</Text>
+        <View style={styles.loader}>
           <View style={styles.progressTrack}>
             <Animated.View style={[styles.progressFill, barStyle]} />
           </View>
-          <Text style={styles.progressPct}>{displayPct}%</Text>
         </View>
       </View>
     </Animated.View>
@@ -179,7 +165,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#12357A',
   },
   stage: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 32,
   },
   markWrap: {
@@ -199,65 +187,26 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  rule: {
-    width: 42,
-    height: 2,
-    borderRadius: 2,
-    backgroundColor: GOLD,
-    marginBottom: 16,
-  },
-  taglineLead: {
+  brand: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: '700',
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
     textAlign: 'center',
-  },
-  tagline: {
-    color: 'rgba(232, 243, 255, 0.88)',
-    fontSize: 16,
-    fontWeight: '500',
-    letterSpacing: 0.8,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    marginTop: 4,
   },
   loader: {
-    position: 'absolute',
-    left: 28,
-    right: 28,
-    gap: 12,
-  },
-  loadingLabel: {
-    color: 'rgba(232, 243, 255, 0.92)',
-    fontSize: 14,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    width: 160,
+    marginTop: 28,
   },
   progressTrack: {
-    flex: 1,
-    height: 10,
+    height: 4,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(201, 146, 106, 0.45)',
-    backgroundColor: 'rgba(10, 40, 110, 0.35)',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     borderRadius: 999,
     backgroundColor: SKY,
-  },
-  progressPct: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-    minWidth: 40,
-    textAlign: 'right',
   },
 });

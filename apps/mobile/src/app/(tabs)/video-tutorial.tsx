@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { TutorialVideoPlayer } from '@/components/tutorial-video-player';
 import { AppIcon, BackIconButton, Card, Screen, useAppTheme } from '@/components/ui';
 import { useAppCopy } from '@/i18n/app-copy';
+import { useLanguageStore } from '@/store/language';
 import {
   TUTORIAL_MODULES,
   type TutorialLocale,
@@ -136,7 +137,9 @@ function LanguageCard({
 
 export default function VideoTutorialScreen() {
   const copy = useAppCopy();
-  const [expandedLocale, setExpandedLocale] = useState<TutorialLocale | null>(null);
+  const preferredLocale: TutorialLocale =
+    useLanguageStore((state) => state.locale) === 'es' ? 'es' : 'en';
+  const [expandedLocale, setExpandedLocale] = useState<TutorialLocale | null>(preferredLocale);
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
 
   useFocusEffect(
@@ -166,20 +169,18 @@ export default function VideoTutorialScreen() {
       subtitle={copy.tutorial.guideSubtitle}
       right={<BackIconButton fallback="/(tabs)/mas" />}>
       <IntroText text={copy.tutorial.guideIntro} />
-      <LanguageCard
-        locale="es"
-        expanded={expandedLocale === 'es'}
-        expandedModuleId={expandedLocale === 'es' ? expandedModuleId : null}
-        onToggleLocale={() => toggleLocale('es')}
-        onToggleModule={toggleModule}
-      />
-      <LanguageCard
-        locale="en"
-        expanded={expandedLocale === 'en'}
-        expandedModuleId={expandedLocale === 'en' ? expandedModuleId : null}
-        onToggleLocale={() => toggleLocale('en')}
-        onToggleModule={toggleModule}
-      />
+      {(preferredLocale === 'es' ? (['es', 'en'] as const) : (['en', 'es'] as const)).map(
+        (locale) => (
+          <LanguageCard
+            key={locale}
+            locale={locale}
+            expanded={expandedLocale === locale}
+            expandedModuleId={expandedLocale === locale ? expandedModuleId : null}
+            onToggleLocale={() => toggleLocale(locale)}
+            onToggleModule={toggleModule}
+          />
+        ),
+      )}
     </Screen>
   );
 }
