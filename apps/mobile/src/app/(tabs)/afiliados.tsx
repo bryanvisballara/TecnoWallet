@@ -66,8 +66,8 @@ function AffiliateRewardGuide() {
       </Text>
       <Text style={[styles.body, { color: theme.muted, marginTop: 4 }]}>
         {locale === 'es'
-          ? 'Cuando alguien usa tu cupón o enlace y compra TecnoWallet+ o Business en dólares o euros, ganas US$ 5. Si esa persona paga en pesos colombianos, el cupón le sirve y a ti no te bonifica.'
-          : 'When someone uses your coupon or link and buys TecnoWallet+ or Business in dollars or euros, you earn US$ 5. If they pay in Colombian pesos, the coupon still works and you are not paid.'}
+          ? 'Cuando alguien abre tu enlace de referido y se suscribe a TecnoWallet+ o Business en dólares o euros, ganas US$ 5. Si paga en otra moneda (por ejemplo pesos colombianos), el referido se registra pero no hay bono.'
+          : 'When someone opens your referral link and subscribes to TecnoWallet+ or Business in US dollars or euros, you earn US$ 5. Other currencies (e.g. Colombian pesos) still register the referral but do not pay a bounty.'}
       </Text>
     </Card>
   );
@@ -381,8 +381,8 @@ export default function AffiliatesScreen() {
           </Text>
           <Text style={[styles.body, { color: theme.muted }]}>
             {locale === 'es'
-              ? 'Comparte tu enlace o cupón. Cuando alguien compre TecnoWallet+ o Business, ganas US$ 5.'
-              : 'Share your link or coupon. When someone buys TecnoWallet+ or Business, you earn US$ 5.'}
+              ? 'Comparte tu enlace de referido. Cuando alguien se suscriba con ese enlace, ganas US$ 5 (USD/EUR).'
+              : 'Share your referral link. When someone subscribes through it, you earn US$ 5 (USD/EUR).'}
           </Text>
         </Card>
 
@@ -390,7 +390,7 @@ export default function AffiliatesScreen() {
 
         <Card style={styles.list}>
           <Text style={[styles.sectionLabel, { color: theme.muted }]}>
-            {locale === 'es' ? 'CÓDIGO (OPCIONAL)' : 'CODE (OPTIONAL)'}
+            {locale === 'es' ? 'CÓDIGO DE REFERIDO (OPCIONAL)' : 'REFERRAL CODE (OPTIONAL)'}
           </Text>
           <TextInput
             value={customCode}
@@ -446,14 +446,20 @@ export default function AffiliatesScreen() {
       }>
       <Card style={styles.list}>
         <View style={uiStyles.between}>
-          <View style={{ flex: 1, gap: 4 }}>
+          <View style={{ flex: 1, gap: 6 }}>
             <Text style={[styles.sectionLabel, { color: theme.muted }]}>
+              {locale === 'es' ? 'TU ENLACE DE REFERIDO' : 'YOUR REFERRAL LINK'}
+            </Text>
+            <Text
+              selectable
+              style={[styles.shareUrl, { color: theme.primary }]}
+              numberOfLines={3}>
+              {shareUrl}
+            </Text>
+            <Text style={[styles.sectionLabel, { color: theme.muted, marginTop: 8 }]}>
               {locale === 'es' ? 'CÓDIGO' : 'CODE'}
             </Text>
             <Text style={[styles.code, { color: theme.text }]}>{affiliate.code}</Text>
-            <Text style={[styles.hint, { color: theme.muted }]} numberOfLines={2}>
-              {shareUrl}
-            </Text>
           </View>
           <Pill tone="green">US$ 5</Pill>
         </View>
@@ -469,22 +475,6 @@ export default function AffiliatesScreen() {
             <Pressable
               onPress={() => {
                 void copyValue(
-                  affiliate.code,
-                  'Código copiado.',
-                  'Code copied.',
-                );
-              }}
-              style={[
-                styles.copyChip,
-                { borderColor: theme.border, backgroundColor: theme.surfaceSecondary },
-              ]}>
-              <Text style={[styles.copyChipText, { color: theme.text }]}>
-                {locale === 'es' ? 'Copiar código' : 'Copy code'}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                void copyValue(
                   shareUrl,
                   'Enlace copiado.',
                   'Link copied.',
@@ -496,6 +486,22 @@ export default function AffiliatesScreen() {
               ]}>
               <Text style={[styles.copyChipText, { color: theme.text }]}>
                 {locale === 'es' ? 'Copiar enlace' : 'Copy link'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                void copyValue(
+                  affiliate.code,
+                  'Código copiado.',
+                  'Code copied.',
+                );
+              }}
+              style={[
+                styles.copyChip,
+                { borderColor: theme.border, backgroundColor: theme.surfaceSecondary },
+              ]}>
+              <Text style={[styles.copyChipText, { color: theme.text }]}>
+                {locale === 'es' ? 'Copiar código' : 'Copy code'}
               </Text>
             </Pressable>
           </View>
@@ -837,6 +843,7 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 12, lineHeight: 16 },
   code: { fontSize: 28, fontWeight: '800', letterSpacing: 1 },
+  shareUrl: { fontSize: 15, fontWeight: '700', lineHeight: 21 },
   actions: { width: '100%', gap: 10 },
   copyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   copyChip: {

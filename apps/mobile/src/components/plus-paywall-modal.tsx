@@ -19,12 +19,9 @@ import {
   useAppTheme,
 } from '@/components/ui';
 import { getAppCopy } from '@/i18n/app-copy';
-import { SUBSCRIPTION_PRICES } from '@/data/subscription-prices';
-import { ApiError } from '@/services/api';
-import { getAffiliateCode } from '@/services/affiliate-api';
-import { PROMO_COUPON_CODE, PROMO_COUPON_URL } from '@/services/billing-prices';
 import {
   claimPendingAffiliate,
+  peekPendingAffiliateCode,
   storeManualAffiliateCode,
 } from '@/services/branch';
 import {
@@ -52,7 +49,6 @@ import { useCalendarStore } from '@/store/calendar';
 import { useLedgerStore } from '@/store/ledger';
 import {
   affiliateProgramEnabled,
-  couponsEnabledForMarket,
   type PaywallPlan,
   usePlusStore,
 } from '@/store/plus';
@@ -85,27 +81,28 @@ export function PlusPaywallModal() {
   const visible = usePlusStore((state) => state.paywallOpen);
   const reason = usePlusStore((state) => state.paywallReason);
   const plan = usePlusStore((state) => state.paywallPlan);
-  const couponCode = usePlusStore((state) => state.couponCode);
+  const priceLabel = usePlusStore((state) => state.priceLabel);
+  const businessPriceLabel = usePlusStore((state) => state.businessPriceLabel);
+  const listPriceLabel = usePlusStore((state) => state.listPriceLabel);
+  const listBusinessPriceLabel = usePlusStore(
+    (state) => state.listBusinessPriceLabel,
+  );
   const billingMarket = usePlusStore((state) => state.billingMarket);
   const close = usePlusStore((state) => state.closePaywall);
   const access = usePlusStore((state) => state.access);
   const billing = usePlusStore((state) => state.billing);
   const canDismiss = canUnlockApp(billing, access);
   const setBilling = usePlusStore((state) => state.setBilling);
-  const setCoupon = usePlusStore((state) => state.setCoupon);
   const setPaywallPlan = usePlusStore((state) => state.setPaywallPlan);
   const signOut = useAuthStore((state) => state.signOut);
   const [working, setWorking] = useState<
-    'buy' | 'restore' | 'coupon' | 'invite' | 'signout' | null
+    'buy' | 'restore' | 'invite' | 'signout' | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
-  const [couponDraft, setCouponDraft] = useState('');
   const [inviteDraft, setInviteDraft] = useState('');
-  const [pricesOpen, setPricesOpen] = useState(false);
   const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
-  const showCoupons = couponsEnabledForMarket(billingMarket);
   const showAffiliateBenefit = affiliateProgramEnabled(billingMarket);
   const rawBenefits = isBusiness ? copy.paywall.businessBenefits : copy.paywall.plusBenefits;
   const rawIcons = isBusiness ? businessBenefitIcons : plusBenefitIcons;
@@ -117,58 +114,31 @@ export function PlusPaywallModal() {
   );
   const brandLabel = isBusiness ? 'TECNOWALLET BUSINESS' : 'TECNOWALLET+';
 
-  const title = isBusiness
-    ? reason === 'SEAT_LIMIT'
-      ? copy.paywall.upgradeBusinessSeat
-      : copy.paywall.unlockBusiness
-    : reason === 'UPGRADE'
-      ? copy.paywall.unlockPlus
-      : reasonCopy.title;
+  const title =
+    Platform.OS === 'ios'
+      ? isBusiness
+        ? reason === 'SEAT_LIMIT'
+          ? copy.paywall.upgradeBusinessSeat
+          : copy.paywall.unlockBusiness
+        : copy.paywall.unlockPlus
+      : isBusiness
+        ? reason === 'SEAT_LIMIT'
+          ? copy.paywall.upgradeBusinessSeat
+          : copy.paywall.unlockBusiness
+        : reason === 'UPGRADE'
+          ? copy.paywall.unlockPlus
+          : reasonCopy.title;
+  const billedAmountLabel = isBusiness
+    ? businessPriceLabel ?? listBusinessPriceLabel
+    : priceLabel ?? listPriceLabel;
 
   useEffect(() => {
     if (!visible) return;
     setError(null);
     setInviteNotice(null);
     useAffiliateStore.getState().dismissWelcome();
-    if (usePlusStore.getState().couponCode) {
-      setCouponDraft(usePlusStore.getState().couponCode ?? '');
-    }
     void loadOfferings().catch(() => undefined);
   }, [visible]);
-
-  const applyCoupon = async (raw: string, options?: { silent?: boolean }) => {
-    if (!showCoupons) return;
-    const code = raw.trim().toUpperCase();
-    if (!code) return;
-    if (!options?.silent) {
-      setError(null);
-      setWorking('coupon');
-    }
-    try {
-      try {
-        const affiliate = await getAffiliateCode(code);
-        await storeManualAffiliateCode(affiliate.code);
-        setCoupon(affiliate.code, affiliate.name);
-        setCouponDraft(affiliate.code);
-      } catch (lookupError) {
-        if (code !== PROMO_COUPON_CODE) throw lookupError;
-        setCoupon(PROMO_COUPON_CODE);
-        setCouponDraft(PROMO_COUPON_CODE);
-      }
-      await loadOfferings();
-    } catch (couponError) {
-      if (options?.silent) return;
-      const message =
-        couponError instanceof ApiError
-          ? copy.paywall.couponInvalid
-          : couponError instanceof Error
-            ? couponError.message
-            : copy.paywall.couponInvalid;
-      setError(message);
-    } finally {
-      if (!options?.silent) setWorking(null);
-    }
-  };
 
   const unlockIfAlreadyGuest = async () => {
     await Promise.all([
@@ -235,7 +205,6 @@ export function PlusPaywallModal() {
     setError(null);
     setWorking('buy');
     const paywallReason = usePlusStore.getState().paywallReason;
-    const appliedCode = usePlusStore.getState().couponCode;
     close({ force: true });
     await new Promise<void>((resolve) => {
       InteractionManager.runAfterInteractions(() => {
@@ -251,14 +220,14 @@ export function PlusPaywallModal() {
       if (canUnlockApp(billing)) {
         setTimeout(() => void useAppTutorialStore.getState().startAfterTrial(), 700);
       }
-      if (appliedCode) {
+      const pending = await peekPendingAffiliateCode();
+      if (pending) {
         void claimPendingAffiliate({ allowManual: true }).catch(() =>
-          storeManualAffiliateCode(appliedCode),
+          storeManualAffiliateCode(pending),
         );
       }
     } catch (purchaseError) {
       usePlusStore.getState().openPaywall(paywallReason, { plan: target });
-      if (appliedCode) setCoupon(appliedCode);
       const message =
         purchaseError instanceof Error
           ? purchaseError.message
@@ -460,127 +429,6 @@ export function PlusPaywallModal() {
             ) : null}
           </View>
 
-          {showCoupons ? (
-            couponCode ? (
-              <View
-                style={[
-                  styles.couponApplied,
-                  { backgroundColor: theme.successSoft },
-                ]}>
-                <AppIcon name="checkmark.circle.fill" color={theme.success} size={18} />
-                <Text style={[styles.couponAppliedText, { color: theme.success }]}>
-                  {copy.paywall.couponApplied(couponCode)}
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.couponBlock}>
-                <Text style={[styles.couponLabel, { color: theme.text }]}>
-                  {copy.paywall.couponLabel}
-                </Text>
-                <Text style={[styles.couponHint, { color: theme.muted }]}>
-                  {copy.paywall.couponGetHere}{' '}
-                  <Text
-                    accessibilityRole="link"
-                    onPress={() => {
-                      if (!working) void Linking.openURL(PROMO_COUPON_URL);
-                    }}
-                    style={[styles.couponLink, { color: theme.primary }]}>
-                    {PROMO_COUPON_URL}
-                  </Text>
-                </Text>
-                <View style={styles.couponRow}>
-                  <TextInput
-                    value={couponDraft}
-                    onChangeText={(value) => setCouponDraft(value.toUpperCase())}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    editable={!working}
-                    placeholder={copy.paywall.couponPlaceholder}
-                    placeholderTextColor={theme.muted}
-                    style={[
-                      styles.couponInput,
-                      {
-                        color: theme.text,
-                        backgroundColor: theme.surfaceSecondary,
-                        borderColor: theme.border,
-                      },
-                    ]}
-                  />
-                  <ScalePressable
-                    accessibilityRole="button"
-                    disabled={Boolean(working) || !couponDraft.trim()}
-                    onPress={() => void applyCoupon(couponDraft)}
-                    style={[
-                      styles.couponButton,
-                      {
-                        backgroundColor: theme.primary,
-                        opacity: working || !couponDraft.trim() ? 0.6 : 1,
-                      },
-                    ]}>
-                    {working === 'coupon' ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.couponButtonText}>
-                        {copy.paywall.couponApply}
-                      </Text>
-                    )}
-                  </ScalePressable>
-                </View>
-              </View>
-            )
-          ) : null}
-
-          <ScalePressable
-            accessibilityRole="button"
-            onPress={() => setPricesOpen((open) => !open)}
-            style={[styles.pricesToggle, { borderColor: theme.border }]}>
-            <Text style={[styles.pricesToggleText, { color: theme.primary }]}>
-              {pricesOpen ? copy.paywall.hidePrices : copy.paywall.viewPrices}
-            </Text>
-          </ScalePressable>
-          {pricesOpen ? (
-            <View
-              style={[
-                styles.priceList,
-                { backgroundColor: theme.surfaceSecondary },
-              ]}>
-              <View style={styles.priceRow}>
-                <Text style={[styles.priceCellPlan, styles.priceHead, { color: theme.muted }]} />
-                <Text style={[styles.priceCell, styles.priceHead, { color: theme.muted }]}>
-                  {copy.paywall.priceWithoutCoupon}
-                </Text>
-                <Text style={[styles.priceCell, styles.priceHead, { color: theme.muted }]}>
-                  {copy.paywall.priceWithCoupon}
-                </Text>
-              </View>
-              <ScrollView style={styles.priceScroll} nestedScrollEnabled>
-                {SUBSCRIPTION_PRICES.map((row) => (
-                  <View key={row.country} style={styles.priceCountry}>
-                    <Text style={[styles.priceCountryName, { color: theme.text }]}>
-                      {row.country}
-                    </Text>
-                    {(
-                      [
-                        ['Plus', row.plusStandard, row.plusCoupon],
-                        ['Business', row.businessStandard, row.businessCoupon],
-                      ] as const
-                    ).map(([planName, listLabel, couponLabel]) => (
-                      <View key={planName} style={styles.priceRow}>
-                        <Text style={[styles.priceCellPlan, { color: theme.text }]}>{planName}</Text>
-                        <Text style={[styles.priceCell, { color: theme.text }]}>
-                          {listLabel ?? '—'}
-                        </Text>
-                        <Text style={[styles.priceCell, { color: theme.text }]}>
-                          {couponLabel ?? '—'}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-          ) : null}
-
           <ScalePressable
             accessibilityRole="button"
             disabled={Boolean(working)}
@@ -594,16 +442,26 @@ export function PlusPaywallModal() {
             ]}>
             {working === 'buy' ? (
               <ActivityIndicator color="#FFFFFF" />
+            ) : Platform.OS === 'ios' ? (
+              <>
+                <Text style={styles.billedAmount}>
+                  {billedAmountLabel
+                    ? copy.paywall.billedPerMonth(billedAmountLabel)
+                    : copy.paywall.priceBeforeConfirm}
+                </Text>
+                <Text style={styles.trialSubordinate}>
+                  {copy.paywall.trialSubordinate}
+                </Text>
+                <Text style={styles.primaryText}>
+                  {copy.paywall.subscribeContinue}
+                </Text>
+              </>
             ) : (
               <>
                 <Text style={styles.primaryText}>
-                  {Platform.OS === 'ios'
-                    ? isBusiness
-                      ? copy.paywall.subscribeBusiness
-                      : copy.paywall.subscribeApple
-                    : isBusiness
-                      ? copy.paywall.viewBusiness
-                      : copy.paywall.viewPlus}
+                  {isBusiness
+                    ? copy.paywall.viewBusiness
+                    : copy.paywall.viewPlus}
                 </Text>
                 <Text style={styles.price}>{copy.paywall.priceBeforeConfirm}</Text>
               </>
@@ -736,8 +594,6 @@ const styles = StyleSheet.create({
   guestOk: { fontSize: 13, fontWeight: '700' },
   couponBlock: { gap: 6, marginTop: 4 },
   couponLabel: { fontSize: 13, fontWeight: '700' },
-  couponHint: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
-  couponLink: { fontSize: 13, fontWeight: '800', textDecorationLine: 'underline' },
   couponRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   couponInput: {
     flex: 1,
@@ -758,15 +614,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   couponButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-  couponApplied: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  couponAppliedText: { fontSize: 13, fontWeight: '700' },
   primary: {
     marginTop: 8,
     borderRadius: 18,
@@ -776,6 +623,14 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   primaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  billedAmount: { color: '#FFFFFF', fontSize: 24, fontWeight: '900' },
+  trialSubordinate: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
   strike: {
     color: '#FFFFFF99',
     fontSize: 12,
@@ -783,22 +638,6 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   price: { color: '#FFFFFFCC', fontSize: 13, fontWeight: '600' },
-  pricesToggle: {
-    minHeight: 40,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pricesToggleText: { fontSize: 14, fontWeight: '700' },
-  priceList: { borderRadius: 14, padding: 12, gap: 10 },
-  priceScroll: { maxHeight: 280 },
-  priceCountry: { gap: 4 },
-  priceCountryName: { fontSize: 13, fontWeight: '800' },
-  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  priceCellPlan: { width: 78, fontSize: 13, fontWeight: '600' },
-  priceCell: { flex: 1, fontSize: 13, fontWeight: '600' },
-  priceHead: { fontSize: 11, fontWeight: '700' },
   restore: { alignItems: 'center', paddingVertical: 8 },
   restoreText: { fontSize: 14, fontWeight: '700' },
   error: { fontSize: 13, textAlign: 'center' },

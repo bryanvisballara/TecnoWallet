@@ -70,7 +70,7 @@ type PlusState = {
 };
 
 const initialMarket = billingMarketSnapshot(guessDeviceCountryCode());
-const initialLabels = priceLabelsForMarket(initialMarket, false);
+const initialLabels = priceLabelsForMarket(initialMarket, true);
 
 export const usePlusStore = create<PlusState>((set, get) => ({
   hydrated: false,
@@ -89,12 +89,11 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   billingMarket: initialMarket,
   trialPaywallPrompted: false,
   applyBillingMarket: (market) => {
-    const coupon = Boolean(get().couponCode) && market.couponsEnabled;
-    const labels = priceLabelsForMarket(market, coupon);
+    const labels = priceLabelsForMarket(market, true);
     set({
       billingMarket: market,
-      listPriceLabel: labels.plusList,
-      listBusinessPriceLabel: labels.businessList,
+      listPriceLabel: labels.plusActive,
+      listBusinessPriceLabel: labels.businessActive,
       priceLabel: labels.plusActive,
       businessPriceLabel: labels.businessActive,
       ...(market.couponsEnabled

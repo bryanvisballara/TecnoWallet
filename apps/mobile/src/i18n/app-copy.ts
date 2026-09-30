@@ -469,6 +469,10 @@ export type AppCopy = {
     viewBusiness: string;
     pricePerMonth: (price: string) => string;
     priceBeforeConfirm: string;
+    billedPerMonth: (price: string) => string;
+    trialSubordinate: string;
+    subscribeContinue: string;
+    priceMonthly: string;
     viewPrices: string;
     hidePrices: string;
     priceWithoutCoupon: string;
@@ -1235,6 +1239,11 @@ const es: AppCopy = {
     viewBusiness: 'Ver TecnoWallet Business',
     pricePerMonth: (price) => `Luego ${price} al mes`,
     priceBeforeConfirm: 'Precio mostrado antes de confirmar',
+    billedPerMonth: (price) => `${price} / mes`,
+    trialSubordinate:
+      'Prueba gratis de 3 días. Después se renueva al precio indicado arriba.',
+    subscribeContinue: 'Continuar con suscripción',
+    priceMonthly: 'Precio mensual',
     viewPrices: 'Ver precios',
     hidePrices: 'Ocultar precios',
     priceWithoutCoupon: 'Sin cupón',
@@ -2074,6 +2083,11 @@ const en: AppCopy = {
     viewBusiness: 'View TecnoWallet Business',
     pricePerMonth: (price) => `Then ${price} / month`,
     priceBeforeConfirm: 'Price shown before you confirm',
+    billedPerMonth: (price) => `${price} / month`,
+    trialSubordinate:
+      '3-day free trial. Then auto-renews at the price above.',
+    subscribeContinue: 'Continue with subscription',
+    priceMonthly: 'Monthly price',
     viewPrices: 'View prices',
     hidePrices: 'Hide prices',
     priceWithoutCoupon: 'No coupon',

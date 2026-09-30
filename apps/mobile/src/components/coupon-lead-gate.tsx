@@ -33,6 +33,12 @@ const text = {
     subtitle: 'Cupón',
     title: 'Pide tu cupón de TecnoWallet',
     body: 'Completa el formulario. El código aparece cuando lo envías.',
+    iosTitle: 'Enlace de referido',
+    iosBody:
+      'Completa el formulario para registrar quién te recomendó TecnoWallet.',
+    iosRevealedTitle: 'Referido registrado',
+    iosRevealedBody:
+      'Abre TecnoWallet y suscríbete con Compras dentro de la app. No necesitas un código de descuento en la app.',
     name: 'Nombre',
     email: 'Correo',
     country: 'País',
@@ -52,6 +58,11 @@ const text = {
     subtitle: 'Coupon',
     title: 'Request your TecnoWallet coupon',
     body: 'Fill in the form. The code appears after you send it.',
+    iosTitle: 'Referral link',
+    iosBody: 'Fill in the form to register who referred you to TecnoWallet.',
+    iosRevealedTitle: 'Referral saved',
+    iosRevealedBody:
+      'Open TecnoWallet and subscribe with In-App Purchase. You do not need a discount code in the app.',
     name: 'Name',
     email: 'Email',
     country: 'Country',
@@ -124,6 +135,7 @@ export function CouponLeadGate({ code }: { code: string }) {
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
   const copy = text[locale];
+  const isIosApp = Platform.OS === 'ios';
 
   const countries = useMemo(
     () =>
@@ -205,23 +217,35 @@ export function CouponLeadGate({ code }: { code: string }) {
         </View>
         {revealed ? (
           <>
-            <Text style={[styles.title, { color: theme.text }]}>{copy.revealedTitle}</Text>
-            <Text style={[styles.body, { color: theme.muted }]}>{copy.revealedBody}</Text>
-            <Text style={[styles.code, { color: theme.text }]}>{coupon}</Text>
-            <PrimaryButton
-              onPress={() => {
-                void copyText(coupon).then(() => setCopied(true));
-              }}>
-              {copied ? copy.copied : copy.copy}
-            </PrimaryButton>
+            <Text style={[styles.title, { color: theme.text }]}>
+              {isIosApp ? copy.iosRevealedTitle : copy.revealedTitle}
+            </Text>
+            <Text style={[styles.body, { color: theme.muted }]}>
+              {isIosApp ? copy.iosRevealedBody : copy.revealedBody}
+            </Text>
+            {!isIosApp ? (
+              <>
+                <Text style={[styles.code, { color: theme.text }]}>{coupon}</Text>
+                <PrimaryButton
+                  onPress={() => {
+                    void copyText(coupon).then(() => setCopied(true));
+                  }}>
+                  {copied ? copy.copied : copy.copy}
+                </PrimaryButton>
+              </>
+            ) : null}
             <PrimaryButton onPress={openDownload}>
               {Platform.OS === 'web' ? copy.download : copy.next}
             </PrimaryButton>
           </>
         ) : (
           <>
-            <Text style={[styles.title, { color: theme.text }]}>{copy.title}</Text>
-            <Text style={[styles.body, { color: theme.muted }]}>{copy.body}</Text>
+            <Text style={[styles.title, { color: theme.text }]}>
+              {isIosApp ? copy.iosTitle : copy.title}
+            </Text>
+            <Text style={[styles.body, { color: theme.muted }]}>
+              {isIosApp ? copy.iosBody : copy.body}
+            </Text>
             <TextInput
               value={name}
               onChangeText={setName}
