@@ -44,6 +44,7 @@
     },
     "android": {
       "package": "com.tecnowallet.mobile",
+      "versionCode": 1,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",

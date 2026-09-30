@@ -15,9 +15,15 @@ export type { BillingMarketSnapshot };
 
 function countryFromLocaleTag(tag?: string | null): string | null {
   if (!tag) return null;
-  const parts = tag.replace(/_/g, '-').split('-');
-  const region = parts[parts.length - 1]?.trim().toUpperCase();
-  return normalizeCountryCode(region);
+  const parts = tag.replace(/_/g, '-').split('-').filter(Boolean);
+  // "en" is a language, not a country. Only a region subtag counts.
+  if (parts.length < 2) return null;
+  const language = parts[0]?.trim().toUpperCase();
+  for (let index = parts.length - 1; index >= 1; index -= 1) {
+    const region = normalizeCountryCode(parts[index]);
+    if (region && region !== language) return region;
+  }
+  return null;
 }
 
 function guessCountryFromTimezone(): string | null {
@@ -64,11 +70,27 @@ export async function fetchBillingMarket() {
   return apiRequest<BillingMarketSnapshot>('/billing/market');
 }
 
+async function readAppStoreCountry(): Promise<string | null> {
+  if (Platform.OS !== 'ios') return null;
+  try {
+    const Purchases = (await import('react-native-purchases')).default;
+    const storefront = await Purchases.getStorefront();
+    return normalizeCountryCode(storefront?.countryCode);
+  } catch {
+    return null;
+  }
+}
+
 export async function loadBillingMarket() {
+  const storefrontCountry = await readAppStoreCountry();
   const deviceCountry = guessDeviceCountryCode();
   try {
     const remote = await fetchBillingMarket();
-    const country = deviceCountry ?? remote.countryCode ?? guessCountryFromTimezone();
+    const country =
+      storefrontCountry ??
+      deviceCountry ??
+      remote.countryCode ??
+      guessCountryFromTimezone();
     const resolved = billingMarketSnapshot(country);
     await localStorage.set(CACHE_KEY, resolved);
     return resolved;
@@ -87,7 +109,11 @@ export async function loadBillingMarket() {
   }
 }
 
-/** Prefer App Store currency when it matches the resolved market (COP storefront → COP labels). */
+/**
+ * The App Store storefront is what Apple charges.
+ * A COP product must not stay on the US $12.99 label just because the phone is in English.
+ * A USD price must not replace Colombia once that market is known.
+ */
 export function mergeBillingMarketWithStoreCurrency(
   market: BillingMarketSnapshot,
   currencyCode?: string | null,
@@ -95,7 +121,9 @@ export function mergeBillingMarketWithStoreCurrency(
   const fromStore = resolveBillingMarketByCurrency(currencyCode);
   if (!fromStore) return market;
   if (fromStore.id === market.marketId) return market;
-  // USD from RevenueCat must not override Colombia detected on device/API.
+  if (fromStore.id === 'CO') {
+    return billingMarketSnapshot(fromStore.countries[0] ?? 'CO');
+  }
   if (market.marketId === 'CO' && fromStore.id === 'US') return market;
   if (!market.countryCode) {
     return billingMarketSnapshot(fromStore.countries[0] ?? null);

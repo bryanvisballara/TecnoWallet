@@ -8,10 +8,14 @@ RewriteRule ^recaudos/?$ /mp-wallet.html [L]
 # Google OAuth — physical files (Hostinger SPA rewrite is often off).
 RewriteRule ^oauth-google/?$ /oauth-google.html [L]
 RewriteRule ^oauth-google-callback/?$ /oauth-google-callback.html [L]
+# Coupon request form. The code is revealed only after the form is sent.
+RewriteRule ^cupon/?$ /cupon/index.html [L]
+RewriteRule ^r/[^/]+/?$ /index.html [L]
 # Legal pages (App Store / in-app links)
 RewriteRule ^privacy/?$ /privacy.html [L]
 RewriteRule ^terms/?$ /terms.html [L]
 RewriteRule ^support/?$ /support.html [L]
+RewriteRule ^eliminar-cuenta/?$ /eliminar-cuenta.html [L]
 # Old collaboration emails used /invite.html?token=… (Unmatched in Expo Router).
 RewriteCond %{QUERY_STRING} (^|&)token=
 RewriteRule ^invite\.html$ /colaborar/? [R=302,L,QSA]

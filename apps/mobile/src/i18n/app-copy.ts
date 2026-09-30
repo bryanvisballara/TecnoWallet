@@ -469,6 +469,10 @@ export type AppCopy = {
     viewBusiness: string;
     pricePerMonth: (price: string) => string;
     priceBeforeConfirm: string;
+    viewPrices: string;
+    hidePrices: string;
+    priceWithoutCoupon: string;
+    priceWithCoupon: string;
     couponLabel: string;
     couponGetHere: string;
     couponPlaceholder: string;
@@ -1231,6 +1235,10 @@ const es: AppCopy = {
     viewBusiness: 'Ver TecnoWallet Business',
     pricePerMonth: (price) => `Luego ${price} al mes`,
     priceBeforeConfirm: 'Precio mostrado antes de confirmar',
+    viewPrices: 'Ver precios',
+    hidePrices: 'Ocultar precios',
+    priceWithoutCoupon: 'Sin cupón',
+    priceWithCoupon: 'Con cupón',
     couponLabel: 'Cupón de descuento',
     couponGetHere: 'Obtén un cupón de descuento acá:',
     couponPlaceholder: 'Ej. TECNO10',
@@ -2066,6 +2074,10 @@ const en: AppCopy = {
     viewBusiness: 'View TecnoWallet Business',
     pricePerMonth: (price) => `Then ${price} / month`,
     priceBeforeConfirm: 'Price shown before you confirm',
+    viewPrices: 'View prices',
+    hidePrices: 'Hide prices',
+    priceWithoutCoupon: 'No coupon',
+    priceWithCoupon: 'With coupon',
     couponLabel: 'Discount coupon',
     couponGetHere: 'Get a discount coupon here:',
     couponPlaceholder: 'e.g. TECNO10',

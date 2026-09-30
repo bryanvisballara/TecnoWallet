@@ -23,10 +23,13 @@ export const BUSINESS_PRODUCT_ID = 'TecnoWalletBusiness';
 
 export const PLUS_LIST_PRODUCT_IDS = [
   'TecnoWalletPlusStandard',
+  // RevenueCat's store id uses this exact casing.
+  'TecnoWalletplusstandard',
 ] as const;
 
 export const BUSINESS_LIST_PRODUCT_IDS = [
   'TecnoWalletBusinessStandard',
+  'TecnoWalletbusinessstandard',
 ] as const;
 
 export const PLUS_COUPON_PRODUCT_IDS = [
@@ -46,6 +49,6 @@ export const BUSINESS_PRODUCT_IDS = BUSINESS_LIST_PRODUCT_IDS;
 
 export const AFFILIATE_OFFERING_ID = 'affiliate';
 
-/** In-paywall promo. The link applies this code and switches to the coupon price. */
+/** In-paywall promo. The link opens the form; the price changes only after the code is applied. */
 export const PROMO_COUPON_CODE = 'TECNO2026';
 export const PROMO_COUPON_URL = 'https://tecnowallet.app/cupon';

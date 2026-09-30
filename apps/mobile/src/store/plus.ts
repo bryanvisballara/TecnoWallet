@@ -10,7 +10,10 @@ import {
   type BillingStatus,
   type PlusAccess,
 } from '@/services/plus-api';
+import { billingMarketSnapshot } from '@tecnowallet/config';
+
 import {
+  guessDeviceCountryCode,
   loadBillingMarket,
   priceLabelsForMarket,
   type BillingMarketSnapshot,
@@ -66,6 +69,9 @@ type PlusState = {
   markSharedAccess: () => void;
 };
 
+const initialMarket = billingMarketSnapshot(guessDeviceCountryCode());
+const initialLabels = priceLabelsForMarket(initialMarket, false);
+
 export const usePlusStore = create<PlusState>((set, get) => ({
   hydrated: false,
   loading: false,
@@ -74,13 +80,13 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   paywallOpen: false,
   paywallReason: 'UPGRADE',
   paywallPlan: 'plus',
-  priceLabel: FALLBACK_PLUS_PRICE_LABEL,
-  businessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
-  listPriceLabel: FALLBACK_PLUS_PRICE_LABEL,
-  listBusinessPriceLabel: FALLBACK_BUSINESS_PRICE_LABEL,
+  priceLabel: initialLabels.plusActive,
+  businessPriceLabel: initialLabels.businessActive,
+  listPriceLabel: initialLabels.plusList,
+  listBusinessPriceLabel: initialLabels.businessList,
   couponCode: null,
   couponName: null,
-  billingMarket: null,
+  billingMarket: initialMarket,
   trialPaywallPrompted: false,
   applyBillingMarket: (market) => {
     const coupon = Boolean(get().couponCode) && market.couponsEnabled;
@@ -186,11 +192,14 @@ export const usePlusStore = create<PlusState>((set, get) => ({
   setListPriceLabel: (listPriceLabel) => set({ listPriceLabel }),
   setListBusinessPriceLabel: (listBusinessPriceLabel) =>
     set({ listBusinessPriceLabel }),
-  setCoupon: (couponCode, couponName = null) =>
+  setCoupon: (couponCode, couponName = null) => {
     set({
       couponCode: couponCode?.trim().toUpperCase() || null,
       couponName: couponName?.trim() || null,
-    }),
+    });
+    const market = get().billingMarket;
+    if (market) get().applyBillingMarket(market);
+  },
   setBilling: (billing) =>
     set({
       billing,

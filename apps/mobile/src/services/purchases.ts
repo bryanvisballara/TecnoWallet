@@ -1,4 +1,3 @@
-import { billingMarketSnapshot } from '@tecnowallet/config';
 import Purchases, {
   LOG_LEVEL,
   PURCHASES_ERROR_CODE,
@@ -13,11 +12,11 @@ import {
   syncBillingStatus,
   type BillingStatus,
 } from './plus-api';
+import { billingMarketSnapshot, normalizeCountryCode } from '@tecnowallet/config';
 import {
   guessDeviceCountryCode,
   mergeBillingMarketWithStoreCurrency,
   priceLabelsForMarket,
-  storefrontPriceLabel,
 } from './billing-market';
 import {
   AFFILIATE_OFFERING_ID,
@@ -64,6 +63,19 @@ function storeProductByIds(
   return null;
 }
 
+/** Coupon SKUs. Buying these without a code charges the discounted price in every country. */
+const COUPON_PRODUCT_IDS = new Set([
+  'tecnowalletplus',
+  'tecnowalletplusaffiliate',
+  'tecnowalletbusiness',
+  'tecnowalletbusinessaffiliate',
+]);
+
+function couponIsApplied() {
+  const state = usePlusStore.getState();
+  return Boolean(state.couponCode) && state.billingMarket?.couponsEnabled !== false;
+}
+
 const IOS_API_KEY =
   process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim() ||
   (Constants.expoConfig?.extra?.revenueCatIosApiKey as string | undefined)?.trim() ||
@@ -71,6 +83,8 @@ const IOS_API_KEY =
 let configuredUserId: string | null = null;
 let plusPackage: PurchasesPackage | null = null;
 let businessPackage: PurchasesPackage | null = null;
+let plusProduct: PurchasesStoreProduct | null = null;
+let businessProduct: PurchasesStoreProduct | null = null;
 
 function assertNativeIos() {
   if (Platform.OS !== 'ios') {
@@ -124,6 +138,8 @@ export async function resetPurchases() {
     configuredUserId = null;
     plusPackage = null;
     businessPackage = null;
+    plusProduct = null;
+    businessProduct = null;
     applyRegionalPrices(false);
   }
 }
@@ -176,10 +192,9 @@ async function loadOfferingsNow(): Promise<{
     [...(affiliate?.availablePackages ?? []), ...allPackages],
     BUSINESS_COUPON_PRODUCT_IDS,
   );
-  plusPackage = coupon ? (couponPlus ?? listPlus) : listPlus;
-  businessPackage = coupon
-    ? (couponBusiness ?? listBusiness)
-    : listBusiness;
+  // No coupon: TecnoWallet Standard only. The + price is the coupon product, after Apply.
+  plusPackage = coupon ? couponPlus : listPlus;
+  businessPackage = coupon ? couponBusiness : listBusiness;
   const storeProducts = await Purchases.getProducts(
     [
       ...PLUS_LIST_PRODUCT_IDS,
@@ -189,67 +204,45 @@ async function loadOfferingsNow(): Promise<{
     ],
     Purchases.PRODUCT_CATEGORY.SUBSCRIPTION,
   ).catch(() => [] as PurchasesStoreProduct[]);
+  // StoreKit product ids win over RevenueCat package metadata (packages can be mis-linked).
   const listPlusProduct =
-    listPlus?.product ??
-    storeProductByIds(storeProducts, PLUS_LIST_PRODUCT_IDS);
+    storeProductByIds(storeProducts, PLUS_LIST_PRODUCT_IDS) ??
+    listPlus?.product;
   const listBusinessProduct =
-    listBusiness?.product ??
-    storeProductByIds(storeProducts, BUSINESS_LIST_PRODUCT_IDS);
-  const activePlusProduct =
-    plusPackage?.product ??
-    storeProductByIds(
-      storeProducts,
-      coupon ? PLUS_COUPON_PRODUCT_IDS : PLUS_LIST_PRODUCT_IDS,
-    );
-  const activeBusinessProduct =
-    businessPackage?.product ??
-    storeProductByIds(
-      storeProducts,
-      coupon ? BUSINESS_COUPON_PRODUCT_IDS : BUSINESS_LIST_PRODUCT_IDS,
-    );
+    storeProductByIds(storeProducts, BUSINESS_LIST_PRODUCT_IDS) ??
+    listBusiness?.product;
+  const couponPlusProduct =
+    couponPlus?.product ??
+    storeProductByIds(storeProducts, PLUS_COUPON_PRODUCT_IDS);
+  const couponBusinessProduct =
+    couponBusiness?.product ??
+    storeProductByIds(storeProducts, BUSINESS_COUPON_PRODUCT_IDS);
+  plusProduct = coupon ? couponPlusProduct : listPlusProduct;
+  businessProduct = coupon ? couponBusinessProduct : listBusinessProduct;
   const store = usePlusStore.getState();
   const storeCurrency =
     listPlusProduct?.currencyCode ??
-    activePlusProduct?.currencyCode ??
-    activeBusinessProduct?.currencyCode;
-  const baseMarket =
-    store.billingMarket ??
-    billingMarketSnapshot(guessDeviceCountryCode()) ??
-    (await store.refreshBillingMarket());
+    listBusinessProduct?.currencyCode;
+  const storefrontCountry = await Purchases.getStorefront()
+    .then((storefront) => normalizeCountryCode(storefront?.countryCode))
+    .catch(() => null);
+  const baseMarket = storefrontCountry
+    ? billingMarketSnapshot(storefrontCountry)
+    : (store.billingMarket ??
+      billingMarketSnapshot(guessDeviceCountryCode()) ??
+      (await store.refreshBillingMarket()));
   const market = mergeBillingMarketWithStoreCurrency(baseMarket, storeCurrency);
   store.applyBillingMarket(market);
   const labels = priceLabelsForMarket(market, coupon);
-  store.setListPriceLabel(
-    storefrontPriceLabel(
-      listPlusProduct?.priceString,
-      listPlusProduct?.currencyCode,
-      market,
-      labels.plusList,
-    ),
-  );
+  const shown = (fromStore: string | undefined, fallback: string) =>
+    fromStore?.trim() || fallback;
+  store.setListPriceLabel(shown(listPlusProduct?.priceString, labels.plusList));
   store.setListBusinessPriceLabel(
-    storefrontPriceLabel(
-      listBusinessProduct?.priceString,
-      listBusinessProduct?.currencyCode,
-      market,
-      labels.businessList,
-    ),
+    shown(listBusinessProduct?.priceString, labels.businessList),
   );
-  store.setPriceLabel(
-    storefrontPriceLabel(
-      activePlusProduct?.priceString,
-      activePlusProduct?.currencyCode,
-      market,
-      labels.plusActive,
-    ),
-  );
+  store.setPriceLabel(shown(plusProduct?.priceString, labels.plusActive));
   store.setBusinessPriceLabel(
-    storefrontPriceLabel(
-      activeBusinessProduct?.priceString,
-      activeBusinessProduct?.currencyCode,
-      market,
-      labels.businessActive,
-    ),
+    shown(businessProduct?.priceString, labels.businessActive),
   );
   return { plus: plusPackage, business: businessPackage };
 }
@@ -275,15 +268,35 @@ async function billingAfterPurchase(): Promise<BillingStatus> {
   }
 }
 
-async function purchasePackage(
-  selected: PurchasesPackage | null,
+async function fetchCheckoutProduct(
+  listIds: readonly string[],
+  couponIds: readonly string[],
   missingMessage: string,
+): Promise<PurchasesStoreProduct> {
+  assertNativeIos();
+  const coupon = couponIsApplied();
+  const ids = coupon ? couponIds : listIds;
+  const products = await Purchases.getProducts(
+    [...ids],
+    Purchases.PRODUCT_CATEGORY.SUBSCRIPTION,
+  );
+  const product = storeProductByIds(products, ids);
+  if (!product) throw new Error(missingMessage);
+  const id = product.identifier.toLowerCase();
+  if (!coupon && COUPON_PRODUCT_IDS.has(id)) {
+    throw new Error(
+      'Apple devolvió el producto con cupón (TecnoWallet+) sin un código. En RevenueCat, el producto TecnoWalletplusstandard debe estar ligado a la suscripción Standard en App Store Connect, no a TecnoWallet+.',
+    );
+  }
+  return product;
+}
+
+async function purchaseSelected(
+  product: PurchasesStoreProduct,
 ): Promise<BillingStatus> {
   assertNativeIos();
-  if (!selected) throw new Error(missingMessage);
   try {
-    // 3-day intro must be configured on the Plus/Business products in App Store Connect / RevenueCat.
-    await Purchases.purchasePackage(selected);
+    await Purchases.purchaseStoreProduct(product);
     return await billingAfterPurchase();
   } catch (error) {
     const value = error as { code?: string; userCancelled?: boolean };
@@ -298,19 +311,23 @@ async function purchasePackage(
 }
 
 export async function purchasePlus(): Promise<BillingStatus> {
-  const selected = plusPackage ?? (await loadOfferings()).plus;
-  return purchasePackage(
-    selected,
-    'TecnoWallet+ todavía no está disponible en App Store para esta región.',
+  await loadOfferings();
+  const product = await fetchCheckoutProduct(
+    PLUS_LIST_PRODUCT_IDS,
+    PLUS_COUPON_PRODUCT_IDS,
+    'TecnoWallet Standard todavía no está disponible en App Store para esta región.',
   );
+  return purchaseSelected(product);
 }
 
 export async function purchaseBusiness(): Promise<BillingStatus> {
-  const selected = businessPackage ?? (await loadOfferings()).business;
-  return purchasePackage(
-    selected,
-    'TecnoWallet Business todavía no está disponible en App Store para esta región.',
+  await loadOfferings();
+  const product = await fetchCheckoutProduct(
+    BUSINESS_LIST_PRODUCT_IDS,
+    BUSINESS_COUPON_PRODUCT_IDS,
+    'TecnoWallet Business Standard todavía no está disponible en App Store para esta región.',
   );
+  return purchaseSelected(product);
 }
 
 export async function restorePlusPurchases(): Promise<BillingStatus> {

@@ -27,10 +27,14 @@ RewriteRule ^recaudos/?$ /mp-wallet.html [L]
 # Google OAuth — physical files (Hostinger SPA rewrite is often off).
 RewriteRule ^oauth-google/?$ /oauth-google.html [L]
 RewriteRule ^oauth-google-callback/?$ /oauth-google-callback.html [L]
+# Coupon request form. The code is revealed only after the form is sent.
+RewriteRule ^cupon/?$ /cupon/index.html [L]
+RewriteRule ^r/[^/]+/?$ /index.html [L]
 # Legal pages (App Store / in-app links)
 RewriteRule ^privacy/?$ /privacy.html [L]
 RewriteRule ^terms/?$ /terms.html [L]
 RewriteRule ^support/?$ /support.html [L]
+RewriteRule ^eliminar-cuenta/?$ /eliminar-cuenta.html [L]
 # Old collaboration emails used /invite.html?token=… (Unmatched in Expo Router).
 RewriteCond %{QUERY_STRING} (^|&)token=
 RewriteRule ^invite\\.html$ /colaborar/? [R=302,L,QSA]
@@ -212,10 +216,22 @@ function ensureDirIndex(routeBaseName) {
   fs.copyFileSync(htmlFile, path.join(dir, 'index.html'));
 }
 
+function ensureSpaRoute(routeBaseName) {
+  const htmlFile = path.join(staging, `${routeBaseName}.html`);
+  const fallback = path.join(staging, 'index.html');
+  const source = fs.existsSync(htmlFile) ? htmlFile : fallback;
+  if (!fs.existsSync(source)) return;
+  if (!fs.existsSync(htmlFile)) fs.copyFileSync(source, htmlFile);
+  const dir = path.join(staging, routeBaseName);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(source, path.join(dir, 'index.html'));
+}
+
 ensureDirIndex('colaborar');
 ensureDirIndex('restablecer');
 ensureDirIndex('auth');
 ensureDirIndex('recaudos');
+ensureSpaRoute('cupon');
 writeMercadoPagoReturnPage();
 
 // Backward-compat stubs for emails already sent with invite.html?token=…
@@ -244,7 +260,7 @@ fs.mkdirSync(path.join(staging, 'invite'), { recursive: true });
 // Directory listing /invite/ gets the stub; /invite/TOKEN still serves [token].html.
 fs.writeFileSync(path.join(staging, 'invite', 'index.html'), redirectStub);
 
-for (const legalPage of ['privacy.html', 'support.html', 'terms.html']) {
+for (const legalPage of ['privacy.html', 'support.html', 'terms.html', 'eliminar-cuenta.html']) {
   const source = path.join(hostDir, legalPage);
   if (fs.existsSync(source)) {
     fs.copyFileSync(source, path.join(staging, legalPage));

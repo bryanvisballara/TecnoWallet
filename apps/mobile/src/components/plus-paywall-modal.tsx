@@ -19,6 +19,7 @@ import {
   useAppTheme,
 } from '@/components/ui';
 import { getAppCopy } from '@/i18n/app-copy';
+import { SUBSCRIPTION_PRICES } from '@/data/subscription-prices';
 import { ApiError } from '@/services/api';
 import { getAffiliateCode } from '@/services/affiliate-api';
 import { PROMO_COUPON_CODE, PROMO_COUPON_URL } from '@/services/billing-prices';
@@ -84,12 +85,6 @@ export function PlusPaywallModal() {
   const visible = usePlusStore((state) => state.paywallOpen);
   const reason = usePlusStore((state) => state.paywallReason);
   const plan = usePlusStore((state) => state.paywallPlan);
-  const priceLabel = usePlusStore((state) => state.priceLabel);
-  const businessPriceLabel = usePlusStore((state) => state.businessPriceLabel);
-  const listPriceLabel = usePlusStore((state) => state.listPriceLabel);
-  const listBusinessPriceLabel = usePlusStore(
-    (state) => state.listBusinessPriceLabel,
-  );
   const couponCode = usePlusStore((state) => state.couponCode);
   const billingMarket = usePlusStore((state) => state.billingMarket);
   const close = usePlusStore((state) => state.closePaywall);
@@ -107,6 +102,7 @@ export function PlusPaywallModal() {
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [couponDraft, setCouponDraft] = useState('');
   const [inviteDraft, setInviteDraft] = useState('');
+  const [pricesOpen, setPricesOpen] = useState(false);
   const reasonCopy = copy.paywall.reasons[reason];
   const isBusiness = plan === 'business' || reason === 'SEAT_LIMIT';
   const showCoupons = couponsEnabledForMarket(billingMarket);
@@ -119,14 +115,6 @@ export function PlusPaywallModal() {
   const benefitIcons = rawIcons.filter(
     (_, index) => showAffiliateBenefit || rawIcons[index] !== 'gift.fill',
   );
-  const activePrice = isBusiness ? businessPriceLabel : priceLabel;
-  const listPrice = isBusiness ? listBusinessPriceLabel : listPriceLabel;
-  const showStrike =
-    showCoupons &&
-    Boolean(couponCode) &&
-    Boolean(listPrice) &&
-    Boolean(activePrice) &&
-    listPrice !== activePrice;
   const brandLabel = isBusiness ? 'TECNOWALLET BUSINESS' : 'TECNOWALLET+';
 
   const title = isBusiness
@@ -494,7 +482,7 @@ export function PlusPaywallModal() {
                   <Text
                     accessibilityRole="link"
                     onPress={() => {
-                      if (!working) void applyCoupon(PROMO_COUPON_CODE);
+                      if (!working) void Linking.openURL(PROMO_COUPON_URL);
                     }}
                     style={[styles.couponLink, { color: theme.primary }]}>
                     {PROMO_COUPON_URL}
@@ -544,6 +532,57 @@ export function PlusPaywallModal() {
 
           <ScalePressable
             accessibilityRole="button"
+            onPress={() => setPricesOpen((open) => !open)}
+            style={[styles.pricesToggle, { borderColor: theme.border }]}>
+            <Text style={[styles.pricesToggleText, { color: theme.primary }]}>
+              {pricesOpen ? copy.paywall.hidePrices : copy.paywall.viewPrices}
+            </Text>
+          </ScalePressable>
+          {pricesOpen ? (
+            <View
+              style={[
+                styles.priceList,
+                { backgroundColor: theme.surfaceSecondary },
+              ]}>
+              <View style={styles.priceRow}>
+                <Text style={[styles.priceCellPlan, styles.priceHead, { color: theme.muted }]} />
+                <Text style={[styles.priceCell, styles.priceHead, { color: theme.muted }]}>
+                  {copy.paywall.priceWithoutCoupon}
+                </Text>
+                <Text style={[styles.priceCell, styles.priceHead, { color: theme.muted }]}>
+                  {copy.paywall.priceWithCoupon}
+                </Text>
+              </View>
+              <ScrollView style={styles.priceScroll} nestedScrollEnabled>
+                {SUBSCRIPTION_PRICES.map((row) => (
+                  <View key={row.country} style={styles.priceCountry}>
+                    <Text style={[styles.priceCountryName, { color: theme.text }]}>
+                      {row.country}
+                    </Text>
+                    {(
+                      [
+                        ['Plus', row.plusStandard, row.plusCoupon],
+                        ['Business', row.businessStandard, row.businessCoupon],
+                      ] as const
+                    ).map(([planName, listLabel, couponLabel]) => (
+                      <View key={planName} style={styles.priceRow}>
+                        <Text style={[styles.priceCellPlan, { color: theme.text }]}>{planName}</Text>
+                        <Text style={[styles.priceCell, { color: theme.text }]}>
+                          {listLabel ?? '—'}
+                        </Text>
+                        <Text style={[styles.priceCell, { color: theme.text }]}>
+                          {couponLabel ?? '—'}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          <ScalePressable
+            accessibilityRole="button"
             disabled={Boolean(working)}
             onPress={() => void runPurchase(isBusiness ? 'business' : 'plus')}
             style={[
@@ -566,14 +605,7 @@ export function PlusPaywallModal() {
                       ? copy.paywall.viewBusiness
                       : copy.paywall.viewPlus}
                 </Text>
-                {showStrike ? (
-                  <Text style={styles.strike}>{listPrice}</Text>
-                ) : null}
-                <Text style={styles.price}>
-                  {activePrice
-                    ? copy.paywall.pricePerMonth(activePrice)
-                    : copy.paywall.priceBeforeConfirm}
-                </Text>
+                <Text style={styles.price}>{copy.paywall.priceBeforeConfirm}</Text>
               </>
             )}
           </ScalePressable>
@@ -751,6 +783,22 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   price: { color: '#FFFFFFCC', fontSize: 13, fontWeight: '600' },
+  pricesToggle: {
+    minHeight: 40,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pricesToggleText: { fontSize: 14, fontWeight: '700' },
+  priceList: { borderRadius: 14, padding: 12, gap: 10 },
+  priceScroll: { maxHeight: 280 },
+  priceCountry: { gap: 4 },
+  priceCountryName: { fontSize: 13, fontWeight: '800' },
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  priceCellPlan: { width: 78, fontSize: 13, fontWeight: '600' },
+  priceCell: { flex: 1, fontSize: 13, fontWeight: '600' },
+  priceHead: { fontSize: 11, fontWeight: '700' },
   restore: { alignItems: 'center', paddingVertical: 8 },
   restoreText: { fontSize: 14, fontWeight: '700' },
   error: { fontSize: 13, textAlign: 'center' },
