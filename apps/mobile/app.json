@@ -2,7 +2,7 @@
   "expo": {
     "name": "TecnoWallet",
     "slug": "tecnowallet",
-    "version": "1.0.2",
+    "version": "1.7.0",
     "orientation": "portrait",
     "icon": "./assets/images/app-icon.png",
     "scheme": "tecnowallet",
@@ -44,7 +44,7 @@
     },
     "android": {
       "package": "com.tecnowallet.mobile",
-      "versionCode": 1,
+      "versionCode": 5,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",
@@ -52,8 +52,8 @@
         "android.permission.VIBRATE"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#081430",
-        "foregroundImage": "./assets/images/app-icon.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/android-adaptive-foreground.png"
       },
       "predictiveBackGestureEnabled": true
     },
@@ -112,7 +112,12 @@
         {
           "backgroundColor": "#FFFFFF",
           "image": "./assets/images/splash-screen.png",
-          "resizeMode": "contain"
+          "resizeMode": "contain",
+          "android": {
+            "backgroundColor": "#1E4BB3",
+            "image": "./assets/images/splash-logo.png",
+            "imageWidth": 240
+          }
         }
       ]
     ],

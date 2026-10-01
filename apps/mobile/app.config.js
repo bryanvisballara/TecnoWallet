@@ -34,6 +34,8 @@ const branchAlternateDomain =
   'tecnowallet-alternate.app.link';
 const branchKey = process.env.EXPO_PUBLIC_BRANCH_KEY || '';
 const revenueCatIosApiKey = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim() || '';
+const revenueCatAndroidApiKey =
+  process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim() || '';
 
 const plugins = [...base.expo.plugins];
 if (branchKey) {
@@ -51,6 +53,18 @@ if (branchKey) {
   ]);
   plugins.push('./plugins/with-branch-native-link');
 }
+plugins.push('./plugins/with-android-splash.js');
+plugins.push('./plugins/with-android-release-signing.js');
+plugins.push([
+  'expo-build-properties',
+  {
+    android: {
+      enableProguardInReleaseBuilds: true,
+      enableShrinkResourcesInReleaseBuilds: true,
+    },
+  },
+]);
+plugins.push('./plugins/with-android-play-quality.js');
 
 module.exports = {
   expo: {
@@ -58,6 +72,7 @@ module.exports = {
     extra: {
       ...(base.expo.extra ?? {}),
       revenueCatIosApiKey,
+      revenueCatAndroidApiKey,
     },
     ios: {
       ...base.expo.ios,

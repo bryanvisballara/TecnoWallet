@@ -39,14 +39,14 @@ const text = {
     subtitleCoupon: 'Cupón',
     referralTitle: 'Te invitaron a TecnoWallet',
     referralBody:
-      'Descarga la app, crea tu cuenta ahí y suscríbete con Apple. El enlace lleva el referido; si ya la instalaste, vuelve a abrir este enlace en Safari o ingresa el código en la app.',
+      'Descarga la app, crea tu cuenta ahí y suscríbete con Apple. El enlace lleva el referido; si ya la instalaste, vuelve a abrir este enlace en Safari.',
     referralFrom: (label: string) => `Te recomienda: ${label}`,
     referralStep1: '1. Descarga TecnoWallet (App Store)',
     referralStep2:
       '2. Regístrate en la app con el mismo correo que uses aquí, si dejas tus datos.',
     referralStep3:
-      '3. Si ya instalaste: abre otra vez este enlace en Safari o pega el código en el paywall de Plus.',
-    referralCopyCode: 'Copiar código de referido',
+      '3. Si ya instalaste: abre otra vez este enlace en Safari.',
+    referralCopyCode: 'Copiar enlace de referido',
     referralOptionalLead: 'Dejar mi correo (opcional)',
     referralOptionalHint:
       'Si te registras en la app con el mismo correo, ligamos la recomendación aunque no abras el enlace otra vez.',
@@ -81,14 +81,14 @@ const text = {
     subtitleCoupon: 'Coupon',
     referralTitle: 'You were invited to TecnoWallet',
     referralBody:
-      'Download the app, sign up there, and subscribe with Apple. The link carries the referral; if you already installed, open this link again in Safari or enter the code in the app.',
+      'Download the app, sign up there, and subscribe with Apple. The link carries the referral; if you already installed, open this link again in Safari.',
     referralFrom: (label: string) => `Recommended by: ${label}`,
     referralStep1: '1. Download TecnoWallet (App Store)',
     referralStep2:
       '2. Sign up in the app with the same email you use here, if you leave your details.',
     referralStep3:
-      '3. If you already installed: open this link again in Safari or paste the code on the Plus paywall.',
-    referralCopyCode: 'Copy referral code',
+      '3. If you already installed: open this link again in Safari.',
+    referralCopyCode: 'Copy referral link',
     referralOptionalLead: 'Leave my email (optional)',
     referralOptionalHint:
       'If you sign up in the app with the same email, we can attach the referral even without reopening the link.',
@@ -344,8 +344,11 @@ export function CouponLeadGate({
               <Text style={[styles.step, { color: theme.text }]}>{copy.referralStep2}</Text>
               <Text style={[styles.step, { color: theme.text }]}>{copy.referralStep3}</Text>
             </View>
-            <Text style={[styles.code, { color: theme.text }]}>{coupon}</Text>
+            {isIosApp ? null : (
+              <Text style={[styles.code, { color: theme.text }]}>{coupon}</Text>
+            )}
             <PrimaryButton onPress={openDownload}>{copy.download}</PrimaryButton>
+            {isIosApp ? null : (
             <Pressable
               accessibilityRole="button"
               onPress={copyReferralCode}
@@ -357,6 +360,7 @@ export function CouponLeadGate({
                 {copied ? copy.copied : copy.referralCopyCode}
               </Text>
             </Pressable>
+            )}
             <Pressable
               accessibilityRole="button"
               onPress={() => setOptionalLeadOpen((open) => !open)}

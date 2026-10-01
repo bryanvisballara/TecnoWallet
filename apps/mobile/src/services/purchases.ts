@@ -71,6 +71,23 @@ const IOS_API_KEY =
   process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim() ||
   (Constants.expoConfig?.extra?.revenueCatIosApiKey as string | undefined)?.trim() ||
   '';
+const ANDROID_API_KEY =
+  process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim() ||
+  (Constants.expoConfig?.extra?.revenueCatAndroidApiKey as string | undefined)?.trim() ||
+  '';
+
+function nativeStoreApiKey(): string {
+  if (Platform.OS === 'ios') return IOS_API_KEY;
+  if (Platform.OS === 'android') return ANDROID_API_KEY;
+  return '';
+}
+
+function nativePurchasesSupported(): boolean {
+  return (
+    (Platform.OS === 'ios' || Platform.OS === 'android') &&
+    Boolean(nativeStoreApiKey())
+  );
+}
 let configuredUserId: string | null = null;
 let plusPackage: PurchasesPackage | null = null;
 let businessPackage: PurchasesPackage | null = null;
@@ -87,7 +104,7 @@ export type ApplePaywallPrices = {
 
 /** StoreKit-only prices for the paywall (no regional USD/COP guess labels). */
 export async function fetchApplePaywallPrices(): Promise<ApplePaywallPrices | null> {
-  if (Platform.OS !== 'ios' || !IOS_API_KEY || !configuredUserId) {
+  if (!nativePurchasesSupported() || !configuredUserId) {
     return null;
   }
   await loadOfferingsNow().catch(() => undefined);
@@ -167,16 +184,19 @@ export async function fetchApplePaywallPrices(): Promise<ApplePaywallPrices | nu
   };
 }
 
-function assertNativeIos() {
-  if (Platform.OS !== 'ios') {
+function assertNativeStorePurchases() {
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
     throw new Error(
-      'La suscripción con Apple está disponible desde la app para iPhone.',
+      'La suscripción en la tienda está disponible desde la app móvil.',
     );
   }
-  if (!IOS_API_KEY) {
+  if (!nativeStoreApiKey()) {
     throw new Error(
       'RevenueCat no está configurado en este build de TecnoWallet.',
     );
+  }
+  if (!configuredUserId) {
+    throw new Error('Inicia sesión para suscribirte.');
   }
 }
 
@@ -198,10 +218,11 @@ function applyRegionalPrices() {
 }
 
 export async function configurePurchases(appUserId: string) {
-  if (Platform.OS !== 'ios' || !IOS_API_KEY || !appUserId) return;
+  const apiKey = nativeStoreApiKey();
+  if (!nativePurchasesSupported() || !apiKey || !appUserId) return;
   if (!configuredUserId) {
     if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-    Purchases.configure({ apiKey: IOS_API_KEY, appUserID: appUserId });
+    Purchases.configure({ apiKey, appUserID: appUserId });
     configuredUserId = appUserId;
   } else if (configuredUserId !== appUserId) {
     await Purchases.logIn(appUserId);
@@ -211,7 +232,7 @@ export async function configurePurchases(appUserId: string) {
 }
 
 export async function resetPurchases() {
-  if (Platform.OS !== 'ios' || !configuredUserId) return;
+  if (!nativePurchasesSupported() || !configuredUserId) return;
   try {
     await Purchases.logOut();
   } finally {
@@ -244,7 +265,7 @@ async function loadOfferingsNow(): Promise<{
   plus: PurchasesPackage | null;
   business: PurchasesPackage | null;
 }> {
-  if (Platform.OS !== 'ios' || !IOS_API_KEY || !configuredUserId) {
+  if (!nativePurchasesSupported() || !configuredUserId) {
     return { plus: null, business: null };
   }
   const offerings = await Purchases.getOfferings();
@@ -355,7 +376,7 @@ async function fetchCheckoutProduct(
   ids: readonly string[],
   missingMessage: string,
 ): Promise<PurchasesStoreProduct> {
-  assertNativeIos();
+  assertNativeStorePurchases();
   const products = await Purchases.getProducts(
     [...ids],
     Purchases.PRODUCT_CATEGORY.SUBSCRIPTION,
@@ -368,7 +389,7 @@ async function fetchCheckoutProduct(
 async function purchaseSelected(
   product: PurchasesStoreProduct,
 ): Promise<BillingStatus> {
-  assertNativeIos();
+  assertNativeStorePurchases();
   try {
     await Purchases.purchaseStoreProduct(product);
     return await billingAfterPurchase();
@@ -388,7 +409,7 @@ export async function purchasePlus(): Promise<BillingStatus> {
   await loadOfferings();
   const product = await fetchCheckoutProduct(
     PLUS_PURCHASE_PRODUCT_IDS,
-    'TecnoWallet+ todavía no está disponible en App Store para esta región.',
+    'TecnoWallet+ todavía no está disponible en la tienda para esta cuenta.',
   );
   return purchaseSelected(product);
 }
@@ -397,13 +418,13 @@ export async function purchaseBusiness(): Promise<BillingStatus> {
   await loadOfferings();
   const product = await fetchCheckoutProduct(
     BUSINESS_PURCHASE_PRODUCT_IDS,
-    'TecnoWallet Business todavía no está disponible en App Store para esta región.',
+    'TecnoWallet Business todavía no está disponible en la tienda para esta cuenta.',
   );
   return purchaseSelected(product);
 }
 
 export async function restorePlusPurchases(): Promise<BillingStatus> {
-  assertNativeIos();
+  assertNativeStorePurchases();
   await Purchases.restorePurchases();
   return await billingAfterPurchase();
 }

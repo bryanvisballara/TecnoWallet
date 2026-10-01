@@ -246,7 +246,7 @@ export default function DashboardScreen() {
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.55}>
-                {amountOnly(cashflow.income, true)}
+                {amountOnly(cashflow.income)}
               </Text>
             </Card>
           </ScalePressable>
@@ -274,7 +274,7 @@ export default function DashboardScreen() {
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.55}>
-                {amountOnly(cashflow.expenses, true)}
+                {amountOnly(cashflow.expenses)}
               </Text>
             </Card>
           </ScalePressable>
@@ -282,7 +282,7 @@ export default function DashboardScreen() {
       </View>
 
       <Text style={[styles.leftoverHint, { color: theme.muted }]}>
-        {copy.home.leftoverMonth(amountOnly(cashflow.remaining, true), monthLabel)}
+        {copy.home.leftoverMonth(amountOnly(cashflow.remaining), monthLabel)}
       </Text>
 
       <ActivityOverview

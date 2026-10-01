@@ -28,11 +28,8 @@ export function AffiliateWelcomeModal() {
             ¡Bienvenido a TecnoWallet!
           </Text>
           <Text style={[styles.body, { color: theme.muted }]}>
-            Llegaste por recomendación de {welcome?.name}. Tu código{' '}
-            <Text style={{ color: theme.primary, fontWeight: '800' }}>
-              {welcome?.code}
-            </Text>{' '}
-            quedó registrado.
+            Llegaste por recomendación de {welcome?.name}. Esa recomendación
+            quedó registrada.
           </Text>
           <PrimaryButton onPress={dismiss}>Continuar</PrimaryButton>
         </Pressable>

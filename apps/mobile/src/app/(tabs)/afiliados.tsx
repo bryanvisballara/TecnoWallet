@@ -175,13 +175,13 @@ export default function AffiliatesScreen() {
     }
   };
 
-  const copyShare = async (shareUrl: string, code: string) => {
+  const copyShare = async (shareUrl: string) => {
     try {
       await Share.share({
         message:
           locale === 'es'
-            ? `Únete a TecnoWallet con mi enlace: ${shareUrl} (código ${code})`
-            : `Join TecnoWallet with my link: ${shareUrl} (code ${code})`,
+            ? `Únete a TecnoWallet con mi enlace: ${shareUrl}`
+            : `Join TecnoWallet with my link: ${shareUrl}`,
         url: shareUrl,
       });
     } catch {
@@ -390,7 +390,7 @@ export default function AffiliatesScreen() {
 
         <Card style={styles.list}>
           <Text style={[styles.sectionLabel, { color: theme.muted }]}>
-            {locale === 'es' ? 'CÓDIGO DE REFERIDO (OPCIONAL)' : 'REFERRAL CODE (OPTIONAL)'}
+            {locale === 'es' ? 'ID DE REFERIDO (OPCIONAL)' : 'REFERRAL ID (OPTIONAL)'}
           </Text>
           <TextInput
             value={customCode}
@@ -399,7 +399,7 @@ export default function AffiliatesScreen() {
             }
             autoCapitalize="characters"
             autoCorrect={false}
-            placeholder={locale === 'es' ? 'Ej. TECNO10' : 'e.g. TECNO10'}
+            placeholder={locale === 'es' ? 'Ej. JUANP' : 'e.g. JUANP'}
             placeholderTextColor={theme.muted}
             style={[
               styles.codeInput,
@@ -457,7 +457,7 @@ export default function AffiliatesScreen() {
               {shareUrl}
             </Text>
             <Text style={[styles.sectionLabel, { color: theme.muted, marginTop: 8 }]}>
-              {locale === 'es' ? 'CÓDIGO' : 'CODE'}
+              {locale === 'es' ? 'ID DE REFERIDO' : 'REFERRAL ID'}
             </Text>
             <Text style={[styles.code, { color: theme.text }]}>{affiliate.code}</Text>
           </View>
@@ -467,7 +467,7 @@ export default function AffiliatesScreen() {
           <PrimaryButton
             icon="square.and.arrow.up"
             onPress={() => {
-              void copyShare(shareUrl, affiliate.code);
+              void copyShare(shareUrl);
             }}>
             {copy.affiliates.shareLink}
           </PrimaryButton>
@@ -492,8 +492,8 @@ export default function AffiliatesScreen() {
               onPress={() => {
                 void copyValue(
                   affiliate.code,
-                  'Código copiado.',
-                  'Code copied.',
+                  'ID copiado.',
+                  'ID copied.',
                 );
               }}
               style={[
@@ -501,7 +501,7 @@ export default function AffiliatesScreen() {
                 { borderColor: theme.border, backgroundColor: theme.surfaceSecondary },
               ]}>
               <Text style={[styles.copyChipText, { color: theme.text }]}>
-                {locale === 'es' ? 'Copiar código' : 'Copy code'}
+                {locale === 'es' ? 'Copiar ID' : 'Copy ID'}
               </Text>
             </Pressable>
           </View>

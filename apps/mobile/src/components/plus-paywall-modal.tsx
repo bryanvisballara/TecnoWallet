@@ -152,8 +152,11 @@ export function PlusPaywallModal() {
     ? applePrices?.businessPrice
     : applePrices?.plusPrice;
   const appleMonthlyPrice = appleMonthlyPriceRaw;
-  const paywallBody =
-    Platform.OS === 'ios' ? copy.paywall.checkoutBodyApple : reasonCopy.body;
+  const nativeStoreCheckout =
+    Platform.OS === 'ios' || Platform.OS === 'android';
+  const paywallBody = nativeStoreCheckout
+    ? copy.paywall.checkoutBodyApple
+    : reasonCopy.body;
 
   useEffect(() => {
     if (!visible) return;
@@ -166,7 +169,7 @@ export function PlusPaywallModal() {
       try {
         await refreshBillingMarket().catch(() => undefined);
         const userId = await localStorage.get('auth-user-id', '');
-        if (Platform.OS === 'ios' && userId) {
+        if (nativeStoreCheckout && userId) {
           await configurePurchases(userId);
           const prices = await fetchApplePaywallPrices();
           setApplePrices(prices);
@@ -426,7 +429,7 @@ export function PlusPaywallModal() {
               <TextInput
                 value={inviteDraft}
                 onChangeText={setInviteDraft}
-                autoCapitalize="none"
+                autoCapitalize="characters"
                 autoCorrect={false}
                 editable={!working}
                 placeholder={copy.paywall.guestInvitePlaceholder}
@@ -487,7 +490,7 @@ export function PlusPaywallModal() {
             ]}>
             {working === 'buy' || storePricesLoading ? (
               <ActivityIndicator color="#FFFFFF" />
-            ) : Platform.OS === 'ios' ? (
+            ) : nativeStoreCheckout ? (
               <>
                 <Text style={styles.billedAmount}>
                   {appleMonthlyPrice

@@ -20,16 +20,22 @@ export const FALLBACK_BUSINESS_COUPON_PRICE_LABEL =
 export const PLUS_PRODUCT_ID = 'TecnoWalletPlus';
 export const BUSINESS_PRODUCT_ID = 'TecnoWalletBusiness';
 
+/** Google Play subscription (base plan monthly). */
+export const PLUS_PLAY_PRODUCT_ID = 'tecnowalletplus:monthly';
+export const BUSINESS_PLAY_PRODUCT_ID = 'tecnowalletbusiness:monthly';
+
 /** In-app purchase: TecnoWallet + (public price tier). */
 export const PLUS_PURCHASE_PRODUCT_IDS = [
   PLUS_PRODUCT_ID,
   'TecnoWalletPlusAffiliate',
+  PLUS_PLAY_PRODUCT_ID,
 ] as const;
 
 /** In-app purchase: TecnoWallet Business (public price tier). */
 export const BUSINESS_PURCHASE_PRODUCT_IDS = [
   BUSINESS_PRODUCT_ID,
   'TecnoWalletBusinessAffiliate',
+  BUSINESS_PLAY_PRODUCT_ID,
 ] as const;
 
 /** Legacy list-price SKUs — not used at checkout. */

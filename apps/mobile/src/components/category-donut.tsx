@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import type { CategorySlice } from '@/lib/activity-breakdown';
@@ -59,6 +59,11 @@ export function CategoryDonut({
     return { ...slice, start, end, sweep };
   });
 
+  /** SVG `stroke` hits only on web; Android RN has no PointerEvents.STROKE. */
+  const slicePointerEvents = onSlicePress
+    ? Platform.select({ web: 'stroke' as const, default: 'auto' as const })
+    : undefined;
+
   return (
     <View style={styles.wrap}>
       {detailLabel && onDetail ? (
@@ -100,7 +105,7 @@ export function CategoryDonut({
                       fill="none"
                       stroke={slice.color}
                       strokeWidth={stroke}
-                      pointerEvents="stroke"
+                      pointerEvents={slicePointerEvents}
                       onPress={onSlicePress ? () => onSlicePress(slice.name) : undefined}
                       accessibilityLabel={a11y}
                     />
@@ -114,7 +119,7 @@ export function CategoryDonut({
                     stroke={slice.color}
                     strokeWidth={stroke}
                     strokeLinecap="butt"
-                    pointerEvents="stroke"
+                    pointerEvents={slicePointerEvents}
                     onPress={onSlicePress ? () => onSlicePress(slice.name) : undefined}
                     accessibilityLabel={a11y}
                   />

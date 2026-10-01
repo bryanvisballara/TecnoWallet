@@ -211,8 +211,8 @@ export default function MoreScreen() {
         return {
           subtitle:
             locale === 'es'
-              ? 'Tu enlace, código y comisiones'
-              : 'Your link, code, and commissions',
+              ? 'Tu enlace y comisiones'
+              : 'Your link and commissions',
           badge: undefined as string | undefined,
         };
       }
